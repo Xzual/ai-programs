@@ -41,11 +41,18 @@ function scoreText(text: string, query: string, base = 0): number {
   return Math.min(1, base + matches / Math.max(termsFor(query).length, 1));
 }
 
+function excerpt(value: string | undefined, maxLength = 220): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) return undefined;
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}...` : normalized;
+}
+
 function memoryReference(memory: MemoryItem, query: string): EdithContextReference {
   return {
     type: 'memory',
     id: memory.id,
     label: memory.key,
+    excerpt: memory.sensitivity === 'sensitive' || memory.isSensitive ? undefined : excerpt(memory.value ?? memory.content),
     relevance: scoreText(`${memory.key} ${memory.value} ${memory.content ?? ''}`, query, memory.importance ?? 0.4),
     sensitivity: memory.sensitivity ?? (memory.isSensitive ? 'sensitive' : 'internal'),
     source: memory.source,
@@ -57,6 +64,7 @@ function taskReference(task: EdithTask, query: string): EdithContextReference {
     type: 'task',
     id: task.id,
     label: `${task.status}: ${task.title}`,
+    excerpt: excerpt(task.objective),
     relevance: scoreText(`${task.title} ${task.objective} ${task.originalUserRequest}`, query, 0.25),
     sensitivity: 'internal',
     source: 'edith-task-service',
@@ -68,6 +76,7 @@ function toolReference(tool: EdithToolHealth, query: string): EdithContextRefere
     type: 'tool',
     id: tool.toolId,
     label: `${tool.enabled ? 'enabled' : 'blocked'}: ${tool.toolId}`,
+    excerpt: excerpt(tool.message),
     relevance: scoreText(`${tool.toolId} ${tool.message} ${tool.dependencies.join(' ')}`, query, tool.enabled ? 0.25 : 0.1),
     sensitivity: 'internal',
     source: 'edith-tool-registry',
@@ -79,6 +88,7 @@ function toolRunReference(log: ToolExecutionLog, query: string): EdithContextRef
     type: 'tool_run',
     id: log.id,
     label: `${log.status}: ${log.toolName}`,
+    excerpt: excerpt(log.result),
     relevance: scoreText(`${log.toolName} ${log.toolId} ${log.result}`, query, log.status === 'success' ? 0.2 : 0.35),
     sensitivity: 'internal',
     source: 'edith-persistence',
@@ -90,6 +100,7 @@ function auditReference(event: EdithAuditEvent, query: string): EdithContextRefe
     type: 'audit',
     id: event.id,
     label: `${event.result}: ${event.action}`,
+    excerpt: excerpt(event.message),
     relevance: scoreText(`${event.action} ${event.toolId} ${event.message ?? ''}`, query, event.result === 'denied' ? 0.35 : 0.2),
     sensitivity: 'internal',
     source: 'edith-audit',
@@ -147,6 +158,22 @@ export class ContextService {
     return snapshot;
   }
 
+  formatForPrompt(snapshot: EdithContextSnapshot, maxChars = 1800): string {
+    const lines = [
+      'EDITH Context Snapshot:',
+      `- Snapshot: ${snapshot.id}`,
+      `- Summary: ${snapshot.summary}`,
+      ...this.formatSection('Memory', snapshot.memoryReferences, 5),
+      ...this.formatSection('Related tasks', snapshot.taskReferences, 3),
+      ...this.formatSection('Tools', snapshot.toolReferences, 5),
+      ...this.formatSection('Recent tool runs', snapshot.toolRunReferences, 3),
+      ...this.formatSection('Recent audit', snapshot.auditReferences, 3),
+      ...snapshot.redactions.map((redaction) => `- Redaction: ${redaction}`),
+    ];
+    const formatted = lines.filter(Boolean).join('\n');
+    return formatted.length > maxChars ? `${formatted.slice(0, maxChars - 1)}...` : formatted;
+  }
+
   private summarize(snapshot: EdithContextSnapshot): string {
     const counts = [
       `${snapshot.memoryReferences.length} memory`,
@@ -163,6 +190,20 @@ export class ContextService {
       toolLabels ? `Relevant tools: ${toolLabels}.` : '',
       snapshot.redactions.length > 0 ? `Redactions: ${snapshot.redactions.join('; ')}.` : '',
     ].filter(Boolean).join(' ');
+  }
+
+  private formatSection(title: string, references: EdithContextReference[], limit: number): string[] {
+    const visibleReferences = references
+      .filter((reference) => reference.sensitivity !== 'sensitive')
+      .slice(0, limit);
+    if (visibleReferences.length === 0) return [];
+    return [
+      `- ${title}:`,
+      ...visibleReferences.map((reference) => {
+        const suffix = reference.excerpt ? ` — ${reference.excerpt}` : '';
+        return `  - ${reference.label}${suffix}`;
+      }),
+    ];
   }
 
   private audit(actor: string, snapshot: EdithContextSnapshot): void {

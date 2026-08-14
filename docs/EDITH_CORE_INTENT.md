@@ -66,7 +66,7 @@ npm run build
 
 ## Remaining Phase 3 Work
 
-1. Use ContextService in chat prompt assembly with explicit length/token budgets.
-2. Add CapabilityService to reason over tool health and permissions.
+1. Add CapabilityService to reason over tool health and permissions.
+2. Add provider-specific context budgets for ModelRouter decisions.
 3. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
 4. Route complex objectives through the Planner/Executor/Verifier loop instead of only creating a task shell.

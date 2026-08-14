@@ -19,6 +19,7 @@
     "test:edith-mark-l": "tsx scripts/test-edith-mark-l.ts",
     "test:edith-memory-v2": "tsx scripts/test-edith-memory-v2.ts",
     "test:edith-context-service": "tsx scripts/test-edith-context-service.ts",
+    "test:edith-chat-context": "tsx scripts/test-edith-chat-context.ts",
     "test:edith-model-router": "tsx scripts/test-edith-model-router.ts",
     "test:edith-permission-service": "tsx scripts/test-edith-permission-service.ts",
     "test:edith-task-service": "tsx scripts/test-edith-task-service.ts",

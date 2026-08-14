@@ -331,6 +331,7 @@ export default function App() {
           temperature: settings.temperature,
           systemPrompt: settings.systemPrompt,
           memories: settings.memoryEnabled ? memories : [],
+          memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
         }),
       });
@@ -430,6 +431,7 @@ export default function App() {
           systemPrompt:
             'Sen EDITH Code adında kıdemli bir yazılım mühendisliği asistanısın. Türkçe yanıt ver. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.',
           memories: settings.memoryEnabled ? memories : [],
+          memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
         }),
       });

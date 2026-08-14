@@ -17,6 +17,7 @@ import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
+import { buildChatSystemPrompt } from "./src/edith/chatContext";
 import { knowledgeMapService } from "./src/edith/knowledgeMapService";
 import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch";
 import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from "./src/edith/permissionService";
@@ -519,6 +520,7 @@ app.post("/api/chat", async (req, res) => {
     temperature = 0.7,
     systemPrompt = "Sen AURA adında yerel çalışan futuristik bir AI asistanısın. Türkçe konuş ve yardımsever ol.",
     memories = [],
+    memoryEnabled = true,
     userName = "Kullanıcı",
   } = req.body;
 
@@ -531,12 +533,15 @@ app.post("/api/chat", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Build full system prompt with user memories
-  let fullSystem = `${systemPrompt}\nKullanıcı Adı: ${userName}.`;
-  if (memories && memories.length > 0) {
-    fullSystem += `\nKullanıcı Hakkında Bilinen Bellek Kayıtları:\n` +
-      memories.map((m: any) => `- [${m.category}] ${m.key}: ${m.value}`).join("\n");
-  }
+  const lastUserMessage = [...messages].reverse().find((m: any) => m.sender === "user")?.text ?? "";
+
+  const { fullSystem } = buildChatSystemPrompt({
+    systemPrompt,
+    userName,
+    memories,
+    memoryEnabled,
+    lastUserMessage,
+  });
 
   const modelRoute = modelRouterService.route({
     requestedProvider: provider,
@@ -550,7 +555,6 @@ app.post("/api/chat", async (req, res) => {
     },
   });
 
-  const lastUserMessage = [...messages].reverse().find((m: any) => m.sender === "user")?.text ?? "";
   const intent = intentService.understand(lastUserMessage);
   const toolRoute = intent.route;
   if (intent.kind !== "conversation" && toolRoute) {

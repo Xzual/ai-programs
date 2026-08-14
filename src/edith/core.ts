@@ -23,6 +23,7 @@ export interface EdithContextReference {
   type: EdithContextReferenceType;
   id: string;
   label: string;
+  excerpt?: string;
   relevance: number;
   sensitivity?: 'public' | 'internal' | 'sensitive';
   source?: string;

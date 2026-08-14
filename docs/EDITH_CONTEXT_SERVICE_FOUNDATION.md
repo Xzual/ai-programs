@@ -22,7 +22,9 @@ Sensitive memories are excluded by default.
 | File | Purpose |
 |---|---|
 | `src/edith/contextService.ts` | Builds scoped context snapshots with references and redaction notes |
+| `src/edith/chatContext.ts` | Formats bounded chat system prompt context without dumping all memory |
 | `scripts/test-edith-context-service.ts` | Regression coverage for context assembly and planner integration |
+| `scripts/test-edith-chat-context.ts` | Regression coverage for chat prompt context assembly |
 | `docs/EDITH_CONTEXT_SERVICE_FOUNDATION.md` | This implementation note |
 
 ## Updated Files
@@ -31,6 +33,8 @@ Sensitive memories are excluded by default.
 |---|---|
 | `src/edith/core.ts` | Added context reference and context snapshot types; plans can carry an optional `contextSnapshot` |
 | `src/edith/planner.ts` | Planner now builds a context snapshot before creating plan steps |
+| `server.ts` | Chat route now uses bounded ContextService prompt context when memory is enabled |
+| `src/App.tsx` | Chat requests now send the explicit `memoryEnabled` setting |
 | `package.json` | Added `test:edith-context-service` script |
 | `PROJECT_FULL_REPORT.md` | Added ContextService status to the project report |
 
@@ -55,6 +59,7 @@ The snapshot is attached to new plans so later execution, verification, and repo
 
 ```bash
 npm run test:edith-context-service
+npm run test:edith-chat-context
 npm run test:edith-planner
 npm run lint
 npm run build
@@ -68,11 +73,13 @@ Runtime coverage verifies:
 - tool health references are available
 - context build emits audit
 - planner attaches a context snapshot to persisted plans
+- chat prompt assembly respects `memoryEnabled`
+- sensitive client/server memories are excluded from chat context
 
 ## Remaining Work
 
-1. Use ContextService in chat prompt assembly with explicit token/length limits.
-2. Add provider-specific context budgets for ModelRouter decisions.
-3. Add conversation/session context once conversations are server-side persisted.
-4. Add richer task-step, artifact, and agent-run references.
-5. Add frontend visibility for context snapshots in EDITH Ops.
+1. Add provider-specific context budgets for ModelRouter decisions.
+2. Add conversation/session context once conversations are server-side persisted.
+3. Add richer task-step, artifact, and agent-run references.
+4. Add frontend visibility for context snapshots in EDITH Ops.
+5. Add UI controls for context inclusion diagnostics.
