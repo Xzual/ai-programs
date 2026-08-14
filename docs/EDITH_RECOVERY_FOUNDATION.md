@@ -61,7 +61,7 @@ When `WAIT_PERMISSION` is selected, the service runs CapabilityService and store
 - high-risk blocked tool IDs
 - rationale
 
-This keeps permission recovery structured. EDITH Ops or a future approval UI can use `permissionRequest` to propose a scoped permission grant without parsing freeform error text.
+This keeps permission recovery structured. EDITH Ops can use `permissionRequest` to propose a scoped permission grant without parsing freeform error text.
 
 ## Retry Budget
 
@@ -123,11 +123,15 @@ Runtime smoke:
 | `POST /api/edith/tasks/:id/recover` | Returned `success: true`, `action: "REPLAN"`, `classification: "VERIFICATION_RETRYABLE"` |
 | `GET /api/edith/tasks` | Persisted task status was `QUEUED`; new plan ID replaced previous plan ID |
 
+## EDITH Ops Handoff
+
+EDITH Ops reads task recovery events and surfaces `WAIT_PERMISSION` requests in the permission review area. The grant action uses the structured request's actor, tool IDs, permissions, and rationale to create a short-lived PermissionService grant.
+
 ## Remaining Recovery Work
 
-1. Connect structured permission requests to user-facing approval flows.
+1. Add automatic task resume after an approved permission grant.
 2. Add backoff timing and scheduled retry windows.
 3. Add fallback tool selection when a required tool is unavailable.
 4. Add alternative agent selection.
 5. Persist failure memories for recurring failures.
-6. Add UI controls in EDITH Ops for retry, pause, cancel, and permission requests.
+6. Add UI controls in EDITH Ops for retry, pause, and cancel.

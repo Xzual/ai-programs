@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, KeyRound, LockKeyhole, Power, RefreshCw, ShieldAlert, Trash2, Wrench } from 'lucide-react';
+import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, KeyRound, LockKeyhole, Power, RefreshCw, ShieldAlert, Sparkles, Trash2, Wrench } from 'lucide-react';
 
 interface RegistryTool {
   id: string;
@@ -33,6 +33,19 @@ interface EdithTask {
   createdAt: string;
   riskLevel: number;
   toolsRequired: string[];
+  recoveryEvents?: Array<{
+    id: string;
+    action: string;
+    classification: string;
+    createdAt: string;
+    permissionRequest?: {
+      actor: string;
+      toolIds: string[];
+      permissions: string[];
+      highRiskToolIds: string[];
+      rationale: string;
+    };
+  }>;
 }
 
 interface KillSwitchState {
@@ -64,6 +77,20 @@ interface PermissionGrant {
   expiresAt: string;
   revokedAt?: string;
   revokedBy?: string;
+}
+
+interface PermissionRequestItem {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  taskStatus: string;
+  recoveryId: string;
+  actor: string;
+  toolIds: string[];
+  permissions: string[];
+  highRiskToolIds: string[];
+  rationale: string;
+  createdAt: string;
 }
 
 export const EdithOpsView: React.FC = () => {
@@ -125,6 +152,24 @@ export const EdithOpsView: React.FC = () => {
   const pausedTasks = tasks.filter((task) => task.status === 'PAUSED').length;
   const selectedGrantTool = highRiskTools.find((tool) => tool.id === grantToolId) ?? highRiskTools[0];
   const activeGrants = permissionGrants.filter((grant) => !grant.revokedAt && Date.parse(grant.expiresAt) > Date.now());
+  const permissionRequests: PermissionRequestItem[] = tasks.flatMap((task) =>
+    (task.recoveryEvents ?? []).flatMap((event) => {
+      if (event.action !== 'WAIT_PERMISSION' || !event.permissionRequest) return [];
+      return [{
+        id: `${task.id}:${event.id}`,
+        taskId: task.id,
+        taskTitle: task.title,
+        taskStatus: task.status,
+        recoveryId: event.id,
+        actor: event.permissionRequest.actor,
+        toolIds: event.permissionRequest.toolIds,
+        permissions: event.permissionRequest.permissions,
+        highRiskToolIds: event.permissionRequest.highRiskToolIds,
+        rationale: event.permissionRequest.rationale,
+        createdAt: event.createdAt,
+      }];
+    })
+  );
 
   const setKillSwitchActive = async (active: boolean) => {
     setSwitching(true);
@@ -171,6 +216,33 @@ export const EdithOpsView: React.FC = () => {
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Permission grant oluşturulamadı.');
+    } finally {
+      setGrantBusy(false);
+    }
+  };
+
+  const createGrantFromRequest = async (request: PermissionRequestItem) => {
+    setGrantBusy(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/edith/permissions/grants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: request.actor,
+          permissions: request.permissions,
+          toolIds: request.toolIds,
+          reason: `Recovery permission request ${request.recoveryId} for task ${request.taskId}: ${request.rationale}`,
+          ttlMs: Math.max(1, grantTtlMinutes) * 60 * 1000,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? 'Recovery permission grant oluşturulamadı.');
+      }
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Recovery permission grant oluşturulamadı.');
     } finally {
       setGrantBusy(false);
     }
@@ -308,6 +380,56 @@ export const EdithOpsView: React.FC = () => {
         </section>
 
         <section className="rounded-lg border border-amber-500/20 bg-amber-950/10 p-4">
+          {permissionRequests.length > 0 && (
+            <div className="mb-4 rounded-lg border border-orange-400/25 bg-orange-950/20 p-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-orange-200" />
+                <h4 className="text-xs font-semibold text-orange-100">Recovery Permission Requests</h4>
+                <span className="px-2 py-0.5 rounded border border-orange-400/30 bg-orange-950/35 text-[10px] text-orange-200 font-mono">
+                  {permissionRequests.length} pending
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-2">
+                {permissionRequests.slice(0, 4).map((request) => (
+                  <div key={request.id} className="rounded-lg border border-slate-800 bg-slate-950/55 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs text-slate-100 font-medium truncate">{request.taskTitle}</div>
+                        <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                          {request.actor} · {request.taskStatus} · {new Date(request.createdAt).toLocaleTimeString('tr-TR')}
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded border border-red-500/30 bg-red-950/30 text-[10px] text-red-200 font-mono">
+                        WAIT_PERMISSION
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {request.permissions.map((permission) => (
+                        <span key={permission} className="px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-amber-200 font-mono">
+                          {permission}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-slate-500 line-clamp-2">{request.rationale}</p>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="text-[10px] text-slate-600 font-mono truncate">
+                        {request.toolIds.join(', ') || 'all tools'}
+                      </div>
+                      <button
+                        onClick={() => createGrantFromRequest(request)}
+                        disabled={grantBusy || request.permissions.length === 0}
+                        className="px-2 py-1 rounded-md border border-orange-400/30 bg-orange-950/30 text-[10px] text-orange-100 hover:bg-orange-900/30 disabled:opacity-40 flex items-center gap-1"
+                      >
+                        <KeyRound className="w-3 h-3" />
+                        grant
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col xl:flex-row gap-4 justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

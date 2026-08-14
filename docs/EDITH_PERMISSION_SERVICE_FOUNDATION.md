@@ -90,6 +90,8 @@ EDITH Ops now includes a permission review panel that can:
 - select high-risk registry tools
 - create actor/tool-scoped temporary grants
 - revoke active grants
+- display recovery permission requests from tasks in `WAITING_PERMISSION`
+- create temporary grants directly from structured recovery permission request details
 
 The panel is a control surface only. Tool execution still checks PermissionService on the backend.
 
@@ -136,11 +138,12 @@ Runtime smoke:
 | Production server on `PORT=3117` | Grant create/list/revoke flow passed |
 | Scoped grant for `computer_control_agent` | Permission gate passed and reached adapter `CONFIGURATION_REQUIRED` result |
 | Production server on `PORT=3118` | EDITH Ops policy/list/create/revoke endpoint flow passed |
+| EDITH Ops recovery request UI | Shows `permissionRequest` items and creates scoped grants from them |
 
 ## Remaining Work
 
 1. Add role/authorization checks before permission elevation.
-2. Add one-click grant creation from denied tool results.
-3. Add second-confirmation prompts for high-risk grant creation/revoke.
-4. Add adapter-specific checks for browser/computer/trading/proactive capabilities.
-5. Add periodic pruning or archival of expired/revoked grants.
+2. Add second-confirmation prompts for high-risk grant creation/revoke.
+3. Add adapter-specific checks for browser/computer/trading/proactive capabilities.
+4. Add periodic pruning or archival of expired/revoked grants.
+5. Add automatic task resume after a recovery permission grant is approved.

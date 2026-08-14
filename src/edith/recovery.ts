@@ -51,7 +51,7 @@ function recoveryReason(task: EdithTask, classification: EdithRecoveryClassifica
 function permissionAssessmentFor(task: EdithTask): CapabilityAssessment {
   return capabilityService.assess({
     objective: task.objective,
-    actor: 'edith-recovery',
+    actor: 'edith-executor',
     toolsRequired: task.toolsRequired,
     permissionsRequired: task.permissionsRequired,
     riskLevel: task.riskLevel,

@@ -88,6 +88,7 @@ try {
   assert.equal(permissionReloaded?.status, 'WAITING_PERMISSION');
   assert.equal(permissionReloaded?.recoveryEvents?.length, 1);
   assert.equal(Boolean(permissionReloaded?.recoveryEvents?.[0]?.capabilityAssessmentId), true);
+  assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.actor, 'edith-executor');
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.toolIds.includes('computer_control_agent'), true);
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('computer:control'), true);
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('system:exec'), true);

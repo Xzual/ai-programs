@@ -587,7 +587,7 @@ Market Data
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
-| PermissionService | Tool izin kararları structured decision olarak merkezileştirildi; süreli/scoped permission grant modeli eklendi |
+| PermissionService | Tool izin kararları structured decision olarak merkezileştirildi; süreli/scoped grant ve recovery request'ten grant akışı eklendi |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -645,7 +645,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
-| PermissionService | Foundation, süreli grant modeli ve EDITH Ops permission review paneli hazır |
+| PermissionService | Foundation, süreli grant modeli, EDITH Ops permission review ve recovery request grant paneli hazır |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -662,7 +662,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 4. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 5. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 6. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
-7. PermissionService için role/authorization, ikinci onay ve recovery permission request üzerinden tek tık grant oluşturma akışı eklenmesi.
+7. PermissionService için role/authorization, ikinci onay ve grant sonrası task resume akışı eklenmesi.
 8. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 9. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
 10. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
