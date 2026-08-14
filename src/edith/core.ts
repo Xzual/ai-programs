@@ -55,6 +55,30 @@ export interface EdithVerificationResult {
   retryable: boolean;
 }
 
+export type EdithRecoveryClassification =
+  | 'VERIFICATION_RETRYABLE'
+  | 'PARTIAL_RESULT'
+  | 'EXECUTION_FAILED'
+  | 'PERMISSION_DENIED'
+  | 'BUDGET_EXHAUSTED'
+  | 'UNKNOWN';
+
+export type EdithRecoveryAction = 'REPLAN' | 'WAIT_PERMISSION' | 'STOP';
+
+export interface EdithRecoveryEvent {
+  id: string;
+  taskId: string;
+  createdAt: string;
+  attempt: number;
+  classification: EdithRecoveryClassification;
+  action: EdithRecoveryAction;
+  reason: string;
+  previousStatus: EdithTaskStatus;
+  newStatus: EdithTaskStatus;
+  previousPlanId?: string;
+  newPlanId?: string;
+}
+
 export type EdithTaskStatus =
   | 'CREATED'
   | 'ANALYZING'
@@ -96,6 +120,7 @@ export interface EdithTask {
   validationRules: string[];
   plan?: EdithPlan;
   verification?: EdithVerificationResult;
+  recoveryEvents?: EdithRecoveryEvent[];
   result?: string;
   failureReason?: string;
   memoryReferences: string[];
@@ -336,6 +361,7 @@ export function createTask(params: {
     artifacts: [],
     observations: [],
     validationRules: [],
+    recoveryEvents: [],
     memoryReferences: [],
     auditEvents: [],
   };

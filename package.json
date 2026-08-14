@@ -17,6 +17,7 @@
     "test:edith-planner": "tsx scripts/test-edith-planner.ts",
     "test:edith-executor": "tsx scripts/test-edith-executor.ts",
     "test:edith-verifier": "tsx scripts/test-edith-verifier.ts",
+    "test:edith-recovery": "tsx scripts/test-edith-recovery.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",

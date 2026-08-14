@@ -3,6 +3,7 @@ import {
   createTask,
   type EdithPlan,
   type EdithPlanStepStatus,
+  type EdithRecoveryEvent,
   type EdithRiskLevel,
   type EdithTask,
   type EdithTaskStatus,
@@ -129,6 +130,41 @@ export class TaskService {
           ...task.checkpoints,
           `Verification ${verification.id} recorded at ${verification.checkedAt}`,
         ],
+      })
+    );
+  }
+
+  recordRecovery(
+    id: string,
+    recovery: EdithRecoveryEvent,
+    plan?: EdithPlan
+  ): EdithTask | undefined {
+    return this.mutateTask(
+      id,
+      'task.recover',
+      `Recovery ${recovery.action} for task ${id}: ${recovery.classification}`,
+      (task) => ({
+        ...task,
+        status: recovery.newStatus,
+        plan: plan ?? task.plan,
+        verification: plan ? undefined : task.verification,
+        subtasks: plan ? plan.steps.map((step) => step.id) : task.subtasks,
+        toolsRequired: plan ? Array.from(new Set([...task.toolsRequired, ...plan.requiredTools])) : task.toolsRequired,
+        permissionsRequired: plan ? Array.from(new Set([...task.permissionsRequired, ...plan.requiredPermissions])) : task.permissionsRequired,
+        candidateAgents: plan ? Array.from(new Set([...task.candidateAgents, ...plan.requiredAgents])) : task.candidateAgents,
+        validationRules: plan ? Array.from(new Set([...task.validationRules, ...plan.validationCriteria])) : task.validationRules,
+        recoveryEvents: [...(task.recoveryEvents ?? []), recovery],
+        observations: [
+          ...task.observations,
+          `Recovery ${recovery.action}: ${recovery.reason}`,
+        ],
+        checkpoints: [
+          ...task.checkpoints,
+          `Recovery ${recovery.id} recorded at ${recovery.createdAt}`,
+          ...(plan ? [`Recovery attached plan ${plan.id}`] : []),
+        ],
+        result: recovery.action === 'STOP' ? recovery.reason : task.result,
+        failureReason: recovery.action === 'STOP' ? recovery.reason : task.failureReason,
       })
     );
   }
