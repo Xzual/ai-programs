@@ -18,6 +18,7 @@ import { agentRegistryService } from "./src/edith/agentRegistry";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { knowledgeMapService } from "./src/edith/knowledgeMapService";
+import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch";
 import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
 import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
 
@@ -216,6 +217,28 @@ app.get("/api/edith/knowledge-map", (_req, res) => {
   });
 });
 
+app.get("/api/edith/kill-switch", (_req, res) => {
+  res.json({
+    success: true,
+    state: killSwitchService.status(),
+  });
+});
+
+app.post("/api/edith/kill-switch/activate", (req, res) => {
+  const reason = String(req.body?.reason ?? "").trim();
+  res.json({
+    success: true,
+    state: killSwitchService.activate(reason || "Manual emergency stop from EDITH API.", "aura-dashboard"),
+  });
+});
+
+app.post("/api/edith/kill-switch/deactivate", (_req, res) => {
+  res.json({
+    success: true,
+    state: killSwitchService.deactivate("aura-dashboard"),
+  });
+});
+
 app.get("/api/edith/persistence", (_req, res) => {
   const store = getEdithPersistenceStore();
   res.json({
@@ -244,15 +267,22 @@ app.post("/api/edith/tasks", (req, res) => {
   if (!objective || !originalUserRequest) {
     return res.status(400).json({ success: false, error: "objective and originalUserRequest are required." });
   }
-  const task = createStoredTask({
-    title,
-    objective,
-    originalUserRequest,
-    toolsRequired,
-    permissionsRequired,
-    riskLevel,
-  });
-  res.json({ success: true, task });
+  try {
+    const task = createStoredTask({
+      title,
+      objective,
+      originalUserRequest,
+      toolsRequired,
+      permissionsRequired,
+      riskLevel,
+    });
+    res.json({ success: true, task });
+  } catch (error) {
+    if (error instanceof KillSwitchActiveError) {
+      return res.status(423).json({ success: false, error: error.message, killSwitch: error.state });
+    }
+    throw error;
+  }
 });
 
 app.patch("/api/edith/tasks/:id/status", (req, res) => {
@@ -705,7 +735,22 @@ app.post("/api/tools/execute", async (req, res) => {
     const result = await executeEdithTool(toolId, args as Record<string, unknown>, {
       actor: "aura-dashboard",
     });
-    return res.status(result.success ? 200 : 403).json(result);
+    const blockedByKillSwitch = result.structuredOutput?.disabledCapability === 'tool_execution';
+    return res.status(result.success ? 200 : blockedByKillSwitch ? 423 : 403).json(result);
+  }
+
+  try {
+    killSwitchService.assertAllowed('tool_execution', 'aura-dashboard');
+  } catch (error) {
+    if (error instanceof KillSwitchActiveError) {
+      return res.status(423).json({
+        success: false,
+        toolId,
+        error: error.message,
+        killSwitch: error.state,
+      });
+    }
+    throw error;
   }
 
   switch (toolId) {

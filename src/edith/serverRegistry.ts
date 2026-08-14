@@ -13,6 +13,7 @@ import { listExternalSkillProjects } from './skills/catalog';
 import { createStoredTask } from './taskStore';
 import { getEdithPersistenceStore } from './persistence';
 import { markLAdapterService } from './markLAdapter';
+import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
@@ -646,6 +647,49 @@ export async function executeEdithTool(
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
   const toolRunId = normalizeToolRunId(toolId);
+
+  try {
+    killSwitchService.assertAllowed('tool_execution', executionContext.actor);
+  } catch (error) {
+    if (!(error instanceof KillSwitchActiveError)) throw error;
+    const finishedAtMs = Date.now();
+    const finishedAt = new Date(finishedAtMs).toISOString();
+    const audit = createAuditEvent({
+      actor: executionContext.actor,
+      taskId: executionContext.taskId,
+      action: 'tool.blocked_by_kill_switch',
+      toolId,
+      authorization: 'denied',
+      riskLevel: tool.metadata.riskLevel,
+      result: 'denied',
+      message: error.message,
+    });
+    appendAuditEvent(audit);
+    const result: EdithToolResult = {
+      success: false,
+      toolId,
+      error: error.message,
+      auditEventId: audit.id,
+      startedAt,
+      finishedAt,
+      durationMs: finishedAtMs - startedAtMs,
+      errorCode: 'PERMISSION_DENIED',
+      structuredOutput: {
+        killSwitch: error.state,
+        disabledCapability: error.capability,
+      },
+    };
+    recordToolRun({
+      id: toolRunId,
+      toolId,
+      toolName: tool.metadata.name,
+      args,
+      result: safeResultText(result),
+      timestamp: startedAtMs,
+      status: 'denied',
+    });
+    return result;
+  }
 
   try {
     const result = await edithToolRegistry.execute(toolId, args, executionContext);

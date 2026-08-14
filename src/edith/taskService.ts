@@ -9,6 +9,7 @@ import {
   type EdithTaskStatus,
   type EdithVerificationResult,
 } from './core';
+import { killSwitchService } from './killSwitch';
 import { getEdithPersistenceStore } from './persistence';
 
 export interface CreateTaskInput {
@@ -32,6 +33,7 @@ export class TaskService {
   }
 
   createTask(input: CreateTaskInput): EdithTask {
+    killSwitchService.assertAllowed('task_creation', 'edith-task-service');
     const task = createTask(input);
     const enriched: EdithTask = {
       ...task,

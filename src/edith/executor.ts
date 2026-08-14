@@ -1,4 +1,5 @@
 import type { EdithPlanStep, EdithTask, EdithToolResult } from './core';
+import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { executeEdithTool } from './serverRegistry';
 import { taskService } from './taskService';
 
@@ -40,6 +41,23 @@ export class ExecutorService {
     if (!task) return { success: false, taskId, status: 'FAILED', iterations: 0, toolCalls: 0, reports: [], error: 'Task not found.' };
     if (!task.plan || task.plan.status !== 'READY') {
       return { success: false, taskId, status: 'NOOP', iterations: 0, toolCalls: 0, reports: [], task, error: 'Task has no READY plan.' };
+    }
+
+    try {
+      killSwitchService.assertAllowed('tool_execution', 'edith-executor');
+    } catch (error) {
+      if (!(error instanceof KillSwitchActiveError)) throw error;
+      const paused = taskService.updateStatus(taskId, 'PAUSED', error.message);
+      return {
+        success: false,
+        taskId,
+        status: 'PAUSED',
+        iterations: 0,
+        toolCalls: 0,
+        reports: [],
+        task: paused ?? task,
+        error: error.message,
+      };
     }
 
     taskService.updateStatus(taskId, 'RUNNING');

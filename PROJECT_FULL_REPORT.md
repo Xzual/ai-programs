@@ -92,6 +92,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/edith/memoryService.ts` | Memory V2 servis temeli |
 | `src/edith/modelRouter.ts` | Ollama / Gemini / mock provider route temeli |
 | `src/edith/knowledgeMapService.ts` | Gerçek EDITH state'inden Knowledge Map graph snapshot üretimi |
+| `src/edith/killSwitch.ts` | Backend-enforced emergency stop state ve gate servisi |
 | `src/edith/persistence/` | SQLite ve JSON persistence katmanı |
 
 ---
@@ -304,6 +305,7 @@ Kullanıcı amacı
 | Memory V2 | Hazırlanıyor / eklendi | Typed, scoped, provenance-aware server-side memory servisi |
 | ModelRouter | Hazır | Ollama / Gemini / mock fallback sırasını capability ve privacy ipuçlarıyla merkezileştiren temel |
 | Knowledge Map Real Data | Hazır | Persisted task, memory, tool, audit, agent ve model-router node'larından graph snapshot üretir |
+| Kill Switch | Hazır | Yeni task ve tool execution yollarını backend tarafında durduran emergency stop temeli |
 
 ---
 
@@ -541,6 +543,7 @@ Market Data
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
+| Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -565,6 +568,7 @@ npm run test:edith-mark-l
 npm run test:edith-memory-v2
 npm run test:edith-model-router
 npm run test:edith-knowledge-map
+npm run test:edith-kill-switch
 ```
 
 Bu testler EDITH servislerinin temel regression davranışlarını korumak için eklenmiştir.
@@ -590,6 +594,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
+| Kill Switch | Backend foundation hazır; frontend EDITH Ops kontrolü ve role/authorization sıradaki işler |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -604,7 +609,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
-5. Kill switch modelinin backend-enforced hale getirilmesi.
+5. Kill switch için EDITH Ops UI kontrolü, rol/authorization ve paused task resume akışının eklenmesi.
 6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
 8. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
