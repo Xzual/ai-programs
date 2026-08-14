@@ -15,6 +15,8 @@ import { executorService } from "./src/edith/executor";
 import { verificationService } from "./src/edith/verifier";
 import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
+import { memoryService } from "./src/edith/memoryService";
+import type { MemoryScope, MemoryType } from "./src/types";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -259,6 +261,73 @@ app.post("/api/edith/tasks/:id/verify", (req, res) => {
 app.post("/api/edith/tasks/:id/recover", (req, res) => {
   const result = recoveryService.recoverTask(req.params.id);
   res.status(result.success ? 200 : 400).json(result);
+});
+
+const MEMORY_TYPES = new Set<MemoryType>(['working', 'episodic', 'semantic', 'preference', 'project', 'procedural', 'failure']);
+const MEMORY_SCOPES = new Set<MemoryScope>(['global', 'user', 'project', 'task', 'conversation']);
+
+function parseMemoryType(value: unknown): MemoryType | undefined {
+  return typeof value === 'string' && MEMORY_TYPES.has(value as MemoryType) ? value as MemoryType : undefined;
+}
+
+function parseMemoryScope(value: unknown): MemoryScope | undefined {
+  return typeof value === 'string' && MEMORY_SCOPES.has(value as MemoryScope) ? value as MemoryScope : undefined;
+}
+
+function parseMemoryLimit(value: unknown, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), 200) : fallback;
+}
+
+app.get("/api/edith/memory-v2", (req, res) => {
+  const options = {
+    query: typeof req.query.query === 'string' ? req.query.query : undefined,
+    type: parseMemoryType(req.query.type),
+    scope: parseMemoryScope(req.query.scope),
+    includeSensitive: req.query.includeSensitive === 'true',
+    limit: parseMemoryLimit(req.query.limit, 50),
+  };
+  res.json({
+    success: true,
+    memories: options.query ? memoryService.search(options) : memoryService.list(options).slice(0, options.limit),
+  });
+});
+
+app.post("/api/edith/memory-v2", (req, res) => {
+  try {
+    const conflicts = memoryService.conflicts(req.body ?? {});
+    const memory = memoryService.upsert(req.body ?? {});
+    res.json({ success: true, memory, conflicts });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.get("/api/edith/memory-v2/context", (req, res) => {
+  const query = String(req.query.query ?? "").trim();
+  if (!query) return res.status(400).json({ success: false, error: "query is required." });
+  res.json({
+    success: true,
+    memories: memoryService.context(query, parseMemoryLimit(req.query.limit, 8)),
+  });
+});
+
+app.post("/api/edith/memory-v2/merge", (req, res) => {
+  const targetId = String(req.body?.targetId ?? "").trim();
+  const sourceIds = Array.isArray(req.body?.sourceIds) ? req.body.sourceIds.map(String) : [];
+  if (!targetId || sourceIds.length === 0) return res.status(400).json({ success: false, error: "targetId and sourceIds are required." });
+  const memory = memoryService.merge(targetId, sourceIds);
+  if (!memory) return res.status(404).json({ success: false, error: "Target memory not found." });
+  res.json({ success: true, memory });
+});
+
+app.get("/api/edith/memory-v2/export", (_req, res) => {
+  res.json({ success: true, export: memoryService.exportSnapshot() });
+});
+
+app.delete("/api/edith/memory-v2/:id", (req, res) => {
+  const deleted = memoryService.delete(req.params.id);
+  res.status(deleted ? 200 : 404).json({ success: deleted, deleted });
 });
 
 app.get("/api/edith/memories", (_req, res) => {

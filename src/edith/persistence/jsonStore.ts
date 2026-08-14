@@ -128,6 +128,13 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
     return readJsonArray<MemoryItem>(this.memoriesFile);
   }
 
+  deleteMemory(id: string): boolean {
+    const memories = this.listMemories();
+    const next = memories.filter((memory) => memory.id !== id);
+    writeJsonArray(this.memoriesFile, next);
+    return next.length !== memories.length;
+  }
+
   close(): void {
     // JSON store opens files per operation, so there is no persistent handle to close.
   }

@@ -5,6 +5,18 @@ export type AssistantPersona = 'jarvis' | 'friday' | 'ultron' | 'karen' | 'alfre
 
 export type MemoryCategory = 'user_pref' | 'fact' | 'summary' | 'custom';
 
+export type MemoryType =
+  | 'working'
+  | 'episodic'
+  | 'semantic'
+  | 'preference'
+  | 'project'
+  | 'procedural'
+  | 'failure';
+
+export type MemoryScope = 'global' | 'user' | 'project' | 'task' | 'conversation';
+export type MemorySensitivity = 'public' | 'internal' | 'sensitive';
+
 export interface ChatMessage {
   id: string;
   sender: 'user' | 'assistant' | 'system';
@@ -31,6 +43,20 @@ export interface MemoryItem {
   value: string;
   createdAt: number;
   isSensitive?: boolean;
+  type?: MemoryType;
+  scope?: MemoryScope;
+  content?: string;
+  source?: string;
+  provenance?: string;
+  confidence?: number;
+  importance?: number;
+  sensitivity?: MemorySensitivity;
+  updatedAt?: number;
+  lastAccessed?: number;
+  ttlMs?: number;
+  relatedEntityIds?: string[];
+  mergeOf?: string[];
+  deletedAt?: number;
 }
 
 export interface AutomationTool {

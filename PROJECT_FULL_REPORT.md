@@ -1,196 +1,227 @@
 # AURA / E.D.I.T.H Proje Raporu
 
-**Tarih:** 14 Agustos 2026  
-**Proje tipi:** Local-first yapay zeka asistan dashboard'u  
-**Ana stack:** React + TypeScript + Vite + Express + Three.js  
-**Calisma modu:** Yerel Ollama odakli, Gemini/mock fallback destekli  
-**Mimari hedef:** Chat dashboard'undan kalici, gorev yurutebilen E.D.I.T.H. AI operating layer'a evrilmek
+**Tarih:** 14 Ağustos 2026
+**Proje adı:** AURA / E.D.I.T.H
+**Açılım:** Enhanced Digital Intelligence & Task Handler
+**Proje tipi:** Local-first kişisel yapay zeka asistanı ve AI operating layer
+**Ana teknoloji:** React 19, TypeScript, Vite, Express, Three.js, SQLite
+**Çalışma modeli:** Yerel Ollama öncelikli, Gemini ve mock fallback destekli
 
 ---
 
-## 1. Yonetici Ozeti
+## 1. Kısa Özet
 
-AURA / E.D.I.T.H, kullanicinin bilgisayarinda calisan, gizlilik odakli ve gelismis gorsel arayuze sahip bir yapay zeka asistan sistemidir. Proje su anda sohbet, kod chat, sesli giris/cikis, bellek, otomasyon araclari, Knowledge Map, EDITH Ops, entegrasyonlar, ayarlar ve Three.js tabanli canli AI cekirdegi sunar.
+AURA / E.D.I.T.H, kullanıcının kendi bilgisayarında çalışan görsel, sesli ve görev odaklı bir yapay zeka asistanıdır. Proje ilk bakışta gelişmiş bir AI dashboard gibi görünse de altyapısı artık daha büyük bir hedefe taşınmaktadır: kullanıcının amacını anlayan, görev oluşturan, plan yapan, araç seçen, sonucu doğrulayan, hata durumunda yeniden planlayabilen ve önemli bilgileri belleğe kaydedebilen kalıcı bir kişisel AI işletim katmanı.
 
-Son calismalarda proje yalnizca gorsel olarak degil, mimari olarak da guclendirildi. E.D.I.T.H. icin SQLite tabanli persistence temeli, backend-enforced tool registry, intent service, task service ve planner foundation eklendi. Bu, uygulamayi "AI dashboard" seviyesinden "amac anlayan, gorev olusturan, planlayan ve denetlenebilir sekilde arac calistirmaya hazirlanan" bir sisteme tasiyan temel altyapidir.
+Mevcut uygulama sohbet, kod sohbeti, sesli giriş/çıkış, bellek paneli, Knowledge Map, otomasyon araçları, EDITH Ops, entegrasyonlar, ayarlar ve Three.js tabanlı canlı yapay zeka çekirdeği içerir.
+
+Son geliştirmelerde özellikle mimari temel güçlendirildi: SQLite persistence, backend merkezli tool registry, IntentService, TaskService, Planner, Executor, Verifier, Recovery, Agent Registry, Mark-L adapter ve Memory V2 foundation eklendi.
 
 ---
 
-## 2. Proje Nedir?
+## 2. Proje Ne Yapıyor?
 
-AURA / E.D.I.T.H, yerel makinede calisan bir kisisel AI kontrol panelidir.
-
-Temel olarak sunlari yapar:
+E.D.I.T.H şu anda şu ana yeteneklere sahiptir:
 
 - Yerel Ollama modelleri ile sohbet eder.
-- Ollama calismadiginda Gemini veya mock cevap motoruna fallback yapar.
-- Streaming cevap uretir.
-- Turkce sesli komut alabilir.
-- AI cevaplarini sesli okuyabilir.
-- Kullanici tercihlerini ve bilgilerini bellek olarak saklar.
-- Otomasyon araclari uzerinden sistem, dosya, web ve task operasyonlari yapar.
-- Gorev ve audit kayitlari tutar.
-- Knowledge Map ile bellek, arac, gorev ve sistem iliskilerini gorsellestirir.
-- Persona secimine gore UI, logo, sohbet alani ve 3D cekirdek renklerini degistirir.
-- Desktop paketleme icin Tauri altyapisi barindirir.
+- Ollama çalışmadığında Gemini veya mock yanıt motoruna düşebilir.
+- Cevapları streaming olarak kullanıcıya aktarır.
+- Türkçe sesli komut alabilir.
+- AI cevaplarını sesli okuyabilir.
+- Kullanıcı bilgilerini, tercihlerini ve proje notlarını bellek olarak saklayabilir.
+- Görev kayıtları oluşturabilir ve görev durumlarını takip edebilir.
+- Backend tarafında tanımlı araçları listeler, doğrular ve risk seviyesine göre çalıştırır.
+- Araç çalıştırma, görev ve sistem olaylarını audit log olarak kaydeder.
+- Knowledge Map ekranında bellek, görev, araç ve sistem ilişkilerini görselleştirir.
+- Persona / tema seçimine göre arayüz, logo, sohbet alanı ve yapay zeka çekirdeği renklerini uyumlu hale getirir.
+- Tauri altyapısı sayesinde masaüstü uygulamasına dönüştürülebilecek yapıdadır.
 
 ---
 
-## 3. Workspace Icindeki Ana Sistemler
+## 3. Workspace İçindeki Ana Sistemler
 
-| Sistem | Konum | Aciklama | Durum |
+| Sistem | Konum | Açıklama | Durum |
 |---|---|---|---|
-| AURA / E.D.I.T.H App | `src/`, `server.ts`, `src-tauri/` | React + Express tabanli ana dashboard | Aktif ana urun |
-| Mark-L | `Mark-L-main/` | Python Gemini Live, OS action, browser, screen ve voice assistant denemesi | Ayrik capability provider |
-| Crypto Agent | `crypto/` | Market data, teknik analiz, risk yonetimi, paper trading, Flask dashboard | Ayrik finans/paper-trading sistemi |
+| AURA / E.D.I.T.H App | `src/`, `server.ts`, `src-tauri/` | React + Express tabanlı ana ürün | Aktif |
+| Mark-L | `Mark-L-main/` | Python Gemini Live, ses, ekran, OS action ve browser kontrol denemeleri | Adapter ile bağlanmaya hazır temel |
+| Crypto Agent | `crypto/` | Market data, teknik analiz, risk yönetimi, paper trading ve Flask dashboard | Ayrı sistem, ileride adapter hedefli |
 
-Ana gelistirme odagi su anda AURA / E.D.I.T.H uygulamasidir. Mark-L ve crypto sistemleri korunmakta, ileride adapter mantigiyla E.D.I.T.H core'a baglanmasi hedeflenmektedir.
+Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörleri korunmaktadır; amaç bunları doğrudan karıştırmak değil, güvenli adapter katmanlarıyla EDITH Core'a bağlamaktır.
 
 ---
 
 ## 4. Teknoloji Mimarisi
 
-| Katman | Teknoloji / Yapi |
+| Katman | Kullanılan yapı |
 |---|---|
-| Frontend | React 19, TypeScript |
-| Build | Vite, esbuild |
-| Stil | Tailwind CSS 4, CSS degiskenleri |
-| Ikon | Lucide React |
+| Frontend | React 19 + TypeScript |
+| Build | Vite + esbuild |
+| Stil | Tailwind CSS 4 + CSS değişkenleri |
+| İkon | Lucide React |
 | Animasyon | Motion |
 | 3D / WebGL | Three.js |
 | Backend | Express + Node.js |
-| AI Provider | Ollama, Gemini, mock fallback |
-| Ses | Browser Web Speech API, Speech Synthesis, Web Audio API |
-| Persistence | SQLite foundation + JSON/JSONL fallback |
+| AI sağlayıcıları | Ollama, Gemini, mock fallback |
+| Ses | Web Speech API, Speech Synthesis, Web Audio API |
+| Persistence | SQLite foundation + JSON/JSONL uyumluluk |
 | Desktop | Tauri |
-| Test / Dogrulama | TypeScript check, Vite build, EDITH servis testleri |
+| Test | TypeScript check, Vite build, özel EDITH servis testleri |
 
-Onemli dosyalar:
+Önemli dosyalar:
 
 | Dosya | Rol |
 |---|---|
-| `src/App.tsx` | Ana uygulama kabugu ve ekran akislari |
-| `server.ts` | Express API, chat, tools, task endpointleri |
-| `src/lib/storage.ts` | Frontend storage, settings, tool metadata hydration |
-| `src/components/3d/ParticleCore.tsx` | Ortadaki Three.js AI cekirdegi |
+| `src/App.tsx` | Ana uygulama kabuğu, ekran geçişleri ve state yönetimi |
+| `server.ts` | Express API, chat, tools, task ve memory endpointleri |
+| `src/lib/storage.ts` | Frontend ayarlar, local storage ve tool metadata hydration |
+| `src/components/3d/ParticleCore.tsx` | Ortadaki canlı Three.js AI çekirdeği |
 | `src/components/chat/ChatPanel.tsx` | Sohbet paneli |
-| `src/components/chat/VoiceBar.tsx` | Ses/metin giris bari |
-| `src/components/views/KnowledgeMapView.tsx` | Knowledge Map ekrani |
-| `src/edith/serverRegistry.ts` | Backend EDITH tool registry |
-| `src/edith/taskService.ts` | Kalici task service |
-| `src/edith/intent.ts` | Intent anlama katmani |
-| `src/edith/planner.ts` | Structured planner foundation |
-| `src/edith/persistence/` | SQLite/JSON persistence katmani |
+| `src/components/chat/VoiceBar.tsx` | Sesli/metin giriş alanı |
+| `src/components/views/KnowledgeMapView.tsx` | Knowledge Map ekranı |
+| `src/components/layout/Sidebar.tsx` | Sol menü ve marka alanı |
+| `src/components/layout/Header.tsx` | Üst bar, model ve yeni sohbet aksiyonları |
+| `src/edith/serverRegistry.ts` | Backend merkezli tool registry |
+| `src/edith/intent.ts` | Kullanıcı isteğini sınıflandıran IntentService |
+| `src/edith/taskService.ts` | Kalıcı görev servis katmanı |
+| `src/edith/planner.ts` | Structured Planner foundation |
+| `src/edith/executor.ts` | Görev adımlarını çalıştırma foundation |
+| `src/edith/verifier.ts` | Sonuç doğrulama foundation |
+| `src/edith/recovery.ts` | Hata sonrası recovery / replan foundation |
+| `src/edith/agentRegistry.ts` | Agent mimarisi foundation |
+| `src/edith/markLAdapter.ts` | Mark-L entegrasyon adapter temeli |
+| `src/edith/memoryService.ts` | Memory V2 servis temeli |
+| `src/edith/persistence/` | SQLite ve JSON persistence katmanı |
 
 ---
 
-## 5. Ana Ekranlar ve Ozellikler
+## 5. Kullanıcı Arayüzü
 
-## 5.1 Dashboard / Sohbet
+### 5.1 Dashboard / Ana Sohbet
 
-Ana kullanim ekranidir. Ortada 3D AI cekirdegi, sagda sohbet paneli, altta metin ve ses giris bari bulunur.
+Ana ekran üç ana parçadan oluşur:
 
-Ozellikler:
+- Sol menü: Dashboard, Sohbet, Kod Chat, Bellek, Knowledge Map, Otomasyonlar, EDITH Ops, Entegrasyonlar ve Ayarlar.
+- Orta alan: Three.js tabanlı canlı yapay zeka çekirdeği.
+- Sağ alan: Sohbet geçmişi ve mesaj kartları.
 
-- Streaming AI cevaplari
-- Ollama / Gemini / mock fallback
-- Sesli komut alma
-- AI cevabini sesli okutma
-- Mesaj kopyalama
-- Mesaji tekrar okutma
-- Ollama baglanti durumu
-- Persona renklerine uyumlu UI
-- Duruma gore degisen AI cekirdegi: `idle`, `listening`, `thinking`, `speaking`, `error`
+Dashboard özellikleri:
 
-## 5.2 Kod Chat
+- Streaming AI cevapları
+- Ollama bağlantı durumu
+- Model bilgisi
+- Yeni sohbet butonu
+- Ses aç/kapat
+- Sohbet mesajı kopyalama
+- Mesajı sesli okutma
+- Auto Listen desteği
+- Persona rengine göre değişen buton, logo, chat paneli ve çekirdek görünümü
 
-Kod yazma ve yazilim sorulari icin ayrilmis sohbet ekranidir.
+### 5.2 Yapay Zeka Çekirdeği
 
-Ozellikler:
+Ortadaki görsel çekirdek Three.js ile render edilir. Duruma göre farklı animasyon ve renk davranışı gösterir:
 
-- Normal sohbetten ayri oturum
-- Kod odakli sistem prompt'u
-- Markdown kod bloklarini okunabilir gosterme
-- Kod kopyalama
-- Hizli prompt aksiyonlari
-
-## 5.3 Bellek
-
-Kullanici bilgileri, tercihler ve notlar icin bellek panelidir.
-
-Bellek kategorileri:
-
-| Kategori | Amac |
+| Durum | Davranış |
 |---|---|
-| Preference | Kullanici tercihleri |
-| Fact | Kalici bilgi |
-| Summary | Ozet bilgi |
-| Custom | Ozel kayit |
+| `idle` | Sakin parçacık hareketi |
+| `listening` | Dinleme durumuna uygun hareket |
+| `thinking` | Daha yoğun hesaplama efekti |
+| `speaking` | Cevap verirken aktif animasyon |
+| `error` | Hata durumuna uygun görsel sinyal |
 
-Not: Frontend bellekleri halen localStorage tarafinda tutulabilir; server-side memory icin SQLite foundation hazirlanmistir.
+Son görsel çalışmalarda seçilen persona renginin sadece ortadaki çekirdekte değil, menülerde, chat alanında, ikonlarda ve logolarda da tutarlı görünmesi hedeflendi. Kullanıcının isteğiyle fazla baskın arka plan sedef efekti geri alındı; görünüm daha kontrollü bırakıldı.
 
-## 5.4 Knowledge Map
+### 5.3 Kod Chat
 
-Sistemin bellek, arac, gorev ve audit iliskilerini gorsel olarak gosteren introspection ekranidir.
+Kod odaklı konuşmalar için ayrı bir ekran bulunur.
 
-Son tasarim iyilestirmeleri:
+Özellikler:
 
-- Daha modern header
-- Tema uyumlu arka plan ve grid
-- Core, Memory, Tools, Tasks ve Audit hub node'lari
-- Kavisli baglanti cizgileri
-- Arama alani
-- Metrik kartlari
-- Secili node inspector paneli
+- Kod yazma ve hata çözme odaklı sohbet
+- Markdown kod blokları
+- Kod kopyalama
+- Normal sohbetten ayrı bağlam
+- Yazılım geliştirme odaklı prompt davranışı
+
+### 5.4 Bellek
+
+Bellek ekranı kullanıcının kalıcı bilgi ve tercihlerini yönetmek içindir.
+
+Mevcut bellek kategorileri:
+
+| Kategori | Amaç |
+|---|---|
+| Preference | Kullanıcı tercihleri |
+| Fact | Kalıcı bilgiler |
+| Summary | Özet bilgiler |
+| Custom | Özel notlar |
+
+Yeni Memory V2 altyapısı ile bellek artık daha gelişmiş tiplere hazırlanmıştır: working, episodic, semantic, preference, project, procedural ve failure memory.
+
+### 5.5 Knowledge Map
+
+Knowledge Map, EDITH'in kendi iç dünyasını görselleştiren introspection ekranıdır. Son tasarım çalışmalarıyla daha temiz ve modern hale getirildi.
+
+İyileştirilen alanlar:
+
+- Daha güçlü header düzeni
+- Tema uyumlu arka plan
+- Core, Memory, Tools, Tasks ve Audit node'ları
+- Kavisli bağlantı çizgileri
+- Arama alanı
+- Metrik kartları
+- Seçili node detay paneli
 - Son aktivite paneli
 - Node tipi legend'i
-- Daha temiz ikon, etiket ve yerlesim
+- Daha anlaşılır ikon ve etiket sistemi
 
-## 5.5 Otomasyonlar
+Bu ekranın uzun vadeli hedefi sadece dekoratif bir grafik olmak değil; gerçek task, memory, tool, audit ve agent ilişkilerini canlı olarak göstermektir.
 
-Yerel ve backend destekli araclarin listelendigi bolumdur.
+### 5.6 Otomasyonlar
 
-Ornek araclar:
+Otomasyonlar ekranı EDITH'in kullanabileceği araçları listeler.
 
-| Tool | Amac |
+Örnek araçlar:
+
+| Tool | Amaç |
 |---|---|
 | `system_monitor` | Sistem durumu izleme |
-| `task_create` | EDITH task olusturma |
-| `browser_open` | Tarayici acma |
-| `browser_search` | Web arama akisi |
-| `ai_skill_catalog` | AI skill katalog bilgisi |
+| `task_create` | EDITH görevi oluşturma |
+| `browser_open` | Tarayıcı açma |
+| `browser_search` | Web arama akışı |
+| `ai_skill_catalog` | Skill katalog bilgisi |
 | `browser_use_agent` | Browser control placeholder |
 | `playwright_browser_agent` | Playwright agent placeholder |
 | `open_interpreter_agent` | Interpreter placeholder |
 | `computer_control_agent` | Computer control placeholder |
 
-Yuksek riskli araclar backend tarafinda kapali gelir. Acilmasi icin ek izin modeli ve environment gate gerekir.
+Yüksek riskli araçlar backend tarafında kapalı tutulur. Sadece frontend görünümüne güvenilmez; güvenlik backend policy ile korunur.
 
-## 5.6 EDITH Ops
+### 5.7 EDITH Ops
 
-EDITH cekirdek operasyonlarini izlemeye yarayan yonetim ekranidir.
+EDITH Ops ekranı sistemin operasyonel durumunu takip etmek içindir.
 
-Izlenen alanlar:
+İzlenen alanlar:
 
 - Tool registry
-- Task kayitlari
-- Audit event'leri
+- Tool health
+- Task kayıtları
+- Audit eventleri
 - Sistem operasyon sinyalleri
-- Tool health bilgileri
+- Çalıştırma geçmişi
 
-## 5.7 Entegrasyonlar
+### 5.8 Entegrasyonlar
 
-Harici servis baglantilari icin hazirlanan bolumdur. Simdilik temel entegrasyon ayarlari ve durumlari local-first mantikla tutulur.
+Harici servislerin ileride bağlanabilmesi için entegrasyon ekranı bulunur. Şu anda local-first mantık korunur; canlı entegrasyonlar güvenli adapter ve permission modeli tamamlandıkça genişletilmelidir.
 
-## 5.8 Ayarlar
+### 5.9 Ayarlar
 
-Model, ses, persona ve davranis ayarlari buradan yonetilir.
+Ayarlar ekranında model ve davranış seçenekleri yönetilir.
 
-Basliklar:
+Başlıklar:
 
 - AI provider
 - Ollama URL
-- Secili model
+- Seçili model
 - Temperature
 - Sistem prompt'u
 - STT / TTS
@@ -202,23 +233,24 @@ Basliklar:
 
 ---
 
-## 6. AI ve Sohbet Akisi
+## 6. AI ve Sohbet Akışı
 
-Ana backend endpoint:
+Ana endpoint:
 
 ```text
 POST /api/chat
 ```
 
-Akis:
+Genel akış:
 
-1. Kullanici mesaji backend'e gelir.
-2. IntentService mesajin sohbet mi, arac istegi mi, task istegi mi oldugunu anlamaya calisir.
-3. Task, sistem durumu, web aramasi veya skill katalog gibi istekler EDITH servislerine yonlendirilir.
-4. Normal sohbetlerde once Ollama denenir.
-5. Ollama ulasilamazsa Gemini fallback denenir.
-6. Gemini de kullanilamazsa mock cevap motoru devreye girer.
-7. Cevap streaming olarak frontend'e aktarilir.
+1. Kullanıcı mesajı backend'e gelir.
+2. IntentService mesajın sohbet mi, görev mi, araç isteği mi olduğunu analiz eder.
+3. Basit sohbetlerde model provider akışı çalışır.
+4. Araç veya görev isteklerinde EDITH servisleri devreye girer.
+5. Önce Ollama denenir.
+6. Ollama ulaşılamazsa Gemini fallback denenir.
+7. Gemini de yoksa mock cevap motoru çalışır.
+8. Cevap frontend'e streaming olarak aktarılır.
 
 Provider rolleri:
 
@@ -230,379 +262,372 @@ Provider rolleri:
 
 ---
 
-## 7. E.D.I.T.H Core Durumu
+## 7. EDITH Core Durumu
 
-Bu projede E.D.I.T.H, sadece bir sohbet botu degil; uzun vadede amac anlayan, plan yapan, arac secen, calistiran, sonucu dogrulayan ve hafizaya isleyen bir sistem olacak sekilde gelistirilmektedir.
-
-Hedef davranis dongusu:
+E.D.I.T.H'in hedefi basit bir chatbot olmak değildir. Hedeflenen ana döngü:
 
 ```text
-Kullanici amaci
-  -> Intent anlama
-  -> Context / memory
-  -> Task olusturma
-  -> Planlama
-  -> Risk / izin kontrolu
-  -> Tool secimi
-  -> Execution
-  -> Observation
-  -> Verification
-  -> Gerekirse retry / replan
-  -> Sonuc raporu
-  -> Memory update
+Kullanıcı amacı
+→ Intent anlama
+→ Context + memory toplama
+→ Task oluşturma
+→ Planlama
+→ Risk / izin kontrolü
+→ Agent seçimi
+→ Tool seçimi
+→ Execution
+→ Observation
+→ Verification
+→ Gerekirse retry / replan
+→ Sonuç
+→ Memory update
+→ Kullanıcı raporu
 ```
 
-Mevcut tamamlanan temel katmanlar:
+Şu ana kadar bu hedef için aşağıdaki foundation parçaları eklendi:
 
-| Katman | Durum | Aciklama |
+| Parça | Durum | Açıklama |
 |---|---|---|
-| Persistence foundation | Tamamlandi | SQLite store + JSON fallback |
-| Tool registry sync | Tamamlandi | Frontend backend registry metadata'sini hydrate ediyor |
-| Tool execution hardening | Tamamlandi | Input schema, permission, timeout, audit, tool run kaydi |
-| IntentService | Tamamlandi | Chat/task/tool niyetlerini ayristiran ilk servis |
-| TaskService | Tamamlandi | Kalici task, checkpoint, artifact, observation API'leri |
-| Planner foundation | Tamamlandi | Structured plan ureten ilk deterministic planner |
-| Executor foundation | Hazirlaniyor | Plan adimlarini calistiran temel executor uzerinde calisma var |
-| Verifier | Siradaki buyuk adim | Task tamamlandi demeden once sonucu dogrulayacak katman |
+| Persistence foundation | Hazır | SQLite + JSON uyumluluk katmanı |
+| Tool registry sync | Hazır | Backend registry frontend için authoritative kaynak oldu |
+| Tool execution hardening | Hazır | Validation, timeout, risk gate ve audit güçlendirildi |
+| IntentService | Hazır | Kullanıcı isteğini sınıflandırma temeli |
+| TaskService | Hazır | Kalıcı task oluşturma ve yönetim temeli |
+| Planner | Hazır | Structured plan üretme temeli |
+| Executor | Hazır | Plan adımlarını kontrollü çalıştırma temeli |
+| Verifier | Hazır | Sonuç doğrulama temeli |
+| Recovery / Replanner | Hazır | Hata sonrası toparlanma ve yeniden planlama temeli |
+| Agent Registry | Hazır | Agent seçimi ve capability modeli temeli |
+| Mark-L Adapter | Hazır | Mark-L'i güvenli capability provider olarak bağlama temeli |
+| Memory V2 | Hazırlanıyor / eklendi | Typed, scoped, provenance-aware server-side memory servisi |
 
 ---
 
 ## 8. Persistence ve Veri Saklama
 
-Yeni backend persistence temeli SQLite uzerine kuruludur.
+Proje önce daha çok localStorage, JSON ve JSONL dosyalarına dayanıyordu. Yeni foundation ile server-side kalıcı veri katmanı eklenmiştir.
 
-Runtime database:
+Hedef veri modeli:
 
-```text
-.edith/edith.db
-```
+- tasks
+- task steps
+- checkpoints
+- tool runs
+- audit events
+- memories
+- integrations
+- scheduled jobs
+- system events
 
-Legacy dosyalar korunur:
+Mevcut yaklaşım:
 
-```text
-.edith/tasks.json
-.edith/audit.log.jsonl
-```
+- SQLite varsayılan kalıcı store olarak konumlandırıldı.
+- JSON/JSONL uyumluluk yolları korunuyor.
+- Eski verilerin sessizce silinmemesi ana prensip.
+- Migration scriptleri ile idempotent geçiş hedefleniyor.
 
-SQLite tablolar:
+İlgili dosyalar:
 
-| Tablo | Amac |
+| Dosya | Açıklama |
 |---|---|
-| `schema_migrations` | Migration takibi |
-| `tasks` | Kalici task kayitlari |
-| `task_steps` | Task engine step temeli |
-| `task_checkpoints` | Checkpoint kayitlari |
-| `audit_events` | Audit event gecmisi |
-| `memories` | Server-side memory foundation |
-| `tool_runs` | Tool run gecmisi |
+| `src/edith/persistence/index.ts` | Persistence store seçimi |
+| `src/edith/persistence/sqliteStore.ts` | SQLite store |
+| `src/edith/persistence/jsonStore.ts` | JSON fallback store |
+| `scripts/migrate-edith-persistence.mjs` | Migration scripti |
+| `docs/PERSISTENCE_FOUNDATION.md` | Persistence dokümantasyonu |
 
-Migration komutu:
+---
+
+## 9. Tool Registry ve Güvenlik
+
+Tool registry artık backend merkezli düşünülmektedir. Frontend araç listesini backend'den hydrate eder; böylece UI ile gerçek çalıştırma politikası birbirinden kopmaz.
+
+Tool metadata hedefleri:
+
+- id
+- name
+- version
+- description
+- category
+- input schema
+- output schema
+- permissions
+- risk level
+- timeout
+- retry policy
+- dry run desteği
+- rollback desteği
+- health status
+- enabled state
+- adapter
+- platform
+- dependencies
+
+Güvenlik ilkeleri:
+
+- Frontend güvenlik kaynağı değildir.
+- Riskli araçlar backend gate ile korunur.
+- High-risk browser/computer control varsayılan olarak kapalıdır.
+- Tool inputları validate edilir.
+- Tool çalıştırmaları audit'e yazılır.
+- Timeout ve normalize error davranışı vardır.
+
+---
+
+## 10. Task Engine, Planner, Executor, Verifier
+
+E.D.I.T.H artık görevleri sadece metin olarak tutan bir yapıdan daha fazlasına evrilmektedir.
+
+### TaskService
+
+Görevlerin kalıcı olarak oluşturulması, güncellenmesi ve takip edilmesi için foundation sağlar.
+
+### Planner
+
+Karmaşık kullanıcı amaçlarını yapılandırılmış plana dönüştürmek için eklendi. Plan çıktısı serbest metin olmak zorunda değildir; schema ile kontrol edilebilir bir yapıya hazırlanmıştır.
+
+### Executor
+
+Plan adımlarının sırasını, bağımlılıklarını, retry davranışını ve observation kayıtlarını yönetmek için temel sağlar.
+
+### Verifier
+
+Bir işin tamamlanmış sayılması için sadece "araç başarılı döndü" demek yeterli değildir. Verifier foundation, sonucu beklenen kriterlere göre kontrol etmek için eklendi.
+
+### Recovery / Replanner
+
+Hata oluştuğunda neden analizi, retry kararı ve gerektiğinde yeniden planlama için temel sağlar.
+
+---
+
+## 11. Memory V2
+
+Memory V2, EDITH'in daha akıllı ve kontrollü hatırlama sistemi için eklendi.
+
+Desteklenen bellek tipleri:
+
+| Tip | Amaç |
+|---|---|
+| `working` | Geçici çalışma belleği |
+| `episodic` | Yaşanmış olay / konuşma belleği |
+| `semantic` | Genel bilgi |
+| `preference` | Kullanıcı tercihi |
+| `project` | Proje bağlamı |
+| `procedural` | Nasıl yapılır bilgisi |
+| `failure` | Hata ve recovery belleği |
+
+Memory V2 alanları:
+
+- id
+- type
+- scope
+- content
+- source
+- provenance
+- confidence
+- importance
+- sensitivity
+- createdAt
+- updatedAt
+- lastAccessed
+- ttlMs
+- relatedEntityIds
+- mergeOf
+
+Yeni endpointler:
+
+```text
+GET    /api/edith/memory-v2
+POST   /api/edith/memory-v2
+GET    /api/edith/memory-v2/context
+POST   /api/edith/memory-v2/merge
+GET    /api/edith/memory-v2/export
+DELETE /api/edith/memory-v2/:id
+```
+
+Mevcut davranış:
+
+- Typed memory upsert
+- Scope ve sensitivity desteği
+- Keyword search
+- Context retrieval
+- Sensitive memory'yi default context'ten dışlama
+- Conflict detection
+- Merge
+- Delete
+- Export snapshot
+- Audit event üretimi
+
+---
+
+## 12. Mark-L ve Crypto Entegrasyon Planı
+
+### Mark-L
+
+Mark-L ayrı bir Python capability provider olarak korunmalıdır. Doğrudan EDITH Core içine kopyalanmamalıdır.
+
+Hedef akış:
+
+```text
+Mark-L
+→ MarkLAdapter
+→ EDITH Tool Registry
+→ Permission / Risk
+→ Task Executor
+```
+
+Potansiyel Mark-L kabiliyetleri:
+
+- Screen capture
+- Screen processing
+- Uygulama açma
+- Klavye / mouse operasyonları
+- Browser control
+- Dosya aksiyonları
+- Reminder
+- Sesle ilgili aksiyonlar
+
+### Crypto
+
+Crypto sistemi finans ve trading tarafında ayrı kalmalıdır. Gerçek para işlemleri doğrudan LLM'e bırakılmamalıdır.
+
+Hedef güvenli akış:
+
+```text
+Market Data
+→ Analysis
+→ Strategy
+→ Risk
+→ Trade Proposal
+→ Authorization
+→ Execution Adapter
+→ Post-trade Verification
+→ Audit
+```
+
+Öncelik sırası:
+
+1. Read-only status
+2. Market data
+3. Analytics
+4. Portfolio / paper visibility
+5. Paper trading actions
+6. Çok daha sonra canlı trading
+
+---
+
+## 13. Son Yapılan Önemli Değişiklikler
+
+| Alan | Değişiklik |
+|---|---|
+| Tema / persona renkleri | Seçilen persona renginin menü, chat, logo ve çekirdek tarafında daha tutarlı uygulanması hedeflendi |
+| Yapay zeka çekirdeği | Ortadaki particle core görünümündeki taşma / ölçek hissi için düzeltmeler yapıldı |
+| Knowledge Map | Daha modern, bilgi yoğun ve okunabilir tasarım uygulandı |
+| Persistence | SQLite foundation eklendi |
+| Tool registry | Backend authoritative registry yaklaşımı eklendi |
+| Tool execution | Risk gate, timeout, validation ve audit davranışı güçlendirildi |
+| IntentService | Chat / task / tool intent ayrımı için temel eklendi |
+| TaskService | Kalıcı görev yönetimi için temel eklendi |
+| Planner | Structured plan foundation eklendi |
+| Executor | Plan adımı çalıştırma foundation eklendi |
+| Verifier | Completion doğrulama foundation eklendi |
+| Recovery | Retry ve replanning temeli eklendi |
+| Agent architecture | Capability tabanlı agent registry temeli eklendi |
+| Mark-L adapter | Mark-L entegrasyonu için güvenli adapter temeli eklendi |
+| Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
+| Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
+
+---
+
+## 14. Test ve Doğrulama Komutları
+
+Projede kullanılan ana doğrulama komutları:
 
 ```bash
-npm run edith:migrate
-```
-
-Davranis:
-
-- SQLite DB yoksa olusturur.
-- Tablolari idempotent sekilde kurar.
-- Eski `.edith/tasks.json` verilerini silmeden import eder.
-- Eski audit JSONL kayitlarini silmeden import eder.
-- Tekrar calistirildiginda duplicate uretmez.
-- SQLite uygun degilse JSON/JSONL fallback kullanabilir.
-
----
-
-## 9. Backend API Envanteri
-
-| Endpoint | Amac |
-|---|---|
-| `POST /api/chat` | Streaming sohbet endpoint'i |
-| `POST /api/voice/tts` | TTS ses uretimi |
-| `GET /api/health` | Sistem ve Ollama saglik kontrolu |
-| `GET /api/ollama/models` | Ollama model listesi |
-| `GET /api/edith/tools` | Backend registry tool listesi |
-| `GET /api/edith/tools/health` | Tool health snapshot |
-| `POST /api/tools/execute` | Tool calistirma |
-| `GET /api/edith/tool-runs` | Tool run gecmisi |
-| `GET /api/edith/audit` | Audit event okuma |
-| `GET /api/edith/tasks` | Task listesi |
-| `POST /api/edith/tasks` | Task olusturma |
-| `PATCH /api/edith/tasks/:id/status` | Task status guncelleme |
-| `POST /api/edith/tasks/:id/observations` | Task observation ekleme |
-| `POST /api/edith/tasks/:id/checkpoints` | Task checkpoint ekleme |
-| `POST /api/edith/tasks/:id/artifacts` | Task artifact ekleme |
-| `POST /api/edith/tasks/:id/plan` | Task icin structured plan olusturma |
-| `GET /api/edith/persistence` | Aktif persistence turu ve path bilgileri |
-| `GET /api/edith/memories` | Server-side memory listesi |
-| `POST /api/edith/memories` | Server-side memory upsert |
-| `GET /api/edith/skill-catalog` | AI skill katalog verisi |
-| `GET *` | SPA fallback |
-
----
-
-## 10. Tema, Persona ve Gorsel Sistem
-
-Persona tanimlari:
-
-```text
-src/config/assistantProfiles.json
-```
-
-Mevcut personlar:
-
-| ID | Isim | Gorsel Kimlik |
-|---|---|---|
-| `jarvis` | JARVIS | Mavi taktik arayuz |
-| `friday` | F.R.I.D.A.Y. | Mor/pembe intelligence layer |
-| `ultron` | ULTRON | Altin/endustriyel arayuz |
-| `karen` | KAREN | Kirmizi guvenlik arayuzu |
-| `alfred` | ALFRED | Yesil operasyon arayuzu |
-| `homer` | HOMER | Beyaz/grafit executive arayuz |
-
-Tema CSS degiskenleri:
-
-```css
---edith-primary
---edith-secondary
---edith-accent
---edith-bg
---edith-surface
---edith-text
-```
-
-Son UI renk duzeltmeleri:
-
-- Sol logo tema rengine baglandi.
-- Sidebar aktif menu ve ikonlari tema rengine uyumlu hale geldi.
-- Chat panel bot/user avatarlari persona rengine baglandi.
-- Chat balon border ve shadow renkleri tema degiskenleriyle calisir hale geldi.
-- VoiceBar input focus, gonder butonu ve dinleme kontrolleri guncellendi.
-- Header aksiyon ikonlari ve Code Chat parcalari tema ile daha uyumlu hale getirildi.
-- Dashboard arka plan sedef denemesi kullanici istegiyle geri alindi.
-
----
-
-## 11. Three.js AI Cekirdegi
-
-`ParticleCore.tsx`, ortadaki canli AI gorselini uretir.
-
-Ozellikler:
-
-- WebGL/Three.js tabanli parcacik sistemi
-- Persona rengine gore dinamik renk
-- AI durumuna gore hiz, parlaklik ve hareket degisimi
-- Web Audio analyser ile sese duyarlilik
-- FPS olcumu
-- Performans dusunce parcacik yogunlugunu azaltma
-- Mouse wheel ile zoom
-- Pointer drag ile dondurme
-
-Son bug fix:
-
-- HOMER temasinda gorulen beyaz/lila patlama ve kirpilma problemi duzeltildi.
-- Sabit lila glow texture kaldirildi.
-- Glow aktif tema renginden uretilir hale getirildi.
-- Acik temalarda parlaklik ve particle size dengelendi.
-- Cekirdek olcegi, kamera mesafesi ve zoom sinirlari daha guvenli hale getirildi.
-
----
-
-## 12. Yapilan Onemli Degisiklikler
-
-## 12.1 Proje Guvenligi ve Baseline
-
-- Git repository guvenli sekilde hazirlandi.
-- `.gitignore` iyilestirildi.
-- Baseline dokumantasyonu eklendi.
-- Mevcut kaynak kokleri, frontend/backend sinirlari, Mark-L ve crypto sistemleri incelendi.
-- Mimari snapshot olusturuldu.
-
-Ilgili dosyalar:
-
-- `docs/BASELINE.md`
-- `docs/ARCHITECTURE_SNAPSHOT.md`
-- `EDITH_ARCHITECTURE_REPORT.md`
-
-## 12.2 SQLite Persistence Foundation
-
-- `src/edith/persistence/` altinda SQLite/JSON store abstraction kuruldu.
-- Task, audit, memory ve tool run icin ilk kalici store modeli eklendi.
-- Idempotent migration script eklendi.
-- Backend task/audit endpointleri persistence abstraction uzerinden calisir hale getirildi.
-
-Ilgili dosyalar:
-
-- `src/edith/persistence/types.ts`
-- `src/edith/persistence/sqliteStore.ts`
-- `src/edith/persistence/jsonStore.ts`
-- `src/edith/persistence/index.ts`
-- `scripts/migrate-edith-persistence.mjs`
-- `scripts/test-edith-persistence.mjs`
-- `docs/PERSISTENCE_FOUNDATION.md`
-
-## 12.3 Backend Tool Registry
-
-- Backend registry frontend'e metadata saglayan authoritative kaynak haline getirilmeye baslandi.
-- Frontend `GET /api/edith/tools` uzerinden registry bilgisini hydrate ediyor.
-- Tool execution icin schema validation, permission gate, timeout, audit ve normalized error davranislari guclendirildi.
-- Tool run kayitlari persistence katmanina yaziliyor.
-
-Ilgili dosyalar:
-
-- `src/edith/serverRegistry.ts`
-- `src/lib/storage.ts`
-- `scripts/test-edith-registry.ts`
-- `docs/TOOL_REGISTRY_SYNC.md`
-- `docs/TOOL_EXECUTION_HARDENING.md`
-
-## 12.4 IntentService
-
-- Chat mesajlari icin ilk structured intent anlama katmani eklendi.
-- Sistem durumu, web aramasi, skill katalog ve task olusturma sinyalleri ayriliyor.
-- `/api/chat` artik bu katmani kullanarak daha kontrollu yonlendirme yapabiliyor.
-
-Ilgili dosyalar:
-
-- `src/edith/intent.ts`
-- `scripts/test-edith-intent.ts`
-- `docs/EDITH_CORE_INTENT.md`
-
-## 12.5 TaskService
-
-- Task modeli kalici servis haline getirildi.
-- Observation, checkpoint ve artifact API'leri eklendi.
-- Task status guncellemeleri audit ile izlenebilir hale geldi.
-
-Ilgili dosyalar:
-
-- `src/edith/taskService.ts`
-- `src/edith/taskStore.ts`
-- `scripts/test-edith-task-service.ts`
-- `docs/EDITH_TASK_SERVICE.md`
-
-## 12.6 Planner Foundation
-
-- Task icin structured plan ureten ilk deterministic planner eklendi.
-- Plan adimlari, bagimliliklar, gerekli tool'lar, izinler, validation criteria ve stop condition bilgileri uretiliyor.
-- Planner freeform prose yerine typed plan nesnesi uretir.
-
-Ilgili dosyalar:
-
-- `src/edith/planner.ts`
-- `scripts/test-edith-planner.ts`
-- `docs/EDITH_PLANNER_FOUNDATION.md`
-
-## 12.7 Gorsel Tasarim Iyilestirmeleri
-
-- Persona rengi UI geneline daha tutarli uygulandi.
-- Knowledge Map tasarimi daha modern ve okunabilir hale getirildi.
-- Chat paneli, logo, menuler ve butonlar secili tema ile daha uyumlu hale getirildi.
-- HOMER temasindaki 3D cekirdek gorsel bug'i giderildi.
-- Dashboard arka planinda denenmis sedef efekti kullanici istegiyle geri alindi.
-
----
-
-## 13. Test ve Dogrulama Durumu
-
-Kullanilan komutlar:
-
-```bash
-npm run edith:migrate
+npm run lint
+npm run build
 npm run test:edith-persistence
 npm run test:edith-registry
 npm run test:edith-intent
 npm run test:edith-task-service
 npm run test:edith-planner
-npm run lint
-npm run build
+npm run test:edith-executor
+npm run test:edith-verifier
+npm run test:edith-recovery
+npm run test:edith-agents
+npm run test:edith-mark-l
+npm run test:edith-memory-v2
 ```
 
-Dogrulama ozeti:
+Bu testler EDITH servislerinin temel regression davranışlarını korumak için eklenmiştir.
 
-| Kontrol | Durum |
+---
+
+## 15. Mevcut Durum
+
+| Alan | Durum |
 |---|---|
-| SQLite migration | Basarili |
-| Persistence testleri | Basarili |
-| Registry testleri | Basarili |
-| IntentService testleri | Basarili |
-| TaskService testleri | Basarili |
-| Planner testleri | Basarili |
-| TypeScript lint/check | Basarili |
-| Vite build | Basarili |
-| Server bundle | Basarili |
-
-Ek not:
-
-- `crypto/test_modules.py`, sistem Python ortaminda eksik paketler nedeniyle sorun cikarabilir.
-- `crypto/.venv` icindeki Python ile calistirildiginda crypto testleri gecmistir.
-- `node:sqlite`, Node v22 uzerinde experimental warning uretebilir; calisma davranisi dogrulanmistir.
-
----
-
-## 14. Guclu Yanlar
-
-- Local-first AI deneyimi
-- Ollama ile gizlilik odakli local LLM kullanim
-- Gemini ve mock fallback
-- Streaming chat
-- Sesli giris/cikis
-- Gelismis Three.js AI cekirdegi
-- Persona tabanli tema sistemi
-- Kisisel bellek paneli
-- Tool registry ve audit temeli
-- Kalici task service temeli
-- Planner foundation
-- Knowledge Map introspection ekrani
-- Tauri desktop potansiyeli
-- Mark-L ve crypto gibi genisletilebilir yan sistemler
+| Ana UI | Çalışır durumda |
+| Sohbet | Çalışır durumda |
+| Ollama entegrasyonu | Ana provider olarak mevcut |
+| Gemini fallback | Opsiyonel fallback olarak mevcut |
+| Mock fallback | Offline/demo fallback olarak mevcut |
+| Sesli giriş / çıkış | Mevcut |
+| Knowledge Map | Görsel olarak iyileştirildi |
+| Tool registry | Backend merkezli foundation hazır |
+| Persistence | SQLite foundation hazır |
+| Task engine | Foundation hazır, daha fazla entegrasyon gerekiyor |
+| Planner / Executor / Verifier | Foundation hazır |
+| Recovery | Foundation hazır |
+| Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
+| Mark-L | Adapter foundation hazır |
+| Crypto | Ayrı sistem olarak korunuyor |
+| High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
 
 ---
 
-## 15. Riskler ve Eksikler
+## 16. Bilinen Eksikler ve Sonraki Adımlar
 
-| Alan | Risk / Eksik | Oneri |
-|---|---|---|
-| Frontend storage | Chat, ayar ve bazi bellekler localStorage'da | Kritik operational state'i backend persistence'a tasimak |
-| Tool registry | Tum frontend legacy tool'lari henuz backend tek kaynak degil | DEFAULT_TOOLS'u display fallback seviyesine indirmek |
-| Executor | Plan execution foundation henuz tamamlanma asamasinda | Executor + Verifier loop'u tamamlamak |
-| Verifier | Task tamamlandi demeden once objektif dogrulama yok | File, tool result ve output bazli verifier eklemek |
-| High-risk tools | Browser/computer control ileride ciddi risk tasir | Backend permission, allowlist, audit ve kill switch zorunlu |
-| Mark-L entegrasyonu | Ayrik ve daha genis OS yetkileri var | Adapter + permission gate ile baglamak |
-| Crypto | Finansal karar sistemi ayrik | Once read-only status, live trading'e gecmemek |
-| Test kapsami | Frontend regression testleri sinirli | Playwright screenshot ve workflow testleri eklemek |
+Öncelikli teknik işler:
 
----
-
-## 16. Onerilen Sonraki Adimlar
-
-1. Executor foundation'i tamamlamak ve plan adimlarini guvenli sekilde calistirmak.
-2. Verifier katmanini ekleyerek task sonucunu gercekten dogrulamak.
-3. Retry / Replanner sistemi ile basarisiz adimlari kontrollu sekilde toparlamak.
-4. Frontend localStorage kullanimlarini kademeli olarak backend SQLite persistence'a tasimak.
-5. Tool registry'yi tam single source of truth haline getirmek.
-6. Backend-enforced kill switch ve permission modeli eklemek.
-7. Mark-L capability'lerini dogrudan kopyalamadan adapter olarak baglamak.
-8. Crypto sistemini once read-only dashboard/status olarak entegre etmek.
-9. Knowledge Map'i gercek persisted task, memory, tool run ve audit iliskilerinden beslemek.
-10. Memory V2 icin episodic, semantic, preference, project ve failure memory ayrimini kurmak.
+1. Memory V2'nin frontend Bellek paneline bağlanması.
+2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
+3. ModelRouter foundation: Ollama / Gemini / mock seçimini capability, gizlilik, latency ve task tipine göre yönetmek.
+4. Knowledge Map'in gerçek persisted memory/task/tool/audit ilişkilerini göstermesi.
+5. Kill switch modelinin backend-enforced hale getirilmesi.
+6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
+7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
+8. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
+9. Browser/computer control için daha güçlü permission modeli.
+10. Daha kapsamlı end-to-end test senaryoları.
 
 ---
 
-## 17. Genel Sonuc
+## 17. Genel Değerlendirme
 
-Proje artik sadece gorsel olarak etkileyici bir AI dashboard degil; E.D.I.T.H. tarafinda kalici task, audit, tool registry, intent ve planner temelleri bulunan daha ciddi bir yerel AI isletim katmanina dogru ilerliyor.
+Proje artık sadece güzel görünen bir AI arayüzü değildir. Altta görev, planlama, araç, doğrulama, recovery, agent ve memory temelleri oluşmaya başlamıştır. Bu sayede E.D.I.T.H'in uzun vadeli yönü nettir:
 
-Bugunku durumuyla AURA / E.D.I.T.H:
+```text
+User → Prompt → LLM → Text
+```
 
-- Kullanici ile sohbet edebiliyor.
-- Sesli etkilesim kurabiliyor.
-- Yerel veya fallback AI provider'lari kullanabiliyor.
-- Bellek ve otomasyon ekranlari sunuyor.
-- Tool calistirmalarini daha kontrollu hale getiriyor.
-- Task olusturup kalici olarak saklayabiliyor.
-- Task icin structured plan uretebiliyor.
-- Knowledge Map ile sistem durumunu gorsellestirebiliyor.
+yerine:
 
-En kritik sonraki kalite sicrama noktasi, Planner'dan sonra Executor ve Verifier dongusunu tamamlamaktir. Bu tamamlandiginda E.D.I.T.H, sadece cevap veren bir arayuz olmaktan cikarak kullanici amaclarini kalici, denetlenebilir ve geri kazanilabilir gorevlere donusturen bir AI operating layer haline gelecektir.
+```text
+User Objective
+→ Understand
+→ Remember
+→ Plan
+→ Authorize
+→ Delegate
+→ Use Tools
+→ Execute
+→ Observe
+→ Verify
+→ Replan if needed
+→ Complete
+→ Remember
+→ Report
+```
 
+Bu rapora göre proje iyi bir temel seviyeye gelmiştir. En önemli değer artık görünümden çok, görünmeyen zeka katmanında oluşmaktadır: kalıcı state, güvenli araç kullanımı, task lifecycle, doğrulama, recovery ve kontrollü memory.

@@ -307,6 +307,12 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
       });
   }
 
+  deleteMemory(id: string): boolean {
+    const existing = this.getDb().prepare('SELECT id FROM memories WHERE id = ?').get(id);
+    this.getDb().prepare('DELETE FROM memories WHERE id = ?').run(id);
+    return Boolean(existing);
+  }
+
   close(): void {
     this.db?.close();
     this.db = undefined;
