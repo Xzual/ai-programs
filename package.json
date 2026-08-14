@@ -12,6 +12,7 @@
     "edith:migrate": "node scripts/migrate-edith-persistence.mjs",
     "test:edith-persistence": "node scripts/test-edith-persistence.mjs",
     "test:edith-registry": "tsx scripts/test-edith-registry.ts",
+    "test:edith-intent": "tsx scripts/test-edith-intent.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",

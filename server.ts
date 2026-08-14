@@ -8,6 +8,7 @@ import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { readRecentAuditEvents } from "./src/edith/audit";
 import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
 import { getEdithPersistenceStore } from "./src/edith/persistence";
+import { intentService } from "./src/edith/intent";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -217,102 +218,6 @@ app.post("/api/edith/memories", (req, res) => {
   res.json({ success: true, memory });
 });
 
-type ChatToolRoute = {
-  toolId: string;
-  args: Record<string, unknown>;
-  summary: string;
-};
-
-function stripCommandNoise(text: string): string {
-  return text
-    .replace(/\b(lütfen|please|edith|aura|jarvis|şunu|bunu|bir|bi)\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function extractQuotedText(text: string): string | undefined {
-  const match = text.match(/["“”'‘’](.+?)["“”'‘’]/);
-  return match?.[1]?.trim();
-}
-
-function routeChatToolIntent(message: string): ChatToolRoute | null {
-  const text = message.trim();
-  const lower = text.toLocaleLowerCase("tr-TR");
-  const quoted = extractQuotedText(text);
-
-  const wantsTask =
-    /\b(görev|task|planla|takibe al|yapılacak|todo|hatırla ve yap|sonra yap)\b/i.test(lower) &&
-    !/\b(skill|tool|araç)\b/i.test(lower);
-  if (wantsTask) {
-    const objective = quoted || stripCommandNoise(text);
-    return {
-      toolId: "task_create",
-      args: {
-        title: objective.slice(0, 80) || "EDITH Task",
-        objective,
-        originalUserRequest: text,
-      },
-      summary: `Görev oluşturuyorum: ${objective.slice(0, 120)}`,
-    };
-  }
-
-  const wantsSkillCatalog =
-    /\b(skill|tool|araç|yetenek|katalog|neler yapabiliyorsun)\b/i.test(lower) &&
-    /\b(listele|göster|say|ne var|catalog|katalog)\b/i.test(lower);
-  if (wantsSkillCatalog) {
-    return {
-      toolId: "ai_skill_catalog",
-      args: {},
-      summary: "EDITH skill kataloğunu listeliyorum.",
-    };
-  }
-
-  const wantsSystem =
-    /\b(sistem|bilgisayar|pc|cpu|ram|bellek|performans|durum)\b/i.test(lower) &&
-    /\b(durum|bak|göster|kontrol|kaç|nasıl)\b/i.test(lower);
-  if (wantsSystem) {
-    return {
-      toolId: "system_monitor",
-      args: {},
-      summary: "Sistem durumunu kontrol ediyorum.",
-    };
-  }
-
-  const urlMatch = text.match(/\bhttps?:\/\/[^\s]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s]*)?/i);
-  const wantsOpen =
-    /\b(tarayıcı|browser|chrome|edge|firefox|site|url)\b/i.test(lower) &&
-    /\b(aç|git|open|navigate|ziyaret)\b/i.test(lower);
-  if (wantsOpen && urlMatch?.[0]) {
-    return {
-      toolId: "browser_open",
-      args: { url: urlMatch[0] },
-      summary: `Tarayıcıda açıyorum: ${urlMatch[0]}`,
-    };
-  }
-
-  const wantsSearch =
-    /\b(araştır|ara|search|google|bak|bul|webde|internette|tarayıcıda)\b/i.test(lower) &&
-    !/\b(dosyada|klasörde|local dosya)\b/i.test(lower);
-  if (wantsSearch) {
-    let query = quoted;
-    if (!query) {
-      query = stripCommandNoise(text)
-        .replace(/\b(tarayıcıda|tarayıcı|browser|chrome|google|internette|webde|web|araştır|ara|search|bak|bul|hakkında)\b/gi, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-    if (query.length >= 2) {
-      return {
-        toolId: "browser_search",
-        args: { query },
-        summary: `Tarayıcıda arıyorum: ${query}`,
-      };
-    }
-  }
-
-  return null;
-}
-
 // 2. Ollama Models Proxy
 app.get("/api/ollama/models", async (req, res) => {
   const ollamaUrl = (req.query.ollamaUrl as string) || "http://localhost:11434";
@@ -371,8 +276,9 @@ app.post("/api/chat", async (req, res) => {
   }
 
   const lastUserMessage = [...messages].reverse().find((m: any) => m.sender === "user")?.text ?? "";
-  const toolRoute = routeChatToolIntent(lastUserMessage);
-  if (toolRoute) {
+  const intent = intentService.understand(lastUserMessage);
+  const toolRoute = intent.route;
+  if (intent.kind !== "conversation" && toolRoute) {
     sendEvent({ text: `${toolRoute.summary}\n`, done: false });
     const result = await executeEdithTool(toolRoute.toolId, toolRoute.args, {
       actor: "aura-chat-router",
@@ -388,7 +294,18 @@ app.post("/api/chat", async (req, res) => {
         done: false,
       });
     }
-    sendEvent({ done: true, toolId: toolRoute.toolId, auditEventId: result.auditEventId });
+    sendEvent({
+      done: true,
+      toolId: toolRoute.toolId,
+      auditEventId: result.auditEventId,
+      intent: {
+        kind: intent.kind,
+        confidence: intent.confidence,
+        requiresTask: intent.requiresTask,
+        requiresPlanning: intent.requiresPlanning,
+        rationale: intent.rationale,
+      },
+    });
     return res.end();
   }
 
