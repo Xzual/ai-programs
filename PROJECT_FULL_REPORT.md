@@ -117,6 +117,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/edith/intent.ts` | Kullanıcı isteğini sınıflandıran IntentService |
 | `src/edith/contextService.ts` | Memory, task, tool, tool-run ve audit verilerinden güvenli context snapshot üretimi |
 | `src/edith/chatContext.ts` | Chat sistem prompt'una limitli ve güvenli context ekleyen yardımcı katman |
+| `src/edith/capabilityService.ts` | Tool health, permission ve agent readiness kararlarını birleştiren servis |
 | `src/edith/taskService.ts` | Kalıcı görev servis katmanı |
 | `src/edith/planner.ts` | Structured Planner foundation |
 | `src/edith/executor.ts` | Görev adımlarını çalıştırma foundation |
@@ -332,6 +333,7 @@ Kullanıcı amacı
 | Tool execution hardening | Hazır | Validation, timeout, risk gate ve audit güçlendirildi |
 | IntentService | Hazır | Kullanıcı isteğini sınıflandırma temeli |
 | ContextService | Hazır | Memory V2, task, tool, tool-run ve audit verilerinden güvenli planlama context'i üretir |
+| CapabilityService | Hazır | Objective için tool readiness, eksik permission, high-risk blokaj ve agent route snapshot'ı üretir |
 | TaskService | Hazır | Kalıcı task oluşturma ve yönetim temeli |
 | Planner | Hazır | Structured plan üretme temeli |
 | Executor | Hazır | Plan adımlarını kontrollü çalıştırma temeli |
@@ -580,6 +582,7 @@ Market Data
 | Mark-L adapter | Mark-L entegrasyonu için güvenli adapter temeli eklendi |
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
 | ContextService | Planner ve chat prompt assembly için güvenli memory/task/tool/audit context snapshot temeli eklendi |
+| CapabilityService | Tool health, permission kararları ve agent routing tek assessment katmanında toplandı |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
@@ -598,6 +601,7 @@ npm run build
 npm run test:edith-persistence
 npm run test:edith-registry
 npm run test:edith-intent
+npm run test:edith-capabilities
 npm run test:edith-task-service
 npm run test:edith-planner
 npm run test:edith-executor
@@ -636,6 +640,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ContextService | Planner ve chat prompt assembly entegrasyonu hazır; provider-specific context budget sıradaki iş |
+| CapabilityService | Foundation ve Planner entegrasyonu hazır; Executor preflight ve EDITH Ops görünümü sıradaki iş |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
@@ -652,15 +657,16 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 
 1. Memory V2'nin frontend Bellek paneline bağlanması.
 2. ContextService için provider-specific context budget ve EDITH Ops context görünürlüğü eklenmesi.
-3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
-4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
-5. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
-6. PermissionService için role/authorization, ikinci onay ve denied tool sonucundan tek tık grant oluşturma akışı eklenmesi.
-7. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
-8. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
-9. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
-10. Browser/computer control için daha güçlü permission modeli.
-11. Daha kapsamlı end-to-end test senaryoları.
+3. CapabilityService'i Executor preflight ve EDITH Ops görünümüne bağlamak.
+4. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
+5. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
+6. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
+7. PermissionService için role/authorization, ikinci onay ve denied tool sonucundan tek tık grant oluşturma akışı eklenmesi.
+8. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
+9. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
+10. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
+11. Browser/computer control için daha güçlü permission modeli.
+12. Daha kapsamlı end-to-end test senaryoları.
 
 ---
 

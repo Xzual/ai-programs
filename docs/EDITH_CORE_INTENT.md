@@ -12,6 +12,7 @@ This document records the first Phase 3 EDITH Core step. The chat route now asks
 |---|---|
 | `src/edith/intent.ts` | Structured intent understanding service |
 | `src/edith/contextService.ts` | Safe context snapshot service for Memory V2, task, tool, tool-run, and audit references |
+| `src/edith/capabilityService.ts` | Tool, permission, and agent readiness assessment service |
 | `scripts/test-edith-intent.ts` | Regression coverage for current chat routing behavior |
 
 ## Intent Decision Shape
@@ -66,7 +67,7 @@ npm run build
 
 ## Remaining Phase 3 Work
 
-1. Add CapabilityService to reason over tool health and permissions.
+1. Use CapabilityService directly in Executor preflight checks.
 2. Add provider-specific context budgets for ModelRouter decisions.
 3. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
 4. Route complex objectives through the Planner/Executor/Verifier loop instead of only creating a task shell.

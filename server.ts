@@ -15,6 +15,7 @@ import { executorService } from "./src/edith/executor";
 import { verificationService } from "./src/edith/verifier";
 import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
+import { capabilityService } from "./src/edith/capabilityService";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { buildChatSystemPrompt } from "./src/edith/chatContext";
@@ -151,6 +152,25 @@ app.post("/api/edith/agents/route", (req, res) => {
     permissionsRequired: Array.isArray(req.body?.permissionsRequired) ? req.body.permissionsRequired : [],
   });
   res.json({ success: true, routes });
+});
+
+app.post("/api/edith/capabilities/assess", (req, res) => {
+  const objective = String(req.body?.objective ?? "").trim();
+  if (!objective) return res.status(400).json({ success: false, error: "objective is required." });
+  const rawRiskLevel = Number(req.body?.riskLevel ?? 1);
+  const riskLevel = ([0, 1, 2, 3, 4, 5].includes(rawRiskLevel) ? rawRiskLevel : 1) as 0 | 1 | 2 | 3 | 4 | 5;
+  try {
+    const assessment = capabilityService.assess({
+      objective,
+      actor: typeof req.body?.actor === 'string' ? req.body.actor : 'aura-dashboard',
+      toolsRequired: Array.isArray(req.body?.toolsRequired) ? req.body.toolsRequired : [],
+      permissionsRequired: Array.isArray(req.body?.permissionsRequired) ? req.body.permissionsRequired : [],
+      riskLevel,
+    });
+    res.json({ success: true, assessment });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 const MODEL_TASK_TYPES = new Set<EdithModelTaskType>(['conversation', 'classification', 'planning', 'verification', 'coding', 'vision', 'voice']);

@@ -13,6 +13,7 @@
     "test:edith-persistence": "node scripts/test-edith-persistence.mjs",
     "test:edith-registry": "tsx scripts/test-edith-registry.ts",
     "test:edith-intent": "tsx scripts/test-edith-intent.ts",
+    "test:edith-capabilities": "tsx scripts/test-edith-capabilities.ts",
     "test:edith-agents": "tsx scripts/test-edith-agents.ts",
     "test:edith-knowledge-map": "tsx scripts/test-edith-knowledge-map.ts",
     "test:edith-kill-switch": "tsx scripts/test-edith-kill-switch.ts",

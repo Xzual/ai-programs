@@ -1,7 +1,6 @@
 import type { EdithPlan, EdithPlanStep, EdithRiskLevel, EdithTask } from './core';
-import { agentRegistryService } from './agentRegistry';
+import { capabilityService } from './capabilityService';
 import { contextService } from './contextService';
-import { getEdithToolHealth } from './serverRegistry';
 import { taskService } from './taskService';
 
 export interface PlanTaskResult {
@@ -43,23 +42,6 @@ function inferTools(objective: string): string[] {
   return unique(tools);
 }
 
-function permissionsForTools(tools: string[]): string[] {
-  const registry = new Map(getEdithToolHealth().map((health) => [health.toolId, health]));
-  const permissions: string[] = [];
-
-  for (const tool of tools) {
-    const health = registry.get(tool);
-    if (!health) continue;
-    permissions.push(...health.missingPermissions);
-    if (tool === 'system_monitor') permissions.push('system:read');
-    if (tool === 'browser_search') permissions.push('network:read');
-    if (tool === 'ai_skill_catalog') permissions.push('system:read');
-    if (tool === 'mark_l_capabilities') permissions.push('system:read');
-  }
-
-  return unique(permissions);
-}
-
 export class PlannerService {
   planTask(taskId: string): PlanTaskResult {
     const task = taskService.getTask(taskId);
@@ -78,12 +60,18 @@ export class PlannerService {
     });
     const inferredTools = inferTools(`${task.objective} ${task.originalUserRequest}`);
     const requiredTools = unique([...task.toolsRequired, ...inferredTools]);
-    const requiredPermissions = unique([...task.permissionsRequired, ...permissionsForTools(requiredTools)]);
-    const requiredAgents = agentRegistryService.routeTask({
-      ...task,
+    const capabilityAssessment = capabilityService.assess({
+      objective: task.objective,
+      actor: 'edith-planner',
       toolsRequired: requiredTools,
-      permissionsRequired: requiredPermissions,
-    }).map((route) => route.agentId);
+      permissionsRequired: task.permissionsRequired,
+      riskLevel: task.riskLevel,
+    });
+    const requiredPermissions = unique([
+      ...task.permissionsRequired,
+      ...capabilityAssessment.toolDecisions.flatMap((decision) => decision.requiredPermissions),
+    ]);
+    const requiredAgents = capabilityAssessment.agentRoutes.map((route) => route.agentId);
     const baseRisk = Math.max(task.riskLevel, requiredPermissions.some((permission) => permission.includes(':control')) ? 3 : 1) as EdithRiskLevel;
     const steps = this.createSteps(task, requiredTools, requiredPermissions, baseRisk);
 
@@ -102,6 +90,7 @@ export class PlannerService {
       validationCriteria: unique([
         ...task.validationRules,
         `Context snapshot ${contextSnapshot.id} was built before planning.`,
+        `Capability assessment ${capabilityAssessment.id} produced ${capabilityAssessment.status}.`,
         'All planned steps have completed or been explicitly skipped.',
         'Task result addresses the original objective.',
         'Audit events exist for tool-backed execution.',
