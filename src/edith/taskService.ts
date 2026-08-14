@@ -1,5 +1,5 @@
 import { appendAuditEvent, createAuditEvent } from './audit';
-import { createTask, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
+import { createTask, type EdithPlan, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
 import { getEdithPersistenceStore } from './persistence';
 
 export interface CreateTaskInput {
@@ -58,6 +58,20 @@ export class TaskService {
     return this.mutateTask(id, 'task.artifact', `Artifact added to task ${id}`, (task) => ({
       ...task,
       artifacts: [...task.artifacts, artifact],
+    }));
+  }
+
+  attachPlan(id: string, plan: EdithPlan): EdithTask | undefined {
+    return this.mutateTask(id, 'task.plan', `Plan attached to task ${id}: ${plan.id}`, (task) => ({
+      ...task,
+      status: task.status === 'CREATED' ? 'PLANNING' : task.status,
+      plan,
+      subtasks: plan.steps.map((step) => step.id),
+      toolsRequired: Array.from(new Set([...task.toolsRequired, ...plan.requiredTools])),
+      permissionsRequired: Array.from(new Set([...task.permissionsRequired, ...plan.requiredPermissions])),
+      candidateAgents: Array.from(new Set([...task.candidateAgents, ...plan.requiredAgents])),
+      validationRules: Array.from(new Set([...task.validationRules, ...plan.validationCriteria])),
+      checkpoints: [...task.checkpoints, `Plan ${plan.id} attached at ${new Date().toISOString()}`],
     }));
   }
 

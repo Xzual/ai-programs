@@ -10,6 +10,7 @@ import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskS
 import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
 import { taskService } from "./src/edith/taskService";
+import { plannerService } from "./src/edith/planner";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -210,6 +211,14 @@ app.post("/api/edith/tasks/:id/artifacts", (req, res) => {
   const task = taskService.addArtifact(req.params.id, artifact);
   if (!task) return res.status(404).json({ success: false, error: "Task not found." });
   res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/plan", (req, res) => {
+  const result = plannerService.planTask(req.params.id);
+  if (!result.success) {
+    return res.status(404).json({ success: false, error: result.error ?? "Task not found." });
+  }
+  res.json({ success: true, plan: result.plan, task: result.task });
 });
 
 app.get("/api/edith/memories", (_req, res) => {

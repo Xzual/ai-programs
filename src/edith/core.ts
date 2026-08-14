@@ -1,5 +1,39 @@
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
+export type EdithPlanStepStatus = 'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+
+export interface EdithPlanStep {
+  id: string;
+  title: string;
+  objective: string;
+  status: EdithPlanStepStatus;
+  dependsOn: string[];
+  suggestedTools: string[];
+  requiredPermissions: string[];
+  validationCriteria: string[];
+  riskLevel: EdithRiskLevel;
+  parallelGroup?: string;
+}
+
+export interface EdithPlan {
+  id: string;
+  taskId: string;
+  objective: string;
+  createdAt: string;
+  planner: 'heuristic-v1';
+  status: 'DRAFT' | 'READY' | 'INVALID';
+  steps: EdithPlanStep[];
+  requiredTools: string[];
+  requiredPermissions: string[];
+  requiredAgents: string[];
+  validationCriteria: string[];
+  stopConditions: string[];
+  maxIterations: number;
+  maxRetries: number;
+  maxToolCalls: number;
+  taskTimeoutMs: number;
+}
+
 export type EdithTaskStatus =
   | 'CREATED'
   | 'ANALYZING'
@@ -39,6 +73,7 @@ export interface EdithTask {
   artifacts: string[];
   observations: string[];
   validationRules: string[];
+  plan?: EdithPlan;
   result?: string;
   failureReason?: string;
   memoryReferences: string[];
