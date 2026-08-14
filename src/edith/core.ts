@@ -17,6 +17,31 @@ export interface EdithPlanStep {
   parallelGroup?: string;
 }
 
+export type EdithContextReferenceType = 'memory' | 'task' | 'tool' | 'tool_run' | 'audit';
+
+export interface EdithContextReference {
+  type: EdithContextReferenceType;
+  id: string;
+  label: string;
+  relevance: number;
+  sensitivity?: 'public' | 'internal' | 'sensitive';
+  source?: string;
+}
+
+export interface EdithContextSnapshot {
+  id: string;
+  query: string;
+  createdAt: string;
+  taskId?: string;
+  summary: string;
+  memoryReferences: EdithContextReference[];
+  taskReferences: EdithContextReference[];
+  toolReferences: EdithContextReference[];
+  toolRunReferences: EdithContextReference[];
+  auditReferences: EdithContextReference[];
+  redactions: string[];
+}
+
 export interface EdithPlan {
   id: string;
   taskId: string;
@@ -28,6 +53,7 @@ export interface EdithPlan {
   requiredTools: string[];
   requiredPermissions: string[];
   requiredAgents: string[];
+  contextSnapshot?: EdithContextSnapshot;
   validationCriteria: string[];
   stopConditions: string[];
   maxIterations: number;

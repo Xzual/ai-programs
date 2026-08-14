@@ -11,6 +11,7 @@ This document records the first Phase 3 EDITH Core step. The chat route now asks
 | File | Role |
 |---|---|
 | `src/edith/intent.ts` | Structured intent understanding service |
+| `src/edith/contextService.ts` | Safe context snapshot service for Memory V2, task, tool, tool-run, and audit references |
 | `scripts/test-edith-intent.ts` | Regression coverage for current chat routing behavior |
 
 ## Intent Decision Shape
@@ -49,7 +50,7 @@ USER OBJECTIVE
   -> TASK / TOOL / CONVERSATION ROUTE
 ```
 
-The service is intentionally heuristic for now. It does not fake planner/executor capability; it creates a stable interface that future Planner, Task Engine, PermissionService, and AgentRouter components can consume.
+The service is intentionally heuristic for now. It does not fake full autonomy; it creates a stable interface that Planner, Task Engine, PermissionService, AgentRouter, and ContextService components can consume.
 
 ## Verification
 
@@ -65,8 +66,7 @@ npm run build
 
 ## Remaining Phase 3 Work
 
-1. Add ContextService for memory/task/tool context selection.
-2. Add TaskService facade over persisted tasks and future task steps.
-3. Add CapabilityService to reason over tool health and permissions.
-4. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
-5. Route complex objectives to a structured Planner instead of directly creating only a task shell.
+1. Use ContextService in chat prompt assembly with explicit length/token budgets.
+2. Add CapabilityService to reason over tool health and permissions.
+3. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
+4. Route complex objectives through the Planner/Executor/Verifier loop instead of only creating a task shell.

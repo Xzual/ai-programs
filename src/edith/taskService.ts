@@ -82,6 +82,10 @@ export class TaskService {
       permissionsRequired: Array.from(new Set([...task.permissionsRequired, ...plan.requiredPermissions])),
       candidateAgents: Array.from(new Set([...task.candidateAgents, ...plan.requiredAgents])),
       validationRules: Array.from(new Set([...task.validationRules, ...plan.validationCriteria])),
+      memoryReferences: Array.from(new Set([
+        ...task.memoryReferences,
+        ...(plan.contextSnapshot?.memoryReferences.map((reference) => reference.id) ?? []),
+      ])),
       checkpoints: [...task.checkpoints, `Plan ${plan.id} attached at ${new Date().toISOString()}`],
     }));
   }

@@ -115,6 +115,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/components/layout/Header.tsx` | Üst bar, model ve yeni sohbet aksiyonları |
 | `src/edith/serverRegistry.ts` | Backend merkezli tool registry |
 | `src/edith/intent.ts` | Kullanıcı isteğini sınıflandıran IntentService |
+| `src/edith/contextService.ts` | Memory, task, tool, tool-run ve audit verilerinden güvenli context snapshot üretimi |
 | `src/edith/taskService.ts` | Kalıcı görev servis katmanı |
 | `src/edith/planner.ts` | Structured Planner foundation |
 | `src/edith/executor.ts` | Görev adımlarını çalıştırma foundation |
@@ -329,6 +330,7 @@ Kullanıcı amacı
 | Tool registry sync | Hazır | Backend registry frontend için authoritative kaynak oldu |
 | Tool execution hardening | Hazır | Validation, timeout, risk gate ve audit güçlendirildi |
 | IntentService | Hazır | Kullanıcı isteğini sınıflandırma temeli |
+| ContextService | Hazır | Memory V2, task, tool, tool-run ve audit verilerinden güvenli planlama context'i üretir |
 | TaskService | Hazır | Kalıcı task oluşturma ve yönetim temeli |
 | Planner | Hazır | Structured plan üretme temeli |
 | Executor | Hazır | Plan adımlarını kontrollü çalıştırma temeli |
@@ -576,6 +578,7 @@ Market Data
 | Agent architecture | Capability tabanlı agent registry temeli eklendi |
 | Mark-L adapter | Mark-L entegrasyonu için güvenli adapter temeli eklendi |
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
+| ContextService | Planner için güvenli memory/task/tool/audit context snapshot temeli eklendi |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
@@ -602,6 +605,7 @@ npm run test:edith-recovery
 npm run test:edith-agents
 npm run test:edith-mark-l
 npm run test:edith-memory-v2
+npm run test:edith-context-service
 npm run test:edith-model-router
 npm run test:edith-knowledge-map
 npm run test:edith-kill-switch
@@ -629,6 +633,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Planner / Executor / Verifier | Foundation hazır |
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
+| ContextService | Planner'a bağlı foundation hazır; chat prompt assembly entegrasyonu sıradaki iş |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
@@ -644,7 +649,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 Öncelikli teknik işler:
 
 1. Memory V2'nin frontend Bellek paneline bağlanması.
-2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
+2. ContextService'in chat prompt assembly tarafına kontrollü ve limitli şekilde bağlanması.
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 5. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.

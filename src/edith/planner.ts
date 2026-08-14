@@ -1,5 +1,6 @@
 import type { EdithPlan, EdithPlanStep, EdithRiskLevel, EdithTask } from './core';
 import { agentRegistryService } from './agentRegistry';
+import { contextService } from './contextService';
 import { getEdithToolHealth } from './serverRegistry';
 import { taskService } from './taskService';
 
@@ -70,6 +71,11 @@ export class PlannerService {
   }
 
   createPlan(task: EdithTask): EdithPlan {
+    const contextSnapshot = contextService.build({
+      query: `${task.objective} ${task.originalUserRequest}`,
+      taskId: task.id,
+      actor: 'edith-planner',
+    });
     const inferredTools = inferTools(`${task.objective} ${task.originalUserRequest}`);
     const requiredTools = unique([...task.toolsRequired, ...inferredTools]);
     const requiredPermissions = unique([...task.permissionsRequired, ...permissionsForTools(requiredTools)]);
@@ -92,8 +98,10 @@ export class PlannerService {
       requiredTools,
       requiredPermissions,
       requiredAgents,
+      contextSnapshot,
       validationCriteria: unique([
         ...task.validationRules,
+        `Context snapshot ${contextSnapshot.id} was built before planning.`,
         'All planned steps have completed or been explicitly skipped.',
         'Task result addresses the original objective.',
         'Audit events exist for tool-backed execution.',
@@ -121,12 +129,15 @@ export class PlannerService {
       {
         id: stepId(0, 'context'),
         title: 'Gather context',
-        objective: `Review objective and known task context for: ${task.objective}`,
+        objective: `Review objective, memory references, related tasks, tools, and audit context for: ${task.objective}`,
         status: 'READY',
         dependsOn: [],
         suggestedTools: [],
         requiredPermissions: [],
-        validationCriteria: ['Objective and constraints are understood.'],
+        validationCriteria: [
+          'Objective and constraints are understood.',
+          'Relevant safe memory and operational context has been selected.',
+        ],
         riskLevel: 0,
       },
     ];
