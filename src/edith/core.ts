@@ -1,3 +1,5 @@
+import { permissionService } from './permissionService';
+
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
 export type EdithPlanStepStatus = 'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
@@ -298,14 +300,16 @@ export class EdithToolRegistry {
   }
 
   private assertPermission(tool: EdithRegisteredTool, context: EdithToolExecutionContext): void {
-    const missing = tool.metadata.requiredPermissions.filter(
-      (permission) => !context.authorizedPermissions.includes(permission)
-    );
-    if (missing.length > 0) {
+    const decision = permissionService.decideToolExecution({
+      tool,
+      actor: context.actor,
+      authorizedPermissions: context.authorizedPermissions,
+    });
+    if (decision.status === 'DENY') {
       throw new EdithPermissionError(
-        `Missing permissions for ${tool.id}: ${missing.join(', ')}`,
-        missing,
-        tool.metadata.riskLevel
+        decision.rationale,
+        decision.missingPermissions,
+        decision.riskLevel
       );
     }
   }

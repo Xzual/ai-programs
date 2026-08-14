@@ -93,6 +93,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/edith/modelRouter.ts` | Ollama / Gemini / mock provider route temeli |
 | `src/edith/knowledgeMapService.ts` | Gerçek EDITH state'inden Knowledge Map graph snapshot üretimi |
 | `src/edith/killSwitch.ts` | Backend-enforced emergency stop state ve gate servisi |
+| `src/edith/permissionService.ts` | Tool execution izin/risk kararlarını merkezileştiren servis |
 | `src/edith/persistence/` | SQLite ve JSON persistence katmanı |
 
 ---
@@ -306,6 +307,7 @@ Kullanıcı amacı
 | ModelRouter | Hazır | Ollama / Gemini / mock fallback sırasını capability ve privacy ipuçlarıyla merkezileştiren temel |
 | Knowledge Map Real Data | Hazır | Persisted task, memory, tool, audit, agent ve model-router node'larından graph snapshot üretir |
 | Kill Switch | Hazır | Yeni task ve tool execution yollarını backend tarafında durduran, EDITH Ops üzerinden yönetilebilen emergency stop temeli |
+| PermissionService | Hazır | Tool permission kararlarını, high-risk gate'i ve health missing-permission hesabını merkezileştirir |
 
 ---
 
@@ -544,6 +546,7 @@ Market Data
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
+| PermissionService | Tool izin kararları structured decision olarak merkezileştirildi ve denied sonuçlara eklendi |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -569,6 +572,7 @@ npm run test:edith-memory-v2
 npm run test:edith-model-router
 npm run test:edith-knowledge-map
 npm run test:edith-kill-switch
+npm run test:edith-permission-service
 ```
 
 Bu testler EDITH servislerinin temel regression davranışlarını korumak için eklenmiştir.
@@ -595,6 +599,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
+| PermissionService | Foundation hazır; kalıcı izin grantleri ve EDITH Ops permission review sıradaki işler |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -610,6 +615,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 5. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
+6. PermissionService için kalıcı, süreli ve scope'lu izin grant modeli eklenmesi.
 6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
 8. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.

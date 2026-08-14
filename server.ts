@@ -19,6 +19,7 @@ import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { knowledgeMapService } from "./src/edith/knowledgeMapService";
 import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch";
+import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from "./src/edith/permissionService";
 import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
 import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
 
@@ -221,6 +222,18 @@ app.get("/api/edith/kill-switch", (_req, res) => {
   res.json({
     success: true,
     state: killSwitchService.status(),
+  });
+});
+
+app.get("/api/edith/permissions/policy", (_req, res) => {
+  res.json({
+    success: true,
+    policy: {
+      highRiskEnabled: permissionService.highRiskEnabled(),
+      defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
+      highRiskPermissions: HIGH_RISK_PERMISSIONS,
+      authorizedPermissions: permissionService.defaultAuthorizedPermissions(),
+    },
   });
 });
 

@@ -14,23 +14,11 @@ import { createStoredTask } from './taskStore';
 import { getEdithPersistenceStore } from './persistence';
 import { markLAdapterService } from './markLAdapter';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
+import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from './permissionService';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
-export const DEFAULT_LOCAL_PERMISSIONS = [
-  'system:read',
-  'network:read',
-  'file:read',
-  'system:notify',
-];
-
-const HIGH_RISK_ENABLED = process.env.EDITH_ENABLE_HIGH_RISK_TOOLS === 'true';
-const HIGH_RISK_PERMISSIONS = [
-  'system:exec',
-  'file:write',
-  'browser:control',
-  'computer:control',
-];
+export { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS };
 
 export type EdithToolHealthState = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE';
 
@@ -65,18 +53,13 @@ function safeResultText(result: EdithToolResult): string {
 }
 
 export function getEdithToolHealth(): EdithToolHealth[] {
-  const defaultPermissions = HIGH_RISK_ENABLED
-    ? [...DEFAULT_LOCAL_PERMISSIONS, ...HIGH_RISK_PERMISSIONS]
-    : DEFAULT_LOCAL_PERMISSIONS;
-
   return edithToolRegistry.list().map(({ id, metadata }) => {
-    const missingPermissions = metadata.requiredPermissions.filter(
-      (permission) => !defaultPermissions.includes(permission)
-    );
-    const highRisk = metadata.riskLevel >= 3 ||
-      metadata.requiredPermissions.some((permission) =>
-        HIGH_RISK_PERMISSIONS.includes(permission)
-      );
+    const registeredTool = edithToolRegistry.get(id);
+    const decision = registeredTool
+      ? permissionService.decideToolExecution({ tool: registeredTool, actor: 'edith-tool-health' })
+      : undefined;
+    const missingPermissions = decision?.missingPermissions ?? metadata.requiredPermissions;
+    const highRisk = decision?.highRisk ?? permissionService.isHighRisk({ metadata });
     const enabled = missingPermissions.length === 0;
     const state: EdithToolHealthState = enabled
       ? metadata.dependencies.length > 0
@@ -134,7 +117,7 @@ function openUrl(url: string): void {
 }
 
 function highRiskUnavailable(toolId: string): EdithToolResult | null {
-  if (HIGH_RISK_ENABLED) return null;
+  if (permissionService.highRiskEnabled()) return null;
   return {
     success: false,
     toolId,
@@ -635,9 +618,7 @@ export async function executeEdithTool(
     dryRun: context.dryRun,
     authorizedPermissions:
       context.authorizedPermissions ??
-      (HIGH_RISK_ENABLED
-        ? [...DEFAULT_LOCAL_PERMISSIONS, ...HIGH_RISK_PERMISSIONS]
-        : DEFAULT_LOCAL_PERMISSIONS),
+      permissionService.defaultAuthorizedPermissions(),
   };
 
   if (!tool) {
@@ -728,6 +709,13 @@ export async function executeEdithTool(
     const denied = error instanceof EdithPermissionError;
     const invalid = error instanceof EdithToolValidationError;
     const timedOut = error instanceof EdithToolTimeoutError;
+    const permissionDecision = denied
+      ? permissionService.decideToolExecution({
+          tool,
+          actor: executionContext.actor,
+          authorizedPermissions: executionContext.authorizedPermissions,
+        })
+      : undefined;
     const finishedAtMs = Date.now();
     const finishedAt = new Date(finishedAtMs).toISOString();
     const audit = createAuditEvent({
@@ -757,7 +745,7 @@ export async function executeEdithTool(
         ? 'TIMEOUT'
         : 'TOOL_ERROR',
       structuredOutput: denied
-        ? { missingPermissions: error.missingPermissions }
+        ? { missingPermissions: error.missingPermissions, permissionDecision }
         : invalid
         ? { validationErrors: error.validationErrors }
         : timedOut
