@@ -16,6 +16,7 @@
     "test:edith-agents": "tsx scripts/test-edith-agents.ts",
     "test:edith-mark-l": "tsx scripts/test-edith-mark-l.ts",
     "test:edith-memory-v2": "tsx scripts/test-edith-memory-v2.ts",
+    "test:edith-model-router": "tsx scripts/test-edith-model-router.ts",
     "test:edith-task-service": "tsx scripts/test-edith-task-service.ts",
     "test:edith-planner": "tsx scripts/test-edith-planner.ts",
     "test:edith-executor": "tsx scripts/test-edith-executor.ts",

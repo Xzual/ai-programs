@@ -15,7 +15,7 @@ AURA / E.D.I.T.H, kullanıcının kendi bilgisayarında çalışan görsel, sesl
 
 Mevcut uygulama sohbet, kod sohbeti, sesli giriş/çıkış, bellek paneli, Knowledge Map, otomasyon araçları, EDITH Ops, entegrasyonlar, ayarlar ve Three.js tabanlı canlı yapay zeka çekirdeği içerir.
 
-Son geliştirmelerde özellikle mimari temel güçlendirildi: SQLite persistence, backend merkezli tool registry, IntentService, TaskService, Planner, Executor, Verifier, Recovery, Agent Registry, Mark-L adapter ve Memory V2 foundation eklendi.
+Son geliştirmelerde özellikle mimari temel güçlendirildi: SQLite persistence, backend merkezli tool registry, IntentService, TaskService, Planner, Executor, Verifier, Recovery, Agent Registry, Mark-L adapter, Memory V2 ve ModelRouter foundation eklendi.
 
 ---
 
@@ -90,6 +90,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/edith/agentRegistry.ts` | Agent mimarisi foundation |
 | `src/edith/markLAdapter.ts` | Mark-L entegrasyon adapter temeli |
 | `src/edith/memoryService.ts` | Memory V2 servis temeli |
+| `src/edith/modelRouter.ts` | Ollama / Gemini / mock provider route temeli |
 | `src/edith/persistence/` | SQLite ve JSON persistence katmanı |
 
 ---
@@ -300,6 +301,7 @@ Kullanıcı amacı
 | Agent Registry | Hazır | Agent seçimi ve capability modeli temeli |
 | Mark-L Adapter | Hazır | Mark-L'i güvenli capability provider olarak bağlama temeli |
 | Memory V2 | Hazırlanıyor / eklendi | Typed, scoped, provenance-aware server-side memory servisi |
+| ModelRouter | Hazır | Ollama / Gemini / mock fallback sırasını capability ve privacy ipuçlarıyla merkezileştiren temel |
 
 ---
 
@@ -535,6 +537,7 @@ Market Data
 | Agent architecture | Capability tabanlı agent registry temeli eklendi |
 | Mark-L adapter | Mark-L entegrasyonu için güvenli adapter temeli eklendi |
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
+| ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -557,6 +560,7 @@ npm run test:edith-recovery
 npm run test:edith-agents
 npm run test:edith-mark-l
 npm run test:edith-memory-v2
+npm run test:edith-model-router
 ```
 
 Bu testler EDITH servislerinin temel regression davranışlarını korumak için eklenmiştir.
@@ -580,6 +584,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Planner / Executor / Verifier | Foundation hazır |
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
+| ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -592,7 +597,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 
 1. Memory V2'nin frontend Bellek paneline bağlanması.
 2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
-3. ModelRouter foundation: Ollama / Gemini / mock seçimini capability, gizlilik, latency ve task tipine göre yönetmek.
+3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in gerçek persisted memory/task/tool/audit ilişkilerini göstermesi.
 5. Kill switch modelinin backend-enforced hale getirilmesi.
 6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.

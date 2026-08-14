@@ -68,5 +68,5 @@ npm run build
 1. Add ContextService for memory/task/tool context selection.
 2. Add TaskService facade over persisted tasks and future task steps.
 3. Add CapabilityService to reason over tool health and permissions.
-4. Add ModelRouter facade while preserving Ollama -> Gemini -> mock fallback.
+4. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
 5. Route complex objectives to a structured Planner instead of directly creating only a task shell.

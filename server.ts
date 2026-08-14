@@ -16,7 +16,9 @@ import { verificationService } from "./src/edith/verifier";
 import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
 import { memoryService } from "./src/edith/memoryService";
-import type { MemoryScope, MemoryType } from "./src/types";
+import { modelRouterService } from "./src/edith/modelRouter";
+import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
+import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -145,6 +147,41 @@ app.post("/api/edith/agents/route", (req, res) => {
     permissionsRequired: Array.isArray(req.body?.permissionsRequired) ? req.body.permissionsRequired : [],
   });
   res.json({ success: true, routes });
+});
+
+const MODEL_TASK_TYPES = new Set<EdithModelTaskType>(['conversation', 'classification', 'planning', 'verification', 'coding', 'vision', 'voice']);
+const MODEL_MODALITIES = new Set<EdithModelModality>(['text', 'image', 'audio', 'screen']);
+const MODEL_PRIVACY_PREFERENCES = new Set<EdithPrivacyPreference>(['local_first', 'cloud_allowed', 'offline_only']);
+
+function parseAiProvider(value: unknown): AiProvider | undefined {
+  return value === 'ollama' || value === 'gemini' || value === 'mock' ? value : undefined;
+}
+
+function parseModelTaskType(value: unknown): EdithModelTaskType | undefined {
+  return typeof value === 'string' && MODEL_TASK_TYPES.has(value as EdithModelTaskType) ? value as EdithModelTaskType : undefined;
+}
+
+function parseModelModality(value: unknown): EdithModelModality | undefined {
+  return typeof value === 'string' && MODEL_MODALITIES.has(value as EdithModelModality) ? value as EdithModelModality : undefined;
+}
+
+function parsePrivacyPreference(value: unknown): EdithPrivacyPreference | undefined {
+  return typeof value === 'string' && MODEL_PRIVACY_PREFERENCES.has(value as EdithPrivacyPreference) ? value as EdithPrivacyPreference : undefined;
+}
+
+app.get("/api/edith/models/route", (req, res) => {
+  const route = modelRouterService.route({
+    requestedProvider: parseAiProvider(req.query.provider),
+    model: typeof req.query.model === 'string' ? req.query.model : undefined,
+    taskType: parseModelTaskType(req.query.taskType),
+    modality: parseModelModality(req.query.modality),
+    privacyPreference: parsePrivacyPreference(req.query.privacy),
+    providerHealth: {
+      gemini: getGeminiClient() ? 'available' : 'unavailable',
+      mock: 'available',
+    },
+  });
+  res.json({ success: true, route });
 });
 
 app.get("/api/edith/skill-catalog", (_req, res) => {
@@ -418,6 +455,18 @@ app.post("/api/chat", async (req, res) => {
       memories.map((m: any) => `- [${m.category}] ${m.key}: ${m.value}`).join("\n");
   }
 
+  const modelRoute = modelRouterService.route({
+    requestedProvider: provider,
+    model,
+    taskType: "conversation",
+    modality: "text",
+    privacyPreference: provider === "mock" ? "offline_only" : "local_first",
+    providerHealth: {
+      gemini: getGeminiClient() ? "available" : "unavailable",
+      mock: "available",
+    },
+  });
+
   const lastUserMessage = [...messages].reverse().find((m: any) => m.sender === "user")?.text ?? "";
   const intent = intentService.understand(lastUserMessage);
   const toolRoute = intent.route;
@@ -452,8 +501,8 @@ app.post("/api/chat", async (req, res) => {
     return res.end();
   }
 
-  // Attempt Ollama standard streaming if provider is ollama
-  if (provider === "ollama") {
+  // Attempt Ollama standard streaming when the model route includes the local provider.
+  if (modelRouterService.shouldAttempt(modelRoute, "ollama")) {
     try {
       const formattedMessages = [
         { role: "system", content: fullSystem },
@@ -470,7 +519,7 @@ app.post("/api/chat", async (req, res) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model,
+          model: modelRoute.candidates.find((candidate) => candidate.provider === "ollama")?.model ?? model,
           messages: formattedMessages,
           options: { temperature },
           stream: true,
@@ -516,7 +565,7 @@ app.post("/api/chat", async (req, res) => {
   }
 
   // Fallback 1: Gemini API
-  const gemini = getGeminiClient();
+  const gemini = modelRouterService.shouldAttempt(modelRoute, "gemini") ? getGeminiClient() : null;
   if (gemini) {
     try {
       const historyStr = messages
