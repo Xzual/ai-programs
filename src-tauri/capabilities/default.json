@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "AURA default capability set",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "http:default"
+  ]
+}

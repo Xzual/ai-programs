@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kripto Trading Agent — Live Dashboard</title>
+    <meta name="description" content="Otonom yapay zeka kripto trading agent web arayüzü — canlı portföy, kararlar, piyasa analizi ve haberler.">
+    <meta name="ngrok-skip-browser-warning" content="true">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        /* ── Tokens ─────────────────────────────────────────────── */
+        :root {
+            --bg:      #070c1a;
+            --surface: rgba(13, 20, 40, 0.75);
+            --border:  rgba(255,255,255,0.06);
+            --purple:  #9f7aea;
+            --blue:    #63b3ed;
+            --green:   #48bb78;
+            --red:     #fc8181;
+            --yellow:  #ecc94b;
+            --text:    #e2e8f0;
+            --muted:   #718096;
+            --mono:    'JetBrains Mono', monospace;
+        }
+
+        /* ── Reset ──────────────────────────────────────────────── */
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        html{scroll-behavior:smooth}
+        body{
+            font-family:'Inter',sans-serif;
+            background:var(--bg);
+            color:var(--text);
+            min-height:100vh;
+            overflow-x:hidden;
+        }
+
+        /* Animated starfield BG */
+        body::before{
+            content:'';
+            position:fixed;
+            inset:0;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 10%, rgba(99,81,234,0.12), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(16,185,129,0.08), transparent);
+            pointer-events:none;
+            z-index:0;
+        }
+
+        /* ── Scroll ─────────────────────────────────────────────── */
+        ::-webkit-scrollbar{width:5px;height:5px}
+        ::-webkit-scrollbar-track{background:transparent}
+        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:4px}
+        ::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.15)}
+
+        /* ── Layout ─────────────────────────────────────────────── */
+        #app{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh}
+
+        /* ── Glass card ─────────────────────────────────────────── */
+        .card{
+            background:var(--surface);
+            backdrop-filter:blur(16px);
+            border:1px solid var(--border);
+            border-radius:16px;
+            transition:border-color .25s,box-shadow .25s;
+        }
+        .card:hover{border-color:rgba(159,122,234,0.2);box-shadow:0 0 0 1px rgba(159,122,234,0.08),0 16px 40px rgba(0,0,0,0.3)}
+
+        /* ── Header ─────────────────────────────────────────────── */
+        header{
+            position:sticky;top:0;z-index:100;
+            border-bottom:1px solid var(--border);
+            backdrop-filter:blur(24px);
+            background:rgba(7,12,26,0.85);
+        }
+        .header-inner{
+            max-width:1600px;margin:0 auto;
+            display:flex;align-items:center;justify-content:space-between;
+            padding:.9rem 2rem;gap:1rem;
+        }
+        .logo{
+            display:flex;align-items:center;gap:.75rem;
+            font-family:'Montserrat',sans-serif;font-weight:800;font-size:1.1rem;
+            letter-spacing:-.02em;
+            background:linear-gradient(135deg,#fff 30%,var(--purple));
+            -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+        }
+        .logo-icon{
+            width:36px;height:36px;border-radius:10px;
+            background:linear-gradient(135deg,#6c3de8,#3b82f6);
+            display:flex;align-items:center;justify-content:center;
+            font-size:.95rem;color:#fff;flex-shrink:0;
+            box-shadow:0 0 20px rgba(108,61,232,0.4);
+        }
+        .status-pill{
+            display:flex;align-items:center;gap:.5rem;
+            font-size:.7rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+            padding:.35rem .75rem;border-radius:9999px;
+            background:rgba(72,187,120,0.12);border:1px solid rgba(72,187,120,0.25);
+            color:var(--green);
+        }
+        .status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+        .meta-chips{display:flex;gap:.5rem;flex-wrap:wrap}
+        .chip{
+            display:flex;align-items:center;gap:.4rem;
+            padding:.3rem .7rem;border-radius:8px;font-size:.72rem;font-weight:500;
+            background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--muted);
+        }
+        .chip span.val{color:var(--text);font-weight:600}
+
+        /* ── Tabs ────────────────────────────────────────────────── */
+        .tabs-bar{
+            display:flex;gap:0;
+            border-bottom:1px solid var(--border);
+            padding:0 2rem;
+            max-width:1600px;margin:0 auto;
+            overflow-x:auto;
+        }
+        .tab-btn{
+            display:flex;align-items:center;gap:.5rem;
+            padding:.75rem 1.2rem;font-size:.8rem;font-weight:600;
+            color:var(--muted);border:none;background:none;cursor:pointer;
+            border-bottom:2px solid transparent;margin-bottom:-1px;
+            transition:color .2s,border-color .2s;white-space:nowrap;
+        }
+        .tab-btn:hover{color:var(--text)}
+        .tab-btn.active{color:var(--purple);border-bottom-color:var(--purple)}
+        .tab-btn i{font-size:.9em}
+
+        /* ── Main ────────────────────────────────────────────────── */
+        main{flex:1;max-width:1600px;margin:0 auto;width:100%;padding:1.5rem 2rem 3rem}
+
+        /* ── Tab panels ─────────────────────────────────────────── */
+        .tab-panel{display:none}
+        .tab-panel.active{display:block}
+
+        /* ── Grid helpers ───────────────────────────────────────── */
+        .grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:1.25rem}
+        .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1.25rem}
+        .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:1.25rem}
+        .grid-auto{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1.25rem}
+        @media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr)}}
+        @media(max-width:900px){.grid-3,.grid-2{grid-template-columns:1fr}}
+        @media(max-width:700px){.grid-4{grid-template-columns:1fr}.tabs-bar{padding:0 1rem}main{padding:1rem 1rem 3rem}}
+
+        /* ── Stat card ──────────────────────────────────────────── */
+        .stat-card{padding:1.25rem 1.4rem}
+        .stat-label{font-size:.7rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem}
+        .stat-value{font-family:'Montserrat',sans-serif;font-size:1.7rem;font-weight:800;line-height:1}
+        .stat-sub{font-size:.72rem;color:var(--muted);margin-top:.4rem}
+
+        /* ── Section header ─────────────────────────────────────── */
+        .section-header{
+            display:flex;align-items:center;justify-content:space-between;
+            margin-bottom:1rem;padding-bottom:.75rem;
+            border-bottom:1px solid var(--border);
+        }
+        .section-title{font-size:.75rem;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:.5rem}
+        .section-title i{font-size:.9em}
+        .section-badge{font-size:.65rem;font-weight:600;color:var(--muted);background:rgba(255,255,255,0.05);padding:.2rem .55rem;border-radius:6px}
+
+        /* ── Action badge ───────────────────────────────────────── */
+        .badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:6px;font-size:.68rem;font-weight:700;letter-spacing:.04em}
+        .badge-buy{background:rgba(72,187,120,.15);color:var(--green);border:1px solid rgba(72,187,120,.25)}
+        .badge-sell{background:rgba(252,129,129,.15);color:var(--red);border:1px solid rgba(252,129,129,.25)}
+        .badge-hold{background:rgba(113,128,144,.1);color:var(--muted);border:1px solid rgba(113,128,144,.15)}
+        .badge-bullish{background:rgba(72,187,120,.12);color:var(--green)}
+        .badge-bearish{background:rgba(252,129,129,.12);color:var(--red)}
+        .badge-neutral{background:rgba(113,128,144,.1);color:var(--muted)}
+
+        /* ── Tables ─────────────────────────────────────────────── */
+        .table-wrap{overflow-x:auto}
+        table{width:100%;border-collapse:collapse;font-size:.8rem}
+        thead th{padding:.65rem .8rem;text-align:left;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
+        tbody tr{border-bottom:1px solid rgba(255,255,255,.03);transition:background .15s}
+        tbody tr:hover{background:rgba(255,255,255,.03)}
+        tbody td{padding:.7rem .8rem;vertical-align:middle}
+        .mono{font-family:var(--mono);font-size:.78rem}
+
+        /* ── Positions list ─────────────────────────────────────── */
+        .position-card{
+            padding:.9rem 1rem;border-radius:12px;
+            background:rgba(255,255,255,.03);border:1px solid var(--border);
+            display:flex;justify-content:space-between;align-items:center;gap:1rem;
+            margin-bottom:.6rem;
+        }
+        .position-card:last-child{margin-bottom:0}
+
+        /* ── News item ──────────────────────────────────────────── */
+        .news-item{
+            display:flex;flex-direction:column;gap:.3rem;
+            padding:.9rem 0;border-bottom:1px solid var(--border);
+        }
+        .news-item:last-child{border-bottom:none}
+        .news-source{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--purple)}
+        .news-title{font-size:.85rem;font-weight:500;line-height:1.4}
+        .news-title a{color:var(--text);text-decoration:none;transition:color .2s}
+        .news-title a:hover{color:var(--purple)}
+        .news-time{font-size:.65rem;color:var(--muted);font-family:var(--mono)}
+
+        /* ── Market coin card ───────────────────────────────────── */
+        .coin-card{padding:1.1rem 1.2rem}
+        .coin-name{font-size:.72rem;font-weight:700;color:var(--muted);letter-spacing:.04em;margin-bottom:.25rem}
+        .coin-price{font-family:'Montserrat',sans-serif;font-weight:800;font-size:1.25rem;margin-bottom:.6rem}
+        .coin-indicators{display:flex;flex-wrap:wrap;gap:.4rem}
+        .ind{font-size:.67rem;font-weight:600;padding:.2rem .5rem;border-radius:6px;background:rgba(255,255,255,.05);color:var(--muted)}
+
+        /* ── PnL colors ─────────────────────────────────────────── */
+        .pos{color:var(--green)}
+        .neg{color:var(--red)}
+
+        /* ── Chart container ────────────────────────────────────── */
+        .chart-box{position:relative;height:220px}
+        .chart-box-tall{position:relative;height:280px}
+
+        /* ── Analysis log ───────────────────────────────────────── */
+        .log-item{
+            padding:.85rem;border-radius:12px;
+            background:rgba(255,255,255,.025);border:1px solid var(--border);
+            margin-bottom:.6rem;
+        }
+        .log-item:last-child{margin-bottom:0}
+        .log-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:.35rem}
+        .log-type{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--purple)}
+        .log-ts{font-size:.65rem;color:var(--muted);font-family:var(--mono)}
+        .log-content{font-size:.8rem;color:var(--text);line-height:1.5}
+        .log-lesson{font-size:.72rem;color:var(--muted);margin-top:.35rem;line-height:1.45}
+
+        /* ── No-data state ──────────────────────────────────────── */
+        .empty-state{
+            display:flex;flex-direction:column;align-items:center;justify-content:center;
+            padding:3rem 1rem;color:var(--muted);gap:.6rem;font-size:.85rem;
+        }
+        .empty-state i{font-size:2rem;opacity:.3}
+
+        /* ── Brain map ───────────────────────────────────────────── */
+        .brain-panel{padding:1.25rem; margin-bottom:1.25rem; overflow:hidden}
+        .brain-scene{
+            position:relative; min-height:300px; display:grid; place-items:center; perspective:1200px;
+            background:
+                radial-gradient(circle at center, rgba(99,81,234,0.18), transparent 36%),
+                linear-gradient(135deg, rgba(99,81,234,0.08), transparent 55%, rgba(32,202,255,0.04));
+            border:1px solid rgba(255,255,255,.04); border-radius:16px; padding:1rem; transform-style:preserve-3d;
+            animation:sceneFloat 8s ease-in-out infinite;
+            overflow:hidden;
+        }
+        .brain-scene::before,
+        .brain-scene::after{
+            content:''; position:absolute; inset:10% 15%; border-radius:50%; border:1px solid rgba(99,81,234,.12); transform:rotateX(70deg);
+        }
+        .brain-scene::after{ inset:18% 25%; border-color:rgba(32,202,255,.12); }
+        @keyframes sceneFloat{0%,100%{transform:rotateX(10deg) rotateY(-12deg)}50%{transform:rotateX(-8deg) rotateY(12deg)}}
+        .brain-core-wrap{
+            position:relative; width:min(52vw, 420px); height:250px; display:grid; place-items:center; transform-style:preserve-3d;
+        }
+        .brain-orbit{position:absolute; border:1px solid rgba(159,122,234,0.25); border-radius:50%; transform-style:preserve-3d;}
+        .orbit-1{width:100%; height:100%; transform:rotateX(65deg) rotateY(12deg); box-shadow:0 0 35px rgba(99,81,234,0.12); animation:orbitSpin 22s linear infinite;}
+        .orbit-2{width:72%; height:72%; transform:rotateY(30deg) rotateX(60deg) rotateZ(18deg); box-shadow:0 0 30px rgba(99,81,234,0.15); animation:orbitSpinReverse 18s linear infinite;}
+        .orbit-3{width:46%; height:46%; transform:rotateY(-28deg) rotateX(58deg) rotateZ(-18deg); box-shadow:0 0 25px rgba(99,81,234,0.18); animation:orbitSpin 12s linear infinite;}
+        @keyframes orbitSpin {from{transform:rotateX(65deg) rotateY(0deg) rotateZ(0deg)}to{transform:rotateX(65deg) rotateY(360deg) rotateZ(360deg)}}
+        @keyframes orbitSpinReverse {from{transform:rotateY(30deg) rotateX(60deg) rotateZ(18deg)}to{transform:rotateY(-330deg) rotateX(60deg) rotateZ(-342deg)}}
+        .brain-core{
+            position:relative; width:148px; height:148px; border-radius:50%;
+            background:radial-gradient(circle at 30% 30%, rgba(255,255,255,0.32), rgba(99,81,234,0.98) 28%, rgba(20,28,51,0.95) 70%);
+            border:1px solid rgba(255,255,255,0.15); box-shadow:0 0 60px rgba(99,81,234,0.85), 0 0 120px rgba(99,81,234,0.35), inset 0 0 30px rgba(124,92,255,0.45);
+            display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.5rem; z-index:2;
+            animation:floatBrain 4s ease-in-out infinite;
+        }
+        @keyframes floatBrain{0%,100%{transform:translateY(0px) scale(1) rotateZ(0deg);}50%{transform:translateY(-8px) scale(1.03) rotateZ(2deg)}}
+        .brain-core i{font-size:2.2rem; color:#fff; opacity:.9; text-shadow:0 0 14px rgba(255,255,255,.9)}
+        .brain-core-label{font-size:.63rem; letter-spacing:.13em; text-transform:uppercase; color:rgba(255,255,255,.92); text-align:center; line-height:1.5; text-shadow:0 0 12px rgba(159,122,234,.9)}
+        .brain-node{
+            position:absolute; width:170px; min-height:72px; padding:.75rem .8rem; border-radius:14px;
+            background:rgba(11,17,31,0.78); border:1px solid rgba(255,255,255,.08); box-shadow:0 10px 25px rgba(0,0,0,0.18);
+            backdrop-filter:blur(10px); transition:all .25s ease; transform:translate(-50%, -50%); cursor:pointer;
+            left:var(--x); top:var(--y); overflow:hidden;
+        }
+        .brain-node::before{content:''; position:absolute; inset:0; background:linear-gradient(135deg, rgba(159,122,234,0.16), transparent 55%, rgba(99,81,234,0.06)); opacity:.7;}
+        .brain-node.active{border-color:rgba(99,81,234,0.65); box-shadow:0 0 0 1px rgba(99,81,234,0.35), 0 0 22px rgba(99,81,234,0.38), 0 0 32px rgba(99,81,234,0.18); transform:translate(-50%, -50%) scale(1.02);}
+        .brain-node:hover{border-color:rgba(159,122,234,0.45); box-shadow:0 0 20px rgba(99,81,234,0.2)}
+        .brain-node .brain-node-title, .brain-node .brain-node-value{position:relative; z-index:1}
+        .brain-node .brain-node-title{display:flex; justify-content:space-between; align-items:center; gap:.5rem; font-size:.62rem; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:.35rem}
+        .brain-node .brain-node-value{font-size:.76rem; line-height:1.4; color:var(--text); font-weight:600}
+        .brain-node .brain-node-dot{width:9px; height:9px; border-radius:50%; background:var(--purple); box-shadow:0 0 18px rgba(159,122,234,1), 0 0 26px rgba(159,122,234,0.8)}
+        .brain-node[data-type="news"] .brain-node-dot{background:var(--blue); box-shadow:0 0 18px rgba(99,175,255,1), 0 0 26px rgba(99,175,255,0.8)}
+        .brain-node[data-type="decision"] .brain-node-dot{background:var(--green); box-shadow:0 0 18px rgba(73,225,126,1), 0 0 26px rgba(73,225,126,0.8)}
+        .brain-node[data-type="risk"] .brain-node-dot{background:var(--yellow); box-shadow:0 0 18px rgba(255,215,92,1), 0 0 26px rgba(255,215,92,0.8)}
+        .brain-node[data-type="memory"] .brain-node-dot{background:var(--red); box-shadow:0 0 18px rgba(255,108,108,1), 0 0 26px rgba(255,108,108,0.8)}
+        .brain-detail-grid{display:grid; grid-template-columns:1.2fr 1fr; gap:1rem; margin-top:1rem}
+        .brain-detail-card{
+            background:rgba(11,17,31,0.7); border:1px solid rgba(255,255,255,.06); border-radius:12px;
+            padding:1rem; min-height:140px;
+        }
+        .brain-detail-card h4{font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:.8rem}
+        .brain-detail-list{display:flex; flex-direction:column; gap:.6rem}
+        .brain-detail-row{
+            display:flex; justify-content:space-between; align-items:center; gap:.5rem; padding:.55rem .7rem;
+            border:1px solid rgba(255,255,255,.05); background:rgba(255,255,255,.02); border-radius:10px;
+            color:var(--text); font-size:.76rem;
+        }
+        .brain-detail-row strong{color:var(--muted); font-weight:600; }
+        .model-commentary{display:flex; flex-direction:column; gap:.75rem; color:var(--text)}
+        .model-commentary .commentary-block{padding:.8rem .85rem; border:1px solid rgba(255,255,255,.05); background:rgba(255,255,255,.02); border-radius:12px}
+        .model-commentary .commentary-title{font-size:.62rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:.45rem}
+        .model-commentary .commentary-body{font-size:.78rem; line-height:1.6; color:var(--text)}
+        .brain-rationale{display:flex; flex-direction:column; gap:.7rem; color:var(--text)}
+        .brain-rationale .decision-badge{display:inline-block; width:max-content; padding:.45rem .7rem; border-radius:999px; font-size:.72rem; font-weight:800; letter-spacing:.08em;}
+        .decision-buy{background:rgba(72,187,120,.18); border:1px solid rgba(72,187,120,.35); color:var(--green)}
+        .decision-sell{background:rgba(252,129,129,.18); border:1px solid rgba(252,129,129,.35); color:var(--red)}
+        .decision-hold{background:rgba(113,128,144,.14); border:1px solid rgba(113,128,144,.2); color:var(--muted)}
+        .brain-rationale .reason-text{line-height:1.6; font-size:.78rem; color:var(--text)}
+
+        .brain-signal-bars{display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:.6rem; margin-top:.8rem}
+        .brain-signal-bar{padding:.5rem .6rem; border-radius:10px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.05)}
+        .brain-signal-label{font-size:.56rem; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:.4rem}
+        .brain-signal-meter{height:6px; border-radius:999px; background:rgba(255,255,255,.06); overflow:hidden}
+        .brain-signal-meter > span{display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg, var(--purple), var(--blue)); box-shadow:0 0 12px rgba(159,122,234,.8)}
+        .brain-signal-bar[data-tone="buy"] .brain-signal-meter > span{background:linear-gradient(90deg, #2ee589, #5ae4a4)}
+        .brain-signal-bar[data-tone="sell"] .brain-signal-meter > span{background:linear-gradient(90deg, #ff6b7d, #ff8b75)}
+        .brain-signal-bar[data-tone="risk"] .brain-signal-meter > span{background:linear-gradient(90deg, #f6c453, #f9e16e)}
+        .brain-signal-bar[data-tone="news"] .brain-signal-meter > span{background:linear-gradient(90deg, #56d3ff, #8fd3ff)}
+
+        @media(max-width:980px){
+            .brain-node{width:150px; min-height:68px;}
+            .brain-core-wrap{width:min(72vw, 420px);}
+            .brain-detail-grid{grid-template-columns:1fr;}
+            .brain-signal-bars{grid-template-columns:repeat(2, minmax(0,1fr));}
+        }
+        @media(max-width:700px){
+            .brain-scene{min-height:420px}
+            .brain-core-wrap{width:280px; height:220px}
+            .brain-node{width:140px; min-height:66px;}
+        }
+
+        /* ── Update pulse ───────────────────────────────────────── */
+        @keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+        .fade-in{animation:fadeIn .35s ease}
+    </style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── Header ───────────────────────────────────────────────────────────────── -->
+<header>
+    <div class="header-inner">
+        <div style="display:flex;align-items:center;gap:1rem">
+            <div class="logo">
+                <div class="logo-icon"><i class="fa-solid fa-robot"></i></div>
+                KRIPTO&nbsp;AGENT
+            </div>
+            <div class="status-pill">
+                <span class="status-dot"></span>
+                7/24 AKTİF
+            </div>
+        </div>
+
+        <div class="meta-chips">
+            <div class="chip"><i class="fa-solid fa-brain"></i>&nbsp;Model <span class="val" id="hd-model">—</span></div>
+            <div class="chip"><i class="fa-regular fa-clock"></i>&nbsp;Döngü <span class="val" id="hd-loop">—</span></div>
+            <div class="chip"><i class="fa-solid fa-chart-simple"></i>&nbsp;Paper Trading</div>
+            <div class="chip"><i class="fa-regular fa-circle-check" style="color:var(--green)"></i>&nbsp;Son güncelleme: <span class="val" id="hd-update">—</span></div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-bar">
+        <button class="tab-btn active" data-tab="dashboard" id="tab-dashboard">
+            <i class="fa-solid fa-gauge-high"></i> Dashboard
+        </button>
+        <button class="tab-btn" data-tab="markets" id="tab-markets">
+            <i class="fa-solid fa-chart-line"></i> Piyasalar
+        </button>
+        <button class="tab-btn" data-tab="trades" id="tab-trades">
+            <i class="fa-solid fa-arrow-right-arrow-left"></i> İşlemler
+        </button>
+        <button class="tab-btn" data-tab="decisions" id="tab-decisions">
+            <i class="fa-solid fa-gavel"></i> Kararlar
+        </button>
+        <button class="tab-btn" data-tab="news" id="tab-news">
+            <i class="fa-solid fa-newspaper"></i> Haberler
+        </button>
+        <button class="tab-btn" data-tab="analysis" id="tab-analysis">
+            <i class="fa-solid fa-brain"></i> Analiz / Öğrenme
+        </button>
+    </div>
+</header>
+
+<!-- ── Main ──────────────────────────────────────────────────────────────────── -->
+<main>
+
+    <!-- ════════ TAB: DASHBOARD ════════ -->
+    <div class="tab-panel active" id="panel-dashboard">
+
+        <!-- Stat Cards -->
+        <div class="grid-4" style="margin-bottom:1.25rem">
+            <div class="card stat-card">
+                <div class="stat-label"><i class="fa-solid fa-wallet" style="color:var(--purple)"></i> Bakiye</div>
+                <div class="stat-value" id="s-balance" style="color:var(--purple)">—</div>
+                <div class="stat-sub">USDT · Sanal Portföy</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label"><i class="fa-solid fa-percent" style="color:var(--blue)"></i> Kâr / Zarar</div>
+                <div class="stat-value" id="s-pnl-pct">—</div>
+                <div class="stat-sub" id="s-pnl-usdt">Başlangıçtan beri</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label"><i class="fa-solid fa-trophy" style="color:var(--yellow)"></i> Win Rate</div>
+                <div class="stat-value" id="s-winrate" style="color:var(--yellow)">—</div>
+                <div class="stat-sub" id="s-trades">Toplam kapalı işlem</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label"><i class="fa-solid fa-layer-group" style="color:var(--green)"></i> Açık Pozisyon</div>
+                <div class="stat-value" id="s-open-pos" style="color:var(--green)">—</div>
+                <div class="stat-sub">Anlık açık işlem sayısı</div>
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:1.25rem; gap:1.25rem">
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-shield-heart" style="color:var(--yellow)"></i> Risk Merkezi</div>
+                    <span class="section-badge" id="risk-level">Düşük</span>
+                </div>
+                <div id="risk-panel" class="brain-detail-list"></div>
+            </div>
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-cloud-sun-rain" style="color:var(--blue)"></i> Piyasa Duyarlılığı</div>
+                    <span class="section-badge" id="sentiment-overall">Neutral</span>
+                </div>
+                <div id="sentiment-grid" class="brain-detail-list"></div>
+            </div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom:1.25rem; gap:1.25rem">
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-clock-rotate-left" style="color:var(--purple)"></i> Karar Zaman Çizelgesi</div>
+                    <span class="section-badge" id="timeline-count">0 olay</span>
+                </div>
+                <div id="decision-timeline" class="brain-detail-list"></div>
+            </div>
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-table-columns" style="color:var(--green)"></i> Strateji Karşılaştırma</div>
+                    <span class="section-badge">A/B</span>
+                </div>
+                <div id="strategy-comparison" class="brain-detail-list"></div>
+            </div>
+        </div>
+
+        <div class="card" style="padding:1.25rem; margin-bottom:1.25rem">
+            <div class="section-header">
+                <div class="section-title"><i class="fa-solid fa-fire-flame-curved" style="color:var(--red)"></i> Risk Heatmap</div>
+                <span class="section-badge">Canlı</span>
+            </div>
+            <div id="risk-heatmap" class="brain-signal-bars"></div>
+        </div>
+
+        <div class="card brain-panel">
+            <div class="section-header">
+                <div class="section-title"><i class="fa-solid fa-brain" style="color:var(--purple)"></i> Model Beyni</div>
+                <span class="section-badge" id="brain-state">Analiz modu</span>
+            </div>
+            <div class="brain-scene">
+                <div class="brain-core-wrap">
+                    <div class="brain-orbit orbit-1"></div>
+                    <div class="brain-orbit orbit-2"></div>
+                    <div class="brain-orbit orbit-3"></div>
+                    <div class="brain-core">
+                        <i class="fa-solid fa-brain"></i>
+                        <div class="brain-core-label" id="brain-core-label">AKTİF</div>
+                    </div>
+                </div>
+                <div id="brain-nodes"></div>
+            </div>
+            <div class="brain-detail-grid">
+                <div class="brain-detail-card">
+                    <h4>Bilgi Akışı</h4>
+                    <div id="brain-detail-list" class="brain-detail-list"></div>
+                    <div class="brain-signal-bars">
+                        <div class="brain-signal-bar" data-tone="buy">
+                            <div class="brain-signal-label">BUY</div>
+                            <div class="brain-signal-meter"><span style="width:0%"></span></div>
+                        </div>
+                        <div class="brain-signal-bar" data-tone="sell">
+                            <div class="brain-signal-label">SELL</div>
+                            <div class="brain-signal-meter"><span style="width:0%"></span></div>
+                        </div>
+                        <div class="brain-signal-bar" data-tone="risk">
+                            <div class="brain-signal-label">RISK</div>
+                            <div class="brain-signal-meter"><span style="width:0%"></span></div>
+                        </div>
+                        <div class="brain-signal-bar" data-tone="news">
+                            <div class="brain-signal-label">NEWS</div>
+                            <div class="brain-signal-meter"><span style="width:0%"></span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="brain-detail-card">
+                    <h4>Modeli Yorumla</h4>
+                    <div id="decision-rationale-panel" class="model-commentary"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Equity Chart + Open Positions -->
+        <div class="grid-2" style="margin-bottom:1.25rem">
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-chart-area" style="color:var(--purple)"></i> Portföy Değeri</div>
+                </div>
+                <div class="chart-box-tall">
+                    <canvas id="equityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-briefcase" style="color:var(--blue)"></i> Açık Pozisyonlar</div>
+                    <span class="section-badge" id="pos-count">0 pozisyon</span>
+                </div>
+                <div id="positions-container">
+                    <div class="empty-state"><i class="fa-solid fa-inbox"></i>Açık pozisyon bulunmuyor</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Last 5 Decisions + Last 5 News -->
+        <div class="grid-2">
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-gavel" style="color:var(--purple)"></i> Son Kararlar</div>
+                    <a href="#" class="section-badge" data-goto="decisions">Tümünü gör →</a>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Coin</th><th>Karar</th><th>Güven</th><th>Zaman</th></tr></thead>
+                        <tbody id="mini-decisions"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card" style="padding:1.25rem">
+                <div class="section-header">
+                    <div class="section-title"><i class="fa-solid fa-newspaper" style="color:var(--blue)"></i> Son Haberler</div>
+                    <a href="#" class="section-badge" data-goto="news">Tümünü gör →</a>
+                </div>
+                <div id="mini-news"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════ TAB: MARKETS ════════ -->
+    <div class="tab-panel" id="panel-markets">
+        <div id="markets-grid" class="grid-auto"></div>
+    </div>
+
+    <!-- ════════ TAB: TRADES ════════ -->
+    <div class="tab-panel" id="panel-trades">
+        <div class="card" style="padding:1.25rem">
+            <div class="section-header">
+                <div class="section-title"><i class="fa-solid fa-receipt"></i> İşlem Geçmişi</div>
+                <span class="section-badge" id="trades-count">—</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Zaman</th>
+                            <th>Coin</th>
+                            <th>Yön</th>
+                            <th>Fiyat</th>
+                            <th>Miktar</th>
+                            <th>Maliyet</th>
+                            <th>Durum</th>
+                            <th>PnL</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════ TAB: DECISIONS ════════ -->
+    <div class="tab-panel" id="panel-decisions">
+        <div class="card" style="padding:1.25rem">
+            <div class="section-header">
+                <div class="section-title"><i class="fa-solid fa-brain"></i> LLM Karar Geçmişi</div>
+                <span class="section-badge" id="decisions-count">—</span>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Zaman</th>
+                            <th>Coin</th>
+                            <th>Karar</th>
+                            <th>Güven</th>
+                            <th>Gerekçe</th>
+                        </tr>
+                    </thead>
+                    <tbody id="decisions-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════ TAB: NEWS ════════ -->
+    <div class="tab-panel" id="panel-news">
+        <div class="grid-2">
+            <div class="card" style="padding:1.25rem" id="news-col-coindesk">
+                <div class="section-header">
+                    <div class="section-title" style="color:var(--purple)"><i class="fa-solid fa-rss"></i> CoinDesk</div>
+                </div>
+                <div id="news-coindesk"></div>
+            </div>
+            <div class="card" style="padding:1.25rem" id="news-col-ct">
+                <div class="section-header">
+                    <div class="section-title" style="color:var(--blue)"><i class="fa-solid fa-rss"></i> CoinTelegraph</div>
+                </div>
+                <div id="news-ct"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════ TAB: ANALYSIS ════════ -->
+    <div class="tab-panel" id="panel-analysis">
+        <div class="grid-2">
+            <div>
+                <div class="card" style="padding:1.25rem">
+                    <div class="section-header">
+                        <div class="section-title"><i class="fa-solid fa-graduation-cap"></i> Öğrenme Logları</div>
+                    </div>
+                    <div id="analysis-logs"></div>
+                </div>
+            </div>
+            <div>
+                <div class="card" style="padding:1.25rem;margin-bottom:1.25rem">
+                    <div class="section-header">
+                        <div class="section-title"><i class="fa-solid fa-chart-pie"></i> Karar Dağılımı</div>
+                    </div>
+                    <div class="chart-box">
+                        <canvas id="decisionPieChart"></canvas>
+                    </div>
+                </div>
+                <div class="card" style="padding:1.25rem">
+                    <div class="section-header">
+                        <div class="section-title"><i class="fa-solid fa-sliders"></i> Agent Konfigürasyonu</div>
+                    </div>
+                    <div id="config-panel" style="font-size:.82rem;line-height:2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+</div>
+
+<!-- ── Scripts ──────────────────────────────────────────────────────────────── -->
+<script>
+/* ─────── Chart instances ─────── */
+let equityChart = null;
+let pieChart    = null;
+
+/* ─────── Tab switching ─────── */
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+        // Lazy-load tab data
+        loadTab(btn.dataset.tab);
+    });
+});
+
+document.querySelectorAll('[data-goto]').forEach(a => {
+    a.addEventListener('click', e => {
+        e.preventDefault();
+        const target = a.dataset.goto;
+        document.getElementById('tab-' + target).click();
+    });
+});
+
+/* ─────── Helpers ─────── */
+const fmt  = (v, dec=2) => v != null ? Number(v).toLocaleString('tr-TR', {minimumFractionDigits:dec, maximumFractionDigits:dec}) : '—';
+const fmtT = ts => ts ? (ts.includes(' ') ? ts.split(' ')[1].substring(0,5) : ts.substring(11,16)) : '—';
+
+function colorClass(val) { return val > 0 ? 'pos' : val < 0 ? 'neg' : ''; }
+
+function badgeHtml(action) {
+    if (!action) return '';
+    const a = action.toUpperCase();
+    if (a.includes('BUY'))  return `<span class="badge badge-buy">BUY</span>`;
+    if (a.includes('SELL')) return `<span class="badge badge-sell">SELL</span>`;
+    return `<span class="badge badge-hold">${action}</span>`;
+}
+
+function trendBadge(trend) {
+    if (!trend) return '';
+    const t = trend.toLowerCase();
+    const cls = t.includes('bull') ? 'badge-bullish' : t.includes('bear') ? 'badge-bearish' : 'badge-neutral';
+    return `<span class="badge ${cls}">${trend}</span>`;
+}
+
+/* ─────── Equity Chart ─────── */
+function buildEquityChart(data) {
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    if (equityChart) { equityChart.destroy(); equityChart = null; }
+
+    const values = data.map(d => d.equity);
+    const labels = data.map(d => d.time);
+    const start  = values[0] || 10000;
+    const grad   = ctx.createLinearGradient(0, 0, 0, 280);
+    grad.addColorStop(0, 'rgba(159,122,234,0.25)');
+    grad.addColorStop(1, 'rgba(159,122,234,0.0)');
+
+    equityChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                borderColor: '#9f7aea',
+                borderWidth: 2,
+                pointRadius: values.length < 15 ? 4 : 2,
+                pointBackgroundColor: '#9f7aea',
+                fill: true,
+                backgroundColor: grad,
+                tension: 0.35
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: {
+                callbacks: { label: ctx => ` ${fmt(ctx.raw)} USDT` }
+            }},
+            scales: {
+                x: { grid: { color:'rgba(255,255,255,.04)' }, ticks: { color:'#718096', font:{size:10} } },
+                y: { grid: { color:'rgba(255,255,255,.04)' }, ticks: { color:'#718096', font:{size:10},
+                     callback: v => fmt(v, 0) + ' ₮' } }
+            }
+        }
+    });
+}
+
+/* ─────── Pie Chart ─────── */
+function buildPieChart(buys, sells, holds) {
+    const ctx = document.getElementById('decisionPieChart').getContext('2d');
+    if (pieChart) { pieChart.destroy(); pieChart = null; }
+    pieChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['BUY', 'SELL', 'HOLD'],
+            datasets: [{ data: [buys, sells, holds],
+                backgroundColor: ['rgba(72,187,120,.7)','rgba(252,129,129,.7)','rgba(113,128,144,.4)'],
+                borderColor: 'transparent', borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position:'bottom', labels: { color:'#e2e8f0', font:{size:11} } } }
+        }
+    });
+}
+
+/* ─────── Fetch & Render helpers ─────── */
+
+async function fetchJSON(url) {
+    const r = await fetch(url);
+    return r.json();
+}
+
+async function renderBrainState(overview, decisions, news, markets) {
+    const order = [
+        { type: 'market', x: '18%', y: '28%', label: 'Piyasa', active: true },
+        { type: 'news', x: '82%', y: '20%', label: 'Haber', active: false },
+        { type: 'decision', x: '88%', y: '68%', label: 'Karar', active: false },
+        { type: 'risk', x: '12%', y: '74%', label: 'Risk', active: false },
+        { type: 'memory', x: '50%', y: '92%', label: 'Öğrenme', active: false },
+    ];
+
+    const decisionsList = decisions.decisions || [];
+    const symbol = decisionsList[0]?.symbol || Object.keys(markets.markets || {})[0] || 'BTCUSDT';
+    const activeMarket = markets.markets?.[symbol] || null;
+    const latestNews = (news.news || [])[0];
+    const latestDecision = decisionsList[0];
+    const positions = overview.portfolio?.positions || [];
+
+    const nodes = [
+        {
+            ...order[0],
+            value: activeMarket ? `${symbol} · ${activeMarket.trend || 'neutral'} · RSI ${activeMarket.rsi != null ? activeMarket.rsi.toFixed(1) : '—'}` : `${symbol} · veri bekleniyor`,
+            detail: activeMarket ? `Piyasa sinyali: ${symbol} için trend ${activeMarket.trend || 'neutral'}, RSI ${activeMarket.rsi != null ? activeMarket.rsi.toFixed(1) : '—'}, MACD ${activeMarket.macd_signal || '—'}, BB ${activeMarket.bb_position || '—'}.` : 'Piyasa verisi gelmedi; model bekleme moduna geçti.'
+        },
+        {
+            ...order[1],
+            value: latestNews ? `${latestNews.source} · ${latestNews.title.slice(0, 42)}${latestNews.title.length > 42 ? '…' : ''}` : 'Haber bekleniyor',
+            detail: latestNews ? `Yeni haber kaynağı: ${latestNews.source}. Başlık: ${latestNews.title}. Kısa özet: ${latestNews.summary || 'Özet yok.'}` : 'Haber akışı bekleniyor.'
+        },
+        {
+            ...order[2],
+            value: latestDecision ? `${latestDecision.action} · ${latestDecision.symbol} · ${(latestDecision.confidence * 100).toFixed(0)}%` : 'HOLD · bekleniyor',
+            detail: latestDecision ? `Karar: ${latestDecision.action}. Güven: ${Number(latestDecision.confidence * 100).toFixed(0)}%. Son gerekçe: ${latestDecision.reasoning || 'Gerekçe yok.'}` : 'Henüz karar kaydı yok.'
+        },
+        {
+            ...order[3],
+            value: `Pozisyon ${positions.length} · Bakiye ${fmt(overview.portfolio?.balance ?? 0)} USDT`,
+            detail: `Risk katmanı: ${positions.length} açık pozisyon var. Portföy bakiyesi ${fmt(overview.portfolio?.balance ?? 0)} USDT. Risk yenileme ve stop-loss kontrolü devrede.`
+        },
+        {
+            ...order[4],
+            value: latestDecision ? `${latestDecision.reasoning.slice(0, 60)}${latestDecision.reasoning.length > 60 ? '…' : ''}` : 'Öğrenme logu bekleniyor',
+            detail: latestDecision ? `Öğrenme hafızası: model, önceki karar geçmişiyle birlikte ${latestDecision.symbol} için ${latestDecision.action} yönünü seçti. Bu kararın mantığı mevcut piyasa ve haber sinyallerine dayanıyor.` : 'Öğrenme geçmişi boş; model daha fazla veri bekliyor.'
+        }
+    ];
+
+    const activeState = latestDecision ? latestDecision.action.toUpperCase() : 'HOLD';
+    document.getElementById('brain-core-label').textContent = activeState;
+    document.getElementById('brain-state').textContent = activeState === 'BUY' ? 'Alım sinyali' : activeState === 'SELL' ? 'Satış sinyali' : 'Bekleme / dengeleme';
+
+    const buySignal = latestDecision && latestDecision.action && latestDecision.action.toUpperCase().includes('BUY') ? 88 : 24;
+    const sellSignal = latestDecision && latestDecision.action && latestDecision.action.toUpperCase().includes('SELL') ? 86 : 18;
+    const riskSignal = positions.length ? 62 : 26;
+    const newsSignal = latestNews ? 74 : 32;
+
+    document.querySelectorAll('.brain-signal-bar').forEach(bar => {
+        const tone = bar.dataset.tone;
+        let value = 0;
+        if (tone === 'buy') value = buySignal;
+        if (tone === 'sell') value = sellSignal;
+        if (tone === 'risk') value = riskSignal;
+        if (tone === 'news') value = newsSignal;
+        bar.querySelector('.brain-signal-meter > span').style.width = `${value}%`;
+    });
+
+    const detailListEl = document.getElementById('brain-detail-list');
+    detailListEl.innerHTML = nodes.map((node, idx) => `
+        <div class="brain-detail-row">
+            <strong>${idx + 1}. ${node.label}</strong>
+            <span>${node.value}</span>
+        </div>
+    `).join('');
+
+    const rationaleEl = document.getElementById('decision-rationale-panel');
+    const rationaleClass = activeState === 'BUY' ? 'decision-buy' : activeState === 'SELL' ? 'decision-sell' : 'decision-hold';
+    const sentimentLabel = activeMarket?.trend === 'bullish' ? 'yükseliş baskısı' : activeMarket?.trend === 'bearish' ? 'düşüş baskısı' : 'dengeleyici piyasa';
+    const newsLabel = latestNews ? `${latestNews.source} haber akışı` : 'haber akışı bekleniyor';
+    const riskLevel = positions.length >= 2 ? 'yüksek risk' : positions.length === 1 ? 'orta risk' : 'düşük risk';
+    const confidence = latestDecision ? (Number(latestDecision.confidence || 0) * 100) : 0;
+    const dominantSignal = activeMarket ? `${symbol} için ${activeMarket.trend || 'neutral'} trend + RSI ${activeMarket.rsi != null ? activeMarket.rsi.toFixed(1) : '—'}` : 'piyasa verisi bekleniyor';
+    const weakSignal = latestDecision ? (activeState === 'HOLD' ? 'momentum ve haber sinyali birlikte yeterince güçlü değil' : 'eşleşen veri sinyali zayıf; risk üzerinde dikkat var') : 'yeterli veri toplanmadı';
+    const decisionNarrative = latestDecision ? `Model, ${symbol} için ${activeState} kararını verdi çünkü teknik trend ${sentimentLabel}, haber akışı ${newsLabel}, ve risk seviyesi ${riskLevel} olarak okunuyor. Güven seviyesi ${confidence.toFixed(0)}%. Bu kombinasyon, fiyatın hareket etme ihtimalini ve kontrol altında kalma gereğini birlikte hesapladı.` : 'Model şu an temkinli bir bekleme pozisyonunda. Piyasa ve haber akışı henüz yeterince güçlü değil; bu yüzden riskten kaçınma modu aktif.';
+
+    rationaleEl.innerHTML = `
+        <div class="commentary-block">
+            <div class="commentary-title">Modelin Yorumu</div>
+            <div class="commentary-body">${decisionNarrative}</div>
+        </div>
+        <div class="commentary-block">
+            <div class="commentary-title">Neden ${activeState}?</div>
+            <div class="commentary-body"><span class="decision-badge ${rationaleClass}">${activeState}</span> · <strong>${latestDecision ? latestDecision.symbol : symbol}</strong> için baskın sinyal: ${dominantSignal}. Güven: <strong>${confidence.toFixed(0)}%</strong>. Zayıf alan: ${weakSignal}.</div>
+        </div>
+        <div class="commentary-block">
+            <div class="commentary-title">Seçili sinyal</div>
+            <div class="commentary-body">İlk olarak piyasa verisi, ardından haber akışı ve risk katmanı birlikte okundu. Modelin kararına en çok etki eden unsur, ${newsLabel} ve ${sentimentLabel} kombinasyonudur.</div>
+        </div>
+    `;
+
+    document.getElementById('brain-nodes').innerHTML = nodes.map((node, idx) => {
+        const active = node.type === 'decision' || (idx === 0 && !!activeMarket) ? ' active' : '';
+        return `
+            <div class="brain-node${active}" data-type="${node.type}" data-detail="${node.detail.replace(/"/g, '&quot;')}" style="--x:${node.x}; --y:${node.y};">
+                <div class="brain-node-title"><span>${node.label}</span><span class="brain-node-dot"></span></div>
+                <div class="brain-node-value">${node.value}</div>
+            </div>
+        `;
+    }).join('');
+
+    document.querySelectorAll('.brain-node').forEach((brainNode) => {
+        brainNode.addEventListener('click', () => {
+            const detail = brainNode.dataset.detail || 'Aktif bilgi kaynağı';
+            const title = brainNode.querySelector('.brain-node-title span')?.textContent || 'Sinyal';
+            const current = document.getElementById('decision-rationale-panel');
+            const signalLabel = title.toLowerCase();
+            const selectedSummary = `Seçilen katman: ${title}. ${detail}`;
+
+            current.innerHTML = `
+                <div class="commentary-block">
+                    <div class="commentary-title">Modelin Yorumu</div>
+                    <div class="commentary-body">${decisionNarrative}</div>
+                </div>
+                <div class="commentary-block">
+                    <div class="commentary-title">Seçili sinyal</div>
+                    <div class="commentary-body"><strong>${title}</strong> katmanı açıklandı. ${detail}</div>
+                </div>
+                <div class="commentary-block">
+                    <div class="commentary-title">Son değerlendirme</div>
+                    <div class="commentary-body">Bu ${signalLabel} sinyaline bakarak model, kararın ${activeState === 'HOLD' ? 'beklemesi gerektiğini' : 'yönünü güçlendirdiğini'} söylüyor. Risk ve momentum birlikte okunarak durum netleştirildi.</div>
+                </div>
+            `;
+
+            document.querySelectorAll('.brain-node').forEach(n => n.classList.remove('active'));
+            brainNode.classList.add('active');
+        });
+    });
+}
+
+async function renderRiskPanel() {
+    const riskData = await fetchJSON('/api/risk');
+    const risk = riskData.risk || {};
+    const level = risk.risk_level || 'Düşük';
+    document.getElementById('risk-level').textContent = level;
+    const alerts = risk.alerts || [];
+    const positions = risk.positions || [];
+
+    const exposure = `Toplam maruziyet: ${fmt(risk.total_exposure)} USDT`;
+    const drawdown = `Drawdown: ${fmt(risk.drawdown_pct, 2)}%`;
+    const open = `${risk.open_positions} açık pozisyon`;
+    const ratio = `Maruziyet/Equity: ${fmt(risk.exposure_ratio, 1)}%`;
+
+    document.getElementById('risk-panel').innerHTML = `
+        <div class="brain-detail-row"><strong>Risk Seviyesi</strong><span>${level}</span></div>
+        <div class="brain-detail-row"><strong>Equity</strong><span>${fmt(risk.equity)} USDT</span></div>
+        <div class="brain-detail-row"><strong>${exposure}</strong><span>${drawdown}</span></div>
+        <div class="brain-detail-row"><strong>${open}</strong><span>${ratio}</span></div>
+        <div class="brain-detail-row"><strong>Uyarılar</strong><span>${alerts[0]}</span></div>
+        ${positions.length ? positions.slice(0,3).map(p => `
+            <div class="brain-detail-row">
+                <strong>${p.symbol}</strong>
+                <span>${fmt(p.value)} USDT</span>
+            </div>
+        `).join('') : '<div class="brain-detail-row"><strong>Risk</strong><span>Beklemede</span></div>'}
+    `;
+}
+
+async function renderMarketSentiment() {
+    const sentimentData = await fetchJSON('/api/market-sentiment');
+    const overall = sentimentData.overall || { label: 'neutral', score: 50 };
+    const symbols = sentimentData.symbols || [];
+    const label = overall.label || 'neutral';
+    const score = overall.score || 50;
+    document.getElementById('sentiment-overall').textContent = label.toUpperCase();
+    document.getElementById('sentiment-grid').innerHTML = `
+        <div class="brain-detail-row"><strong>Piyasa Ruh hali</strong><span>${label}</span></div>
+        <div class="brain-detail-row"><strong>Skor</strong><span>${fmt(score, 0)}/100</span></div>
+        ${symbols.slice(0, 4).map(s => `
+            <div class="brain-detail-row">
+                <strong>${s.symbol}</strong>
+                <span>${s.sentiment} · ${fmt(s.score, 0)}</span>
+            </div>
+        `).join('')}
+    `;
+}
+
+async function renderDecisionTimeline() {
+    const data = await fetchJSON('/api/decision-timeline');
+    const timeline = data.timeline || [];
+    document.getElementById('timeline-count').textContent = `${timeline.length} olay`;
+    document.getElementById('decision-timeline').innerHTML = timeline.length ? timeline.slice(0, 6).map((item, idx) => `
+        <div class="brain-detail-row">
+            <strong>${idx + 1}. ${item.symbol}</strong>
+            <span>${item.action} · ${fmt(item.confidence * 100, 0)}%</span>
+        </div>
+    `).join('') : '<div class="brain-detail-row"><strong>Bekleme</strong><span>Henüz karar yok</span></div>';
+}
+
+async function renderStrategyComparison() {
+    const data = await fetchJSON('/api/strategy-comparison');
+    const strategies = data.strategies || [];
+    document.getElementById('strategy-comparison').innerHTML = strategies.length ? strategies.map((s, idx) => `
+        <div class="brain-detail-row">
+            <strong>${idx + 1}. ${s.name}</strong>
+            <span>${s.status} · ${fmt(s.score, 0)}/100</span>
+        </div>
+        <div class="brain-detail-row">
+            <strong>Win rate</strong>
+            <span>${fmt(s.winRate, 0)}%</span>
+        </div>
+        <div class="brain-detail-row">
+            <strong>PnL</strong>
+            <span>${s.pnl >= 0 ? '+' : ''}${fmt(s.pnl, 1)}%</span>
+        </div>
+    `).join('') : '<div class="brain-detail-row"><strong>Veri</strong><span>Bekleniyor</span></div>';
+}
+
+async function renderRiskHeatmap() {
+    const riskData = await fetchJSON('/api/risk');
+    const positions = riskData.risk?.positions || [];
+    const container = document.getElementById('risk-heatmap');
+    const defaultLevels = [
+        { label: 'Momentum', value: 78, tone: 'buy' },
+        { label: 'Volatility', value: 62, tone: 'risk' },
+        { label: 'News', value: 70, tone: 'news' },
+        { label: 'Liquidity', value: 55, tone: 'sell' },
+    ];
+    const items = positions.length ? positions.slice(0, 4).map((p, i) => ({
+        label: p.symbol,
+        value: Math.min(95, 40 + (i + 1) * 18),
+        tone: i % 2 === 0 ? 'risk' : 'buy'
+    })) : defaultLevels;
+
+    container.innerHTML = items.map((item) => `
+        <div class="brain-signal-bar" data-tone="${item.tone}">
+            <div class="brain-signal-label">${item.label}</div>
+            <div class="brain-signal-meter"><span style="width:${item.value}%"></span></div>
+        </div>
+    `).join('');
+}
+
+async function loadDashboard() {
+    const [ov, dec, news, markets] = await Promise.all([
+        fetchJSON('/api/overview'),
+        fetchJSON('/api/decisions'),
+        fetchJSON('/api/news'),
+        fetchJSON('/api/markets'),
+    ]);
+
+    await renderRiskPanel();
+    await renderMarketSentiment();
+    await renderDecisionTimeline();
+    await renderStrategyComparison();
+    await renderRiskHeatmap();
+    renderBrainState(ov, dec, news, markets);
+
+    /* Stat Cards */
+    const pct = ov.pnl_pct;
+    document.getElementById('s-balance').textContent   = fmt(ov.portfolio.balance) + ' USDT';
+    document.getElementById('s-pnl-pct').textContent   = (pct >= 0 ? '+' : '') + fmt(pct) + '%';
+    document.getElementById('s-pnl-pct').className     = 'stat-value ' + colorClass(pct);
+    document.getElementById('s-pnl-usdt').textContent  = (ov.stats.total_pnl >= 0 ? '+' : '') + fmt(ov.stats.total_pnl) + ' USDT';
+    document.getElementById('s-winrate').textContent   = fmt(ov.stats.win_rate, 1) + '%';
+    document.getElementById('s-trades').textContent    = ov.stats.total_trades + ' kapalı işlem';
+    document.getElementById('s-open-pos').textContent  = ov.stats.open_positions;
+
+    /* Header */
+    document.getElementById('hd-model').textContent    = ov.config.model;
+    document.getElementById('hd-loop').textContent     = ov.config.loop_minutes + ' dk';
+    document.getElementById('hd-update').textContent   = new Date().toLocaleTimeString('tr-TR');
+
+    /* Equity Chart */
+    if (ov.equity_history && ov.equity_history.length > 0) buildEquityChart(ov.equity_history);
+
+    /* Positions */
+    const pos = ov.portfolio.positions || [];
+    document.getElementById('pos-count').textContent = pos.length + ' pozisyon';
+    const pc = document.getElementById('positions-container');
+    if (pos.length === 0) {
+        pc.innerHTML = '<div class="empty-state"><i class="fa-solid fa-inbox"></i>Açık pozisyon bulunmuyor</div>';
+    } else {
+        pc.innerHTML = pos.map(p => `
+            <div class="position-card fade-in cursor-pointer hover:border-purple-500/40" onclick="openTradingViewModal('${p.symbol}')">
+                <div>
+                    <div style="font-weight:700;font-size:.9rem">${p.symbol}</div>
+                    <div style="font-size:.72rem;color:var(--muted);margin-top:.2rem">Giriş: <span class="mono">${fmt(p.entry_price, 4)}</span></div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:.72rem;color:var(--muted)">
+                        SL: <span style="color:var(--red)">${p.stop_loss ? fmt(p.stop_loss, 2) : '—'}</span>
+                        &nbsp;|&nbsp;
+                        TP: <span style="color:var(--green)">${p.take_profit ? fmt(p.take_profit, 2) : '—'}</span>
+                    </div>
+                    <div style="font-size:.72rem;color:var(--muted);margin-top:.2rem">${p.amount.toFixed(5)} adet</div>
+                </div>
+            </div>`).join('');
+    }
+
+    /* Mini Decisions */
+    const md = document.getElementById('mini-decisions');
+    const d5 = (dec.decisions || []).slice(0, 6);
+    if (d5.length === 0) {
+        md.innerHTML = '<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--muted)">Henüz karar yok</td></tr>';
+    } else {
+        md.innerHTML = d5.map(d => `
+            <tr class="fade-in" style="cursor:pointer" onclick="openTradingViewModal('${d.symbol}')">
+                <td class="mono" style="font-weight:600">${d.symbol}</td>
+                <td>${badgeHtml(d.action)}</td>
+                <td class="mono">${(d.confidence * 100).toFixed(0)}%</td>
+                <td style="color:var(--muted);font-size:.7rem">${fmtT(d.timestamp)}</td>
+            </tr>`).join('');
+    }
+
+    /* Mini News */
+    const mn = document.getElementById('mini-news');
+    const n5 = (news.news || []).slice(0, 5);
+    if (n5.length === 0) {
+        mn.innerHTML = '<div class="empty-state"><i class="fa-solid fa-newspaper"></i>Haber bekleniyor</div>';
+    } else {
+        mn.innerHTML = n5.map(n => `
+            <div class="news-item fade-in">
+                <div style="display:flex;justify-content:space-between">
+                    <span class="news-source">${n.source}</span>
+                    <span class="news-time">${fmtT(n.timestamp)}</span>
+                </div>
+                <div class="news-title"><a href="${n.url}" target="_blank">${n.title}</a></div>
+            </div>`).join('');
+    }
+}
+
+async function loadMarkets() {
+    const data = await fetchJSON('/api/markets');
+    const grid = document.getElementById('markets-grid');
+    const m = data.markets || {};
+
+    if (Object.keys(m).length === 0) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fa-solid fa-chart-line"></i>Piyasa verisi bekleniyor — agent ilk döngüsünü tamamlayana kadar bu bölüm boş kalır.</div>';
+        return;
+    }
+
+    grid.innerHTML = Object.entries(m).map(([sym, d]) => {
+        if (!d) return `<div class="card coin-card cursor-pointer hover:border-purple-500/40 animate-pulse" onclick="openTradingViewModal('${sym}')">
+            <div class="coin-name">${sym}</div>
+            <div style="color:var(--muted);font-size:.75rem">Veri bekleniyor…</div>
+        </div>`;
+
+        const trendCls = d.trend === 'bullish' ? 'pos' : d.trend === 'bearish' ? 'neg' : '';
+        const rsiColor = d.rsi > 70 ? 'var(--red)' : d.rsi < 30 ? 'var(--green)' : 'var(--muted)';
+
+        return `<div class="card coin-card fade-in cursor-pointer hover:border-purple-500/40" onclick="openTradingViewModal('${sym}')">
+            <div class="coin-name">${sym}</div>
+            <div class="coin-price ${trendCls}">$${fmt(d.price, 4)}</div>
+            <div class="coin-indicators">
+                <span class="ind">RSI <b style="color:${rsiColor}">${d.rsi != null ? d.rsi.toFixed(1) : '—'}</b></span>
+                <span class="ind">MACD <b>${d.macd_signal || '—'}</b></span>
+                <span class="ind">BB <b>${d.bb_position || '—'}</b></span>
+                <span class="ind">ATR <b>${d.atr != null ? d.atr.toFixed(2) : '—'}</b></span>
+                ${trendBadge(d.trend)}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function loadTrades() {
+    const data = await fetchJSON('/api/trades');
+    const trades = data.trades || [];
+    document.getElementById('trades-count').textContent = trades.length + ' işlem';
+
+    const body = document.getElementById('trades-body');
+    if (trades.length === 0) {
+        body.innerHTML = `<tr><td colspan="9" style="padding:2rem;text-align:center;color:var(--muted)">İşlem kaydı bulunmuyor</td></tr>`;
+        return;
+    }
+    body.innerHTML = trades.map(t => {
+        const pnlHtml = t.pnl != null
+            ? `<span class="${colorClass(t.pnl)}">${t.pnl >= 0 ? '+' : ''}${fmt(t.pnl)}</span>`
+            : '—';
+        const statusColor = t.status === 'OPEN' ? 'var(--blue)' : t.status === 'CLOSED' ? 'var(--muted)' : '';
+        return `<tr class="fade-in cursor-pointer hover:bg-white/5" onclick="openTradingViewModal('${t.symbol}')">
+            <td class="mono" style="color:var(--muted)">${t.id}</td>
+            <td style="color:var(--muted);font-size:.72rem">${fmtT(t.timestamp)}</td>
+            <td class="mono" style="font-weight:600">${t.symbol}</td>
+            <td>${badgeHtml(t.side)}</td>
+            <td class="mono">$${fmt(t.price, 4)}</td>
+            <td class="mono">${t.amount != null ? t.amount.toFixed(5) : '—'}</td>
+            <td class="mono">${fmt(t.cost)}</td>
+            <td style="font-size:.72rem;color:${statusColor}">${t.status}</td>
+            <td class="mono">${pnlHtml}</td>
+        </tr>`;
+    }).join('');
+}
+
+async function loadDecisions() {
+    const data = await fetchJSON('/api/decisions');
+    const decisions = data.decisions || [];
+    document.getElementById('decisions-count').textContent = decisions.length + ' karar';
+
+    const body = document.getElementById('decisions-body');
+    if (decisions.length === 0) {
+        body.innerHTML = `<tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--muted)">Karar kaydı bulunmuyor</td></tr>`;
+        return;
+    }
+
+    let buys=0, sells=0, holds=0;
+    body.innerHTML = decisions.map(d => {
+        const a = (d.action||'').toUpperCase();
+        if (a.includes('BUY')) buys++;
+        else if (a.includes('SELL')) sells++;
+        else holds++;
+        return `<tr class="fade-in cursor-pointer hover:bg-white/5" onclick="openTradingViewModal('${d.symbol}')">
+            <td style="color:var(--muted);font-size:.72rem">${fmtT(d.timestamp)}</td>
+            <td class="mono" style="font-weight:600">${d.symbol}</td>
+            <td>${badgeHtml(d.action)}</td>
+            <td class="mono">${(d.confidence * 100).toFixed(0)}%</td>
+            <td style="color:var(--muted);font-size:.75rem;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${d.reasoning}">${d.reasoning}</td>
+        </tr>`;
+    }).join('');
+
+    buildPieChart(buys, sells, holds);
+}
+
+async function loadNews() {
+    const data = await fetchJSON('/api/news');
+    const news = data.news || [];
+
+    const cd = news.filter(n => n.source === 'CoinDesk').slice(0, 25);
+    const ct = news.filter(n => n.source !== 'CoinDesk').slice(0, 25);
+
+    function newsHtml(list) {
+        if (!list.length) return '<div class="empty-state"><i class="fa-solid fa-newspaper"></i>Haber bekleniyor</div>';
+        return list.map(n => `
+            <div class="news-item fade-in">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <span class="news-source">${n.source}</span>
+                    <span class="news-time">${fmtT(n.timestamp)}</span>
+                </div>
+                <div class="news-title"><a href="${n.url}" target="_blank">${n.title}</a></div>
+                ${n.summary ? `<div style="font-size:.72rem;color:var(--muted);margin-top:.2rem">${n.summary.substring(0,150)}…</div>` : ''}
+            </div>`).join('');
+    }
+
+    document.getElementById('news-coindesk').innerHTML = newsHtml(cd);
+    document.getElementById('news-ct').innerHTML       = newsHtml(ct);
+}
+
+async function loadAnalysis() {
+    const data = await fetchJSON('/api/analysis');
+    const logs = data.analysis || [];
+
+    const container = document.getElementById('analysis-logs');
+    if (logs.length === 0) {
+        container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-graduation-cap"></i>Henüz işlem analizi kaydı yok</div>';
+        return;
+    }
+
+    container.innerHTML = logs.map(l => {
+        let meta = {};
+        try { meta = JSON.parse(l.meta_data || '{}'); } catch {}
+        return `<div class="log-item fade-in">
+            <div class="log-meta">
+                <span class="log-type">${l.log_type}</span>
+                <span class="log-ts">${fmtT(l.timestamp)}</span>
+            </div>
+            <div class="log-content">${l.content}</div>
+            ${meta.lesson ? `<div class="log-lesson">📚 <b>Ders:</b> ${meta.lesson}</div>` : ''}
+            ${meta.adjustment ? `<div class="log-lesson">⚙️ <b>Strateji Güncelleme:</b> ${meta.adjustment}</div>` : ''}
+            ${meta.pnl != null ? `<div class="log-lesson">💰 <b>PnL:</b> <span class="${colorClass(meta.pnl)}">${meta.pnl >= 0 ? '+' : ''}${fmt(meta.pnl)} USDT</span></div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+async function loadConfig() {
+    const ov = await fetchJSON('/api/overview');
+    const cfg = ov.config || {};
+    document.getElementById('config-panel').innerHTML = `
+        <table style="width:100%;font-size:.8rem;border-collapse:collapse">
+            <tr><td style="color:var(--muted);padding:.3rem 0;width:40%">Model</td><td class="mono">${cfg.model || '—'}</td></tr>
+            <tr><td style="color:var(--muted);padding:.3rem 0">Döngü Süresi</td><td class="mono">${cfg.loop_minutes} dakika</td></tr>
+            <tr><td style="color:var(--muted);padding:.3rem 0">Paper Trading</td><td>${cfg.paper_trading ? '<span style="color:var(--green)">Aktif</span>' : '<span style="color:var(--red)">Devre dışı</span>'}</td></tr>
+            <tr><td style="color:var(--muted);padding:.3rem 0">Coin Listesi</td><td class="mono" style="font-size:.72rem">${(cfg.watchlist||[]).join(', ')}</td></tr>
+        </table>`;
+}
+
+/* ─────── Tab dispatcher ─────── */
+const loaded = {};
+async function loadTab(tab) {
+    if (loaded[tab] && tab === 'dashboard') { await loadDashboard(); return; }
+    loaded[tab] = true;
+    if (tab === 'dashboard') { await loadDashboard(); }
+    else if (tab === 'markets')   { await loadMarkets(); }
+    else if (tab === 'trades')    { await loadTrades(); }
+    else if (tab === 'decisions') { await loadDecisions(); }
+    else if (tab === 'news')      { await loadNews(); }
+    else if (tab === 'analysis')  { await loadAnalysis(); await loadConfig(); }
+}
+
+/* ─────── TradingView Widget Modal script ─────── */
+let tvScriptLoaded = false;
+function loadTradingViewScript(callback) {
+    if (tvScriptLoaded) {
+        callback();
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/tv.js';
+    script.onload = () => {
+        tvScriptLoaded = true;
+        callback();
+    };
+    document.head.appendChild(script);
+}
+
+function openTradingViewModal(symbol) {
+    const cleanSym = symbol.replace("/", "").toUpperCase(); // e.g. BTCUSDT
+    document.getElementById('chart-modal').classList.remove('hidden');
+    document.getElementById('modal-title').innerHTML = `<i class="fa-solid fa-chart-line text-purple-400"></i> ${symbol} Canlı Teknik Grafiği`;
+    
+    document.getElementById('tradingview-container').innerHTML = `<div id="tradingview_widget" class="w-full h-full"></div>`;
+    
+    loadTradingViewScript(() => {
+        new TradingView.widget({
+            "width": "100%",
+            "height": "100%",
+            "symbol": `BINANCE:${cleanSym}`,
+            "interval": "60",
+            "timezone": "Etc/UTC",
+            "theme": "dark",
+            "style": "1",
+            "locale": "tr",
+            "toolbar_bg": "#0d1428",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "container_id": "tradingview_widget"
+        });
+    });
+}
+
+// Bind modal close buttons
+function bindModalEvents() {
+    const modalElement = document.getElementById('chart-modal');
+    const closeModalButton = document.getElementById('close-modal-btn');
+    if (closeModalButton && modalElement) {
+        closeModalButton.addEventListener('click', () => {
+            modalElement.classList.add('hidden');
+            document.getElementById('tradingview-container').innerHTML = `<div id="tradingview_widget" class="w-full h-full"></div>`;
+        });
+
+        modalElement.addEventListener('click', (e) => {
+            if (e.target === modalElement) {
+                modalElement.classList.add('hidden');
+                document.getElementById('tradingview-container').innerHTML = `<div id="tradingview_widget" class="w-full h-full"></div>`;
+            }
+        });
+    }
+}
+
+/* ─────── Boot ─────── */
+document.addEventListener('DOMContentLoaded', () => {
+    bindModalEvents();
+    loadDashboard();
+
+    // Refresh active tab every 15 seconds
+    setInterval(() => {
+        const active = document.querySelector('.tab-btn.active');
+        if (active) loadTab(active.dataset.tab);
+    }, 15000);
+});
+</script>
+
+<!-- ════════ MODAL: TRADINGVIEW CHART ════════ -->
+<div id="chart-modal" class="fixed inset-0 z-[200] hidden bg-black/75 backdrop-filter backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card w-full max-w-5xl h-[80vh] flex flex-col p-4 relative" style="background: rgba(13, 20, 40, 0.95); border: 1px solid var(--purple);">
+        <button id="close-modal-btn" class="absolute top-4 right-4 text-slate-400 hover:text-white text-xl cursor-pointer">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <h3 id="modal-title" class="text-sm font-semibold text-slate-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+            <i class="fa-solid fa-chart-line text-purple-400"></i> Teknik Grafik
+        </h3>
+        <div id="tradingview-container" class="flex-grow w-full rounded-lg overflow-hidden">
+            <div id="tradingview_widget" class="w-full h-full"></div>
+        </div>
+    </div>
+</div>
+</body>
+</html>

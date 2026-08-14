@@ -1,0 +1,781 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Sidebar, ActiveTab } from './components/layout/Sidebar';
+import { Header } from './components/layout/Header';
+import { DashboardView } from './components/views/DashboardView';
+import { MemoryView } from './components/views/MemoryView';
+import { AutomationsView } from './components/views/AutomationsView';
+import { IntegrationsView } from './components/views/IntegrationsView';
+import { SettingsView } from './components/views/SettingsView';
+import { CodeChatView } from './components/views/CodeChatView';
+import { EdithOpsView } from './components/views/EdithOpsView';
+import { KnowledgeMapView } from './components/views/KnowledgeMapView';
+import { ThemeTransition } from './components/effects/ThemeTransition';
+import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
+import assistantProfiles from './config/assistantProfiles.json';
+import {
+  loadSettings,
+  saveSettings,
+  loadSessions,
+  saveSessions,
+  loadCodeSession,
+  saveCodeSession,
+  DEFAULT_CODE_INITIAL_MESSAGE,
+  loadMemories,
+  saveMemories,
+  loadToolLogs,
+  saveToolLogs,
+  loadIntegrations,
+  saveIntegrations,
+  DEFAULT_TOOLS,
+  DEFAULT_INITIAL_MESSAGE,
+} from './lib/storage';
+import {
+  AiState,
+  ChatMessage,
+  ChatSession,
+  MemoryItem,
+  UserSettings,
+  AutomationTool,
+  ToolExecutionLog,
+  IntegrationConfig,
+  MemoryCategory,
+} from './types';
+
+export default function App() {
+  // Main State
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [settings, setSettings] = useState<UserSettings>(loadSettings());
+  const [sessions, setSessions] = useState<ChatSession[]>(loadSessions());
+  const [codeSession, setCodeSession] = useState<ChatSession>(loadCodeSession());
+  const [activeSessionId, setActiveSessionId] = useState<string>('session-default');
+  const [memories, setMemories] = useState<MemoryItem[]>(loadMemories());
+  // Tool state: DEFAULT_TOOLS her zaman güncel araç listesini içerir.
+  // Eğer kullanıcı daha önce araç durumlarını değiştirdiyse (requiresConfirmation, lastRun, status)
+  // o tercihleri birleştiriyoruz; böylece yeni araçlar eklendikten sonra da görünür kalır.
+  const [tools, setTools] = useState<AutomationTool[]>(() => {
+    try {
+      const saved = localStorage.getItem('aura_tool_states_v1');
+      if (!saved) return DEFAULT_TOOLS;
+      const savedStates: Record<string, Partial<AutomationTool>> = JSON.parse(saved);
+      return DEFAULT_TOOLS.map((t) =>
+        savedStates[t.id]
+          ? { ...t, requiresConfirmation: savedStates[t.id].requiresConfirmation ?? t.requiresConfirmation, lastRun: savedStates[t.id].lastRun, status: savedStates[t.id].status ?? t.status }
+          : t
+      );
+    } catch {
+      return DEFAULT_TOOLS;
+    }
+  });
+  const [logs, setLogs] = useState<ToolExecutionLog[]>(loadToolLogs());
+  const [integrations, setIntegrations] = useState<IntegrationConfig[]>(loadIntegrations());
+
+  // System & Connection State
+  const [aiState, setAiState] = useState<AiState>('idle');
+  const [ollamaConnected, setOllamaConnected] = useState<boolean>(false);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
+  const [showOllamaModal, setShowOllamaModal] = useState<boolean>(false);
+  const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
+  const [themeTransition, setThemeTransition] = useState<{
+    id: number;
+    from: (typeof assistantProfiles)[number];
+    to: (typeof assistantProfiles)[number];
+  } | null>(null);
+
+  // Audio Context & Analyser Node for 3D Orb frequency visualization
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const activeProfile =
+    assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
+    assistantProfiles[0];
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--edith-primary', activeProfile.primary);
+    root.style.setProperty('--edith-secondary', activeProfile.secondary);
+    root.style.setProperty('--edith-accent', activeProfile.accent);
+    root.style.setProperty('--edith-bg', activeProfile.background);
+    root.style.setProperty('--edith-surface', activeProfile.surface);
+    root.style.setProperty('--edith-text', activeProfile.text);
+  }, [activeProfile]);
+
+  const updateSettings = (updates: Partial<UserSettings>) => {
+    if (updates.assistantPersona && updates.assistantPersona !== settings.assistantPersona) {
+      const nextProfile = assistantProfiles.find(
+        (profile) => profile.id === updates.assistantPersona
+      );
+      if (nextProfile) {
+        setThemeTransition({
+          id: Date.now(),
+          from: activeProfile,
+          to: nextProfile,
+        });
+      }
+    }
+    handleSaveSettings({ ...settings, ...updates });
+  };
+
+  // Active Chat Session
+  const activeSession =
+    sessions.find((s) => s.id === activeSessionId) || sessions[0] || {
+      id: 'session-default',
+      title: 'Varsayılan Sohbet',
+      messages: [DEFAULT_INITIAL_MESSAGE],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+  // 1. Initial Health Check on Mount
+  useEffect(() => {
+    checkHealth();
+  }, [settings.ollamaUrl]);
+
+  const checkHealth = async () => {
+    setIsTestingConnection(true);
+    try {
+      const res = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(settings.ollamaUrl)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOllamaConnected(data.ollamaConnected);
+        setAvailableModels(data.availableModels || []);
+      } else {
+        setOllamaConnected(false);
+      }
+    } catch (e) {
+      setOllamaConnected(false);
+    } finally {
+      setIsTestingConnection(false);
+    }
+  };
+
+  // 2. Audio Web Audio API setup for Speech Visualizer & Microphone Analysis
+  const initAudioAnalyser = async (stream?: MediaStream) => {
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = new AudioCtx();
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 128;
+          analyser.smoothingTimeConstant = 0.8;
+          audioCtxRef.current = ctx;
+          analyserRef.current = analyser;
+        }
+      }
+
+      const ctx = audioCtxRef.current;
+      const analyser = analyserRef.current;
+
+      if (!ctx || !analyser) return analyserRef.current;
+
+      if (ctx.state === 'suspended') {
+        await ctx.resume();
+      }
+
+      // Connect provided stream (or attempt mic stream) to analyser node
+      if (stream) {
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
+      } else if (navigator.mediaDevices?.getUserMedia) {
+        try {
+          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const source = ctx.createMediaStreamSource(micStream);
+          source.connect(analyser);
+        } catch (err) {
+          console.warn('Microphone stream auto-connect skipped:', err);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to initialize AudioContext analyser:', e);
+    }
+    return analyserRef.current;
+  };
+
+  // 3. Speech Playback (TTS)
+  const speakText = async (text: string, msgId?: string) => {
+    if (!('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel(); // Stop any active speech
+    await initAudioAnalyser();
+
+    if (settings.ttsEngine === 'claude_voice' && settings.claudeVoiceApiKey) {
+      try {
+        setAiState('speaking');
+        if (msgId) setActiveSpeakingId(msgId);
+        const response = await fetch('/api/voice/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            apiKey: settings.claudeVoiceApiKey,
+            voiceId: settings.claudeVoiceId,
+          }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const audioBlob = await response.blob();
+        const audio = new Audio(URL.createObjectURL(audioBlob));
+        audio.onended = () => {
+          setAiState('idle');
+          setActiveSpeakingId(null);
+        };
+        audio.onerror = () => {
+          setAiState('idle');
+          setActiveSpeakingId(null);
+        };
+        await audio.play();
+        return;
+      } catch (error) {
+        console.warn('Claude Voice connector failed, falling back to Web Speech:', error);
+      }
+    }
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = settings.language === 'tr' ? 'tr-TR' : 'en-US';
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+
+    utterance.onstart = () => {
+      setAiState('speaking');
+      if (msgId) setActiveSpeakingId(msgId);
+    };
+
+    utterance.onend = () => {
+      setAiState('idle');
+      setActiveSpeakingId(null);
+    };
+
+    utterance.onerror = () => {
+      setAiState('idle');
+      setActiveSpeakingId(null);
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeech = () => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setAiState('idle');
+    setActiveSpeakingId(null);
+    setIsStreaming(false);
+  };
+
+  // 4. Send Message Handler
+  const handleSendMessage = async (text: string) => {
+    if (!text.trim() || isStreaming) return;
+
+    // Create User Message
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      sender: 'user',
+      text: text.trim(),
+      timestamp: Date.now(),
+    };
+
+    // Prepare Assistant Message Placeholder
+    const assistantMsgId = `msg-ast-${Date.now() + 1}`;
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      sender: 'assistant',
+      text: '',
+      timestamp: Date.now() + 1,
+      isStreaming: true,
+    };
+
+    const updatedMessages = [...activeSession.messages, userMsg, assistantMsg];
+    updateActiveSessionMessages(updatedMessages);
+
+    setAiState('thinking');
+    setIsStreaming(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: updatedMessages.filter((m) => m.id !== assistantMsgId),
+          provider: settings.aiProvider,
+          model: settings.selectedModel,
+          ollamaUrl: settings.ollamaUrl,
+          temperature: settings.temperature,
+          systemPrompt: settings.systemPrompt,
+          memories: settings.memoryEnabled ? memories : [],
+          userName: settings.userName,
+        }),
+      });
+
+      if (!response.body) throw new Error('Yayın yanıtı alınamadı');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n\n').filter((l) => l.startsWith('data: '));
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line.replace('data: ', ''));
+            if (data.text) {
+              accumulatedText += data.text;
+              updateAssistantMessageText(assistantMsgId, accumulatedText, true);
+            }
+            if (data.done) {
+              break;
+            }
+          } catch (e) {
+            // Ignore line parse glitches
+          }
+        }
+      }
+
+      // Mark message streaming completed
+      updateAssistantMessageText(assistantMsgId, accumulatedText, false);
+
+      // Auto-speech if enabled
+      if (settings.autoSpeech && accumulatedText) {
+        speakText(accumulatedText, assistantMsgId);
+      } else {
+        setAiState('idle');
+      }
+    } catch (err) {
+      console.error('Chat error:', err);
+      updateAssistantMessageText(
+        assistantMsgId,
+        'Bir hata oluştu veya yerel LLM sunucusuna ulaşılamadı. Lütfen ayarlarınızı kontrol edin.',
+        false
+      );
+      setAiState('error');
+      setTimeout(() => setAiState('idle'), 3000);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
+  const handleSendCodeMessage = async (text: string) => {
+    if (!text.trim() || isStreaming) return;
+
+    const userMsg: ChatMessage = {
+      id: `code-msg-${Date.now()}`,
+      sender: 'user',
+      text: text.trim(),
+      timestamp: Date.now(),
+    };
+
+    const assistantMsgId = `code-msg-ast-${Date.now() + 1}`;
+    const assistantMsg: ChatMessage = {
+      id: assistantMsgId,
+      sender: 'assistant',
+      text: '',
+      timestamp: Date.now() + 1,
+      isStreaming: true,
+    };
+
+    const nextSession: ChatSession = {
+      ...codeSession,
+      messages: [...codeSession.messages, userMsg, assistantMsg],
+      updatedAt: Date.now(),
+    };
+    setCodeSession(nextSession);
+    saveCodeSession(nextSession);
+
+    setAiState('thinking');
+    setIsStreaming(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: nextSession.messages.filter((m) => m.id !== assistantMsgId),
+          provider: settings.aiProvider,
+          model: settings.selectedModel,
+          ollamaUrl: settings.ollamaUrl,
+          temperature: Math.min(settings.temperature, 0.35),
+          systemPrompt:
+            'Sen EDITH Code adında kıdemli bir yazılım mühendisliği asistanısın. Türkçe yanıt ver. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.',
+          memories: settings.memoryEnabled ? memories : [],
+          userName: settings.userName,
+        }),
+      });
+
+      if (!response.body) throw new Error('Kod chat yayın yanıtı alınamadı');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let accumulatedText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunkStr = decoder.decode(value, { stream: true });
+        const lines = chunkStr.split('\n\n').filter((l) => l.startsWith('data: '));
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line.replace('data: ', ''));
+            if (data.text) {
+              accumulatedText += data.text;
+              setCodeSession((prev) => {
+                const updated = {
+                  ...prev,
+                  messages: prev.messages.map((m) =>
+                    m.id === assistantMsgId ? { ...m, text: accumulatedText, isStreaming: true } : m
+                  ),
+                  updatedAt: Date.now(),
+                };
+                saveCodeSession(updated);
+                return updated;
+              });
+            }
+          } catch {
+            // Ignore malformed SSE fragments.
+          }
+        }
+      }
+
+      setCodeSession((prev) => {
+        const updated = {
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, text: accumulatedText, isStreaming: false } : m
+          ),
+          updatedAt: Date.now(),
+        };
+        saveCodeSession(updated);
+        return updated;
+      });
+      setAiState('idle');
+    } catch (err) {
+      console.error('Code chat error:', err);
+      setCodeSession((prev) => {
+        const updated = {
+          ...prev,
+          messages: prev.messages.map((m) =>
+            m.id === assistantMsgId
+              ? {
+                  ...m,
+                  text: 'Kod chat isteği işlenirken hata oluştu. Lütfen model/bağlantı ayarlarını kontrol edin.',
+                  isStreaming: false,
+                  error: true,
+                }
+              : m
+          ),
+          updatedAt: Date.now(),
+        };
+        saveCodeSession(updated);
+        return updated;
+      });
+      setAiState('error');
+      setTimeout(() => setAiState('idle'), 3000);
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
+  const handleResetCodeChat = () => {
+    const resetSession: ChatSession = {
+      ...codeSession,
+      messages: [DEFAULT_CODE_INITIAL_MESSAGE],
+      updatedAt: Date.now(),
+    };
+    setCodeSession(resetSession);
+    saveCodeSession(resetSession);
+  };
+
+  const updateActiveSessionMessages = (msgs: ChatMessage[]) => {
+    const updated = sessions.map((s) =>
+      s.id === activeSession.id ? { ...s, messages: msgs, updatedAt: Date.now() } : s
+    );
+    setSessions(updated);
+    saveSessions(updated);
+  };
+
+  const updateAssistantMessageText = (msgId: string, text: string, streaming: boolean) => {
+    setSessions((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id !== activeSession.id) return s;
+        const newMsgs = s.messages.map((m) =>
+          m.id === msgId ? { ...m, text, isStreaming: streaming } : m
+        );
+        return { ...s, messages: newMsgs, updatedAt: Date.now() };
+      });
+      saveSessions(updated);
+      return updated;
+    });
+  };
+
+  // 5. New Chat & Reset
+  const handleNewChat = () => {
+    const newSession: ChatSession = {
+      id: `session-${Date.now()}`,
+      title: `Sohbet ${sessions.length + 1}`,
+      messages: [DEFAULT_INITIAL_MESSAGE],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const updated = [newSession, ...sessions];
+    setSessions(updated);
+    setActiveSessionId(newSession.id);
+    saveSessions(updated);
+  };
+
+  const handleResetActiveChat = () => {
+    updateActiveSessionMessages([DEFAULT_INITIAL_MESSAGE]);
+  };
+
+  // 6. Memory Management
+  const handleAddMemory = (
+    category: MemoryCategory,
+    key: string,
+    value: string,
+    isSensitive?: boolean
+  ) => {
+    const newMem: MemoryItem = {
+      id: `mem-${Date.now()}`,
+      category,
+      key,
+      value,
+      createdAt: Date.now(),
+      isSensitive,
+    };
+    const updated = [newMem, ...memories];
+    setMemories(updated);
+    saveMemories(updated);
+  };
+
+  const handleDeleteMemory = (id: string) => {
+    const updated = memories.filter((m) => m.id !== id);
+    setMemories(updated);
+    saveMemories(updated);
+  };
+
+  const handleClearAllMemories = () => {
+    setMemories([]);
+    saveMemories([]);
+  };
+
+  // 7. Tool Execution
+  const saveToolStates = (updatedTools: AutomationTool[]) => {
+    try {
+      const states: Record<string, Partial<AutomationTool>> = {};
+      for (const t of updatedTools) {
+        states[t.id] = { requiresConfirmation: t.requiresConfirmation, lastRun: t.lastRun, status: t.status };
+      }
+      localStorage.setItem('aura_tool_states_v1', JSON.stringify(states));
+    } catch { /* ignore */ }
+  };
+
+  const handleExecuteTool = async (toolId: string, args: Record<string, any> = {}) => {
+    // Mark as running
+    setTools((prev) => {
+      const updated = prev.map((t) => (t.id === toolId ? { ...t, status: 'running' as const } : t));
+      return updated;
+    });
+
+    try {
+      const res = await fetch('/api/tools/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toolId, args }),
+      });
+      const data = await res.json();
+
+      const newLog: ToolExecutionLog = {
+        id: `log-${Date.now()}`,
+        toolId,
+        toolName: tools.find((t) => t.id === toolId)?.name || toolId,
+        args,
+        result: data.result || data.error || 'İşlem tamamlandı.',
+        timestamp: Date.now(),
+        status: data.success ? 'success' : 'error',
+      };
+
+      const updatedLogs = [newLog, ...logs];
+      setLogs(updatedLogs);
+      saveToolLogs(updatedLogs);
+
+      // Update Tool Status
+      setTools((prev) => {
+        const updated = prev.map((t) =>
+          t.id === toolId ? { ...t, status: data.success ? 'success' as const : 'error' as const, lastRun: Date.now() } : t
+        );
+        saveToolStates(updated);
+        return updated;
+      });
+    } catch (e: any) {
+      console.error('Tool execution failed:', e);
+      setTools((prev) => {
+        const updated = prev.map((t) => (t.id === toolId ? { ...t, status: 'error' as const } : t));
+        saveToolStates(updated);
+        return updated;
+      });
+    }
+  };
+
+  const handleToggleToolConfirmation = (toolId: string) => {
+    setTools((prev) => {
+      const updated = prev.map((t) =>
+        t.id === toolId ? { ...t, requiresConfirmation: !t.requiresConfirmation } : t
+      );
+      saveToolStates(updated);
+      return updated;
+    });
+  };
+
+  // 8. Integrations Management
+  const handleSaveIntegration = (id: string, updates: Partial<IntegrationConfig>) => {
+    const updated = integrations.map((i) => (i.id === id ? { ...i, ...updates } : i));
+    setIntegrations(updated);
+    saveIntegrations(updated);
+  };
+
+  // 9. Settings Management
+  const handleSaveSettings = (newSettings: UserSettings) => {
+    setSettings(newSettings);
+    saveSettings(newSettings);
+  };
+
+  const handleResetAllData = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
+
+  return (
+    <div className="edith-theme-shell flex h-screen w-screen overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--edith-primary)] selection:text-slate-950">
+      {themeTransition && (
+        <ThemeTransition
+          key={themeTransition.id}
+          from={themeTransition.from}
+          to={themeTransition.to}
+          onComplete={() => setThemeTransition(null)}
+        />
+      )}
+      {/* Left Sidebar */}
+      <Sidebar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        ollamaConnected={ollamaConnected}
+        selectedModel={settings.selectedModel}
+      />
+
+      {/* Main Content Workspace */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+        <Header
+          settings={settings}
+          ollamaConnected={ollamaConnected}
+          onNewChat={handleNewChat}
+          onResetChat={handleResetActiveChat}
+          onTestConnection={checkHealth}
+          onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
+          onUpdateSettings={updateSettings}
+          isTestingConnection={isTestingConnection}
+        />
+
+        {/* Dynamic Tab Views */}
+        <main className="flex-1 flex overflow-hidden relative">
+          {activeTab === 'dashboard' && (
+            <DashboardView
+              aiState={aiState}
+              messages={activeSession.messages}
+              settings={settings}
+              assistantProfile={activeProfile}
+              ollamaConnected={ollamaConnected}
+              onSendMessage={handleSendMessage}
+              onStopSpeech={stopSpeech}
+              onVoiceTranscript={(txt) => handleSendMessage(txt)}
+              onSpeakMessage={(txt) => speakText(txt)}
+              onOpenOllamaModal={() => setShowOllamaModal(true)}
+              isStreaming={isStreaming}
+              audioAnalyser={analyserRef.current}
+            />
+          )}
+
+          {activeTab === 'chat' && (
+            <DashboardView
+              aiState={aiState}
+              messages={activeSession.messages}
+              settings={settings}
+              assistantProfile={activeProfile}
+              ollamaConnected={ollamaConnected}
+              onSendMessage={handleSendMessage}
+              onStopSpeech={stopSpeech}
+              onVoiceTranscript={(txt) => handleSendMessage(txt)}
+              onSpeakMessage={(txt) => speakText(txt)}
+              onOpenOllamaModal={() => setShowOllamaModal(true)}
+              isStreaming={isStreaming}
+              audioAnalyser={analyserRef.current}
+            />
+          )}
+
+          {activeTab === 'code' && (
+            <CodeChatView
+              messages={codeSession.messages}
+              settings={settings}
+              onSendMessage={handleSendCodeMessage}
+              onReset={handleResetCodeChat}
+              isStreaming={isStreaming}
+            />
+          )}
+
+          {activeTab === 'memory' && (
+            <MemoryView
+              memories={memories}
+              onAddMemory={handleAddMemory}
+              onDeleteMemory={handleDeleteMemory}
+              onClearAllMemories={handleClearAllMemories}
+            />
+          )}
+
+          {activeTab === 'knowledge' && (
+            <KnowledgeMapView memories={memories} tools={tools} logs={logs} />
+          )}
+
+          {activeTab === 'automations' && (
+            <AutomationsView
+              tools={tools}
+              logs={logs}
+              onExecuteTool={handleExecuteTool}
+              onToggleToolConfirmation={handleToggleToolConfirmation}
+            />
+          )}
+
+          {activeTab === 'ops' && <EdithOpsView />}
+
+          {activeTab === 'integrations' && (
+            <IntegrationsView
+              integrations={integrations}
+              onSaveIntegration={handleSaveIntegration}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsView
+              settings={settings}
+              availableModels={availableModels}
+              ollamaConnected={ollamaConnected}
+              onSaveSettings={handleSaveSettings}
+              onTestConnection={checkHealth}
+              onResetAllData={handleResetAllData}
+              isTestingConnection={isTestingConnection}
+            />
+          )}
+        </main>
+      </div>
+
+      {/* Ollama Guide Modal */}
+      <OllamaGuideModal
+        isOpen={showOllamaModal}
+        onClose={() => setShowOllamaModal(false)}
+        onSwitchToGemini={() => handleSaveSettings({ ...settings, aiProvider: 'gemini' })}
+      />
+    </div>
+  );
+}

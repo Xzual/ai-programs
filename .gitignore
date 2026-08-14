@@ -1,0 +1,44 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Local runtime data
+data/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+.aura_monitors.json
+.edith/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+ENV/
+crypto/.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local secrets and generated credentials
+Mark-L-main/config/api_keys.json
+Mark-L-main/memory/api_keys.json
+Mark-L-main/config/certs/*.key
+Mark-L-main/config/certs/*.crt
+
+# Generated app artifacts
+*.tmp
+*.temp
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/

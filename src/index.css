@@ -1,0 +1,282 @@
+@import "tailwindcss";
+
+.edith-theme-shell {
+  transition: background-color 720ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 520ms ease;
+}
+
+.edith-profile-menu {
+  animation: edithProfileMenuIn 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: top left;
+}
+
+.edith-profile-option:hover .edith-profile-option__glow {
+  opacity: 1;
+}
+
+.edith-theme-transition {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  overflow: hidden;
+  isolation: isolate;
+  animation: edithTransitionExit 1700ms linear both;
+}
+
+.edith-theme-transition__dim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--theme-to-background) 76%, black);
+  animation: edithTransitionDim 1700ms ease-in-out both;
+}
+
+.edith-theme-transition__reveal {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--theme-to-accent) 24%, transparent) 0 8%, transparent 34%),
+    radial-gradient(circle at center, color-mix(in srgb, var(--theme-to-primary) 18%, var(--theme-to-background)) 0, var(--theme-to-background) 68%);
+  clip-path: circle(0 at 50% 50%);
+  animation: edithThemeReveal 1120ms 290ms cubic-bezier(0.72, 0, 0.2, 1) both;
+}
+
+.edith-theme-transition__scan {
+  position: absolute;
+  inset: -30%;
+  opacity: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--theme-to-primary) 13%, transparent) 6px,
+    transparent 7px
+  );
+  mask-image: radial-gradient(circle at center, black 0 32%, transparent 70%);
+  animation: edithScanField 1220ms 270ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.edith-theme-transition__reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: clamp(260px, 42vw, 440px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--theme-to-primary) 44%, transparent));
+}
+
+.edith-theme-transition__ring,
+.edith-theme-transition__core,
+.edith-theme-transition__axis {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+}
+
+.edith-theme-transition__ring {
+  border-radius: 50%;
+}
+
+.edith-theme-transition__ring--outgoing {
+  width: 78%;
+  height: 78%;
+  border: 1px solid var(--theme-from-primary);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--theme-from-secondary) 55%, transparent);
+  animation: edithOutgoingRing 430ms cubic-bezier(0.76, 0, 0.24, 1) both;
+}
+
+.edith-theme-transition__ring--outer {
+  width: 100%;
+  height: 100%;
+  border: 1px solid color-mix(in srgb, var(--theme-to-primary) 58%, transparent);
+  border-top-color: var(--theme-to-accent);
+  border-right-color: transparent;
+  border-bottom-color: var(--theme-to-secondary);
+  box-shadow:
+    inset 0 0 18px color-mix(in srgb, var(--theme-to-primary) 12%, transparent),
+    0 0 12px color-mix(in srgb, var(--theme-to-primary) 18%, transparent);
+  animation: edithOuterRing 1260ms 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.edith-theme-transition__ring--middle {
+  width: 66%;
+  height: 66%;
+  border: 1px dashed color-mix(in srgb, var(--theme-to-accent) 82%, transparent);
+  animation: edithMiddleRing 1180ms 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.edith-theme-transition__ring--inner {
+  width: 36%;
+  height: 36%;
+  border: 2px solid color-mix(in srgb, var(--theme-to-primary) 90%, white 10%);
+  box-shadow:
+    inset 0 0 24px color-mix(in srgb, var(--theme-to-primary) 28%, transparent),
+    0 0 30px color-mix(in srgb, var(--theme-to-primary) 38%, transparent);
+  animation: edithInnerRing 980ms 300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.edith-theme-transition__ring--outgoing,
+.edith-theme-transition__ring--outer,
+.edith-theme-transition__ring--middle,
+.edith-theme-transition__ring--inner,
+.edith-theme-transition__core {
+  transform: translate(-50%, -50%);
+}
+
+.edith-theme-transition__core {
+  width: 11%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--theme-to-accent);
+  box-shadow:
+    0 0 12px white,
+    0 0 42px var(--theme-to-primary),
+    0 0 90px var(--theme-to-secondary);
+  animation: edithCoreIgnition 1080ms 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.edith-theme-transition__axis {
+  background: linear-gradient(90deg, transparent, var(--theme-to-primary), transparent);
+  opacity: 0;
+}
+
+.edith-theme-transition__axis--horizontal {
+  width: 135%;
+  height: 1px;
+  transform: translate(-50%, -50%);
+  animation: edithAxisHorizontal 920ms 360ms ease-out both;
+}
+
+.edith-theme-transition__axis--vertical {
+  width: 1px;
+  height: 135%;
+  background: linear-gradient(180deg, transparent, var(--theme-to-primary), transparent);
+  transform: translate(-50%, -50%);
+  animation: edithAxisVertical 920ms 420ms ease-out both;
+}
+
+.edith-theme-transition__identity {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + clamp(145px, 25vw, 255px));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  transform: translate(-50%, 12px);
+  opacity: 0;
+  color: var(--theme-to-accent);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--theme-to-primary) 75%, transparent);
+  animation: edithIdentityIn 800ms 510ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.edith-theme-transition__name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: clamp(0.75rem, 1.15vw, 0.95rem);
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  white-space: nowrap;
+}
+
+.edith-theme-transition__identity-line {
+  width: clamp(32px, 5vw, 72px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--theme-to-primary));
+}
+
+.edith-theme-transition__identity-line:last-child {
+  transform: scaleX(-1);
+}
+
+@keyframes edithProfileMenuIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes edithTransitionExit {
+  0%, 82% { visibility: visible; }
+  100% { visibility: hidden; }
+}
+
+@keyframes edithTransitionDim {
+  0% { opacity: 0; }
+  16% { opacity: 0.82; }
+  68% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+@keyframes edithThemeReveal {
+  0% { clip-path: circle(0 at 50% 50%); opacity: 1; }
+  76% { clip-path: circle(112vmax at 50% 50%); opacity: 0.72; }
+  100% { clip-path: circle(112vmax at 50% 50%); opacity: 0; }
+}
+
+@keyframes edithScanField {
+  0% { opacity: 0; transform: translateY(-4%); }
+  24% { opacity: 0.44; }
+  100% { opacity: 0; transform: translateY(4%); }
+}
+
+@keyframes edithOutgoingRing {
+  0% { opacity: 0.85; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.08); }
+}
+
+@keyframes edithOuterRing {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.12) rotate(-38deg); }
+  32% { opacity: 0.95; }
+  74% { opacity: 0.7; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.8) rotate(72deg); }
+}
+
+@keyframes edithMiddleRing {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.12) rotate(80deg); }
+  35% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.15) rotate(-55deg); }
+}
+
+@keyframes edithInnerRing {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.1); }
+  36% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.58); }
+}
+
+@keyframes edithCoreIgnition {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0); }
+  22% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+  52% { opacity: 1; transform: translate(-50%, -50%) scale(0.78); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(7); }
+}
+
+@keyframes edithAxisHorizontal {
+  0% { opacity: 0; transform: translate(-50%, -50%) scaleX(0); }
+  38% { opacity: 0.75; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scaleX(1.4); }
+}
+
+@keyframes edithAxisVertical {
+  0% { opacity: 0; transform: translate(-50%, -50%) scaleY(0); }
+  38% { opacity: 0.55; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scaleY(1.4); }
+}
+
+@keyframes edithIdentityIn {
+  0% { opacity: 0; transform: translate(-50%, 12px); filter: blur(6px); }
+  34%, 70% { opacity: 1; transform: translate(-50%, 0); filter: blur(0); }
+  100% { opacity: 0; transform: translate(-50%, -8px); filter: blur(2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edith-theme-transition {
+    animation-duration: 360ms;
+  }
+
+  .edith-theme-transition__reticle,
+  .edith-theme-transition__scan,
+  .edith-theme-transition__identity {
+    display: none;
+  }
+
+  .edith-theme-transition__reveal {
+    animation: edithThemeReveal 340ms ease-out both;
+  }
+}

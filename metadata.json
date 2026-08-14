@@ -1,0 +1,10 @@
+{
+  "name": "AURA - Yerel AI Chatbot & Asistan",
+  "description": "Futuristik 3D parçacık çekirdekli, sesli etkileşimli, yerel Ollama LLM destekli ve kişisel bellekli AI asistan dashboard'u.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "jarvis",
+    "name": "JARVIS",
+    "description": "Cool blue tactical interface.",
+    "primary": "#38bdf8",
+    "secondary": "#2563eb",
+    "accent": "#67e8f9",
+    "background": "#020617",
+    "surface": "#07111f",
+    "text": "#e0f2fe"
+  },
+  {
+    "id": "friday",
+    "name": "F.R.I.D.A.Y.",
+    "description": "Purple and pink gradient intelligence layer.",
+    "primary": "#c084fc",
+    "secondary": "#ec4899",
+    "accent": "#f0abfc",
+    "background": "#0f0718",
+    "surface": "#1c0b2a",
+    "text": "#fae8ff"
+  },
+  {
+    "id": "ultron",
+    "name": "ULTRON",
+    "description": "Dark industrial gold interface.",
+    "primary": "#f59e0b",
+    "secondary": "#a16207",
+    "accent": "#fde047",
+    "background": "#0f0b05",
+    "surface": "#1f1608",
+    "text": "#fef3c7"
+  },
+  {
+    "id": "karen",
+    "name": "KAREN",
+    "description": "Red security and tactical alert interface.",
+    "primary": "#ef4444",
+    "secondary": "#991b1b",
+    "accent": "#fb7185",
+    "background": "#120607",
+    "surface": "#230b0d",
+    "text": "#ffe4e6"
+  },
+  {
+    "id": "alfred",
+    "name": "ALFRED",
+    "description": "Green calm operations interface.",
+    "primary": "#22c55e",
+    "secondary": "#15803d",
+    "accent": "#86efac",
+    "background": "#04110a",
+    "surface": "#0b1f13",
+    "text": "#dcfce7"
+  },
+  {
+    "id": "homer",
+    "name": "HOMER",
+    "description": "White and graphite executive interface.",
+    "primary": "#f8fafc",
+    "secondary": "#94a3b8",
+    "accent": "#cbd5e1",
+    "background": "#0b0d10",
+    "surface": "#1f2933",
+    "text": "#f8fafc"
+  }
+]
