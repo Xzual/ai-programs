@@ -18,6 +18,7 @@ The existing safety behavior is preserved:
 | File | Role |
 |---|---|
 | `src/edith/permissionService.ts` | Central permission/risk decision service |
+| `src/components/views/EdithOpsView.tsx` | EDITH Ops permission review and scoped grant panel |
 | `scripts/test-edith-permission-service.ts` | Regression coverage for allow/deny/high-risk/default/explicit permission decisions |
 
 ## Decision Shape
@@ -80,6 +81,18 @@ The endpoint returns the current high-risk gate state, default local permissions
 
 Grant endpoints create, list, and revoke temporary permission grants.
 
+## EDITH Ops UI
+
+EDITH Ops now includes a permission review panel that can:
+
+- display effective default permissions
+- display active/revoked/expired permission grants
+- select high-risk registry tools
+- create actor/tool-scoped temporary grants
+- revoke active grants
+
+The panel is a control surface only. Tool execution still checks PermissionService on the backend.
+
 ## Persistence
 
 Permission grants are stored beside EDITH local persistence data:
@@ -122,11 +135,12 @@ Runtime smoke:
 | Missing permission | `browser:control` |
 | Production server on `PORT=3117` | Grant create/list/revoke flow passed |
 | Scoped grant for `computer_control_agent` | Permission gate passed and reached adapter `CONFIGURATION_REQUIRED` result |
+| Production server on `PORT=3118` | EDITH Ops policy/list/create/revoke endpoint flow passed |
 
 ## Remaining Work
 
-1. Add EDITH Ops permission review UI for high-risk requests.
-2. Add role/authorization checks before permission elevation.
-3. Add one-click grant creation from denied tool results.
+1. Add role/authorization checks before permission elevation.
+2. Add one-click grant creation from denied tool results.
+3. Add second-confirmation prompts for high-risk grant creation/revoke.
 4. Add adapter-specific checks for browser/computer/trading/proactive capabilities.
 5. Add periodic pruning or archival of expired/revoked grants.

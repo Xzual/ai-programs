@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, LockKeyhole, Power, RefreshCw, ShieldAlert, Wrench } from 'lucide-react';
+import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, KeyRound, LockKeyhole, Power, RefreshCw, ShieldAlert, Trash2, Wrench } from 'lucide-react';
 
 interface RegistryTool {
   id: string;
@@ -45,34 +45,71 @@ interface KillSwitchState {
   disabledCapabilities: string[];
 }
 
+interface PermissionPolicy {
+  highRiskEnabled: boolean;
+  defaultLocalPermissions: string[];
+  highRiskPermissions: string[];
+  authorizedPermissions: string[];
+  activeGrants: number;
+}
+
+interface PermissionGrant {
+  id: string;
+  actor: string;
+  permissions: string[];
+  toolIds?: string[];
+  reason: string;
+  grantedBy: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  revokedBy?: string;
+}
+
 export const EdithOpsView: React.FC = () => {
   const [tools, setTools] = useState<RegistryTool[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [tasks, setTasks] = useState<EdithTask[]>([]);
   const [killSwitch, setKillSwitch] = useState<KillSwitchState | null>(null);
+  const [permissionPolicy, setPermissionPolicy] = useState<PermissionPolicy | null>(null);
+  const [permissionGrants, setPermissionGrants] = useState<PermissionGrant[]>([]);
   const [killReason, setKillReason] = useState('Manual emergency stop from EDITH Ops.');
+  const [grantToolId, setGrantToolId] = useState('');
+  const [grantReason, setGrantReason] = useState('Temporary high-risk permission from EDITH Ops.');
+  const [grantTtlMinutes, setGrantTtlMinutes] = useState(15);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [grantBusy, setGrantBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [toolRes, auditRes, taskRes, killSwitchRes] = await Promise.all([
+      const [toolRes, auditRes, taskRes, killSwitchRes, permissionPolicyRes, permissionGrantsRes] = await Promise.all([
         fetch('/api/edith/tools'),
         fetch('/api/edith/audit?limit=50'),
         fetch('/api/edith/tasks'),
         fetch('/api/edith/kill-switch'),
+        fetch('/api/edith/permissions/policy'),
+        fetch('/api/edith/permissions/grants?includeExpired=true&includeRevoked=true'),
       ]);
       const toolData = await toolRes.json();
       const auditData = await auditRes.json();
       const taskData = await taskRes.json();
       const killSwitchData = await killSwitchRes.json();
+      const permissionPolicyData = await permissionPolicyRes.json();
+      const permissionGrantsData = await permissionGrantsRes.json();
       setTools(toolData.tools ?? []);
       setEvents(auditData.events ?? []);
       setTasks(taskData.tasks ?? []);
       setKillSwitch(killSwitchData.state ?? null);
+      setPermissionPolicy(permissionPolicyData.policy ?? null);
+      setPermissionGrants(permissionGrantsData.grants ?? []);
+      if (!grantToolId && (toolData.tools ?? []).length > 0) {
+        const firstHighRisk = (toolData.tools as RegistryTool[]).find((tool) => tool.metadata.riskLevel >= 3);
+        if (firstHighRisk) setGrantToolId(firstHighRisk.id);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'EDITH Ops verileri alınamadı.');
     } finally {
@@ -86,6 +123,8 @@ export const EdithOpsView: React.FC = () => {
 
   const highRiskTools = tools.filter((tool) => tool.metadata.riskLevel >= 3);
   const pausedTasks = tasks.filter((task) => task.status === 'PAUSED').length;
+  const selectedGrantTool = highRiskTools.find((tool) => tool.id === grantToolId) ?? highRiskTools[0];
+  const activeGrants = permissionGrants.filter((grant) => !grant.revokedAt && Date.parse(grant.expiresAt) > Date.now());
 
   const setKillSwitchActive = async (active: boolean) => {
     setSwitching(true);
@@ -106,6 +145,51 @@ export const EdithOpsView: React.FC = () => {
       setError(caught instanceof Error ? caught.message : 'Kill switch güncellenemedi.');
     } finally {
       setSwitching(false);
+    }
+  };
+
+  const createPermissionGrant = async () => {
+    if (!selectedGrantTool) return;
+    setGrantBusy(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/edith/permissions/grants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          actor: 'aura-dashboard',
+          permissions: selectedGrantTool.metadata.requiredPermissions,
+          toolIds: [selectedGrantTool.id],
+          reason: grantReason,
+          ttlMs: Math.max(1, grantTtlMinutes) * 60 * 1000,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? 'Permission grant oluşturulamadı.');
+      }
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Permission grant oluşturulamadı.');
+    } finally {
+      setGrantBusy(false);
+    }
+  };
+
+  const revokePermissionGrant = async (grantId: string) => {
+    setGrantBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/edith/permissions/grants/${grantId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? 'Permission grant iptal edilemedi.');
+      }
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Permission grant iptal edilemedi.');
+    } finally {
+      setGrantBusy(false);
     }
   };
 
@@ -220,6 +304,109 @@ export const EdithOpsView: React.FC = () => {
                 `EDITH_ENABLE_HIGH_RISK_TOOLS=true` ile başlatılmadıkça yürütme kapısı izin vermez.
               </p>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-amber-500/20 bg-amber-950/10 p-4">
+          <div className="flex flex-col xl:flex-row gap-4 justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-300" />
+                <h3 className="text-sm font-semibold text-amber-100">Permission Review</h3>
+                <span className="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-950/30 text-[10px] text-amber-200 font-mono">
+                  {activeGrants.length} active grant
+                </span>
+              </div>
+              <p className="text-xs text-amber-100/70 mt-1">
+                High-risk araçlar için actor/tool scope'lu ve süreli backend grant oluşturur. Grant süresi bitince veya revoke edilince izin otomatik düşer.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {(permissionPolicy?.authorizedPermissions ?? []).map((permission) => (
+                  <span key={permission} className="px-2 py-0.5 rounded bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 font-mono">
+                    {permission}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="w-full xl:w-[34rem] grid grid-cols-1 md:grid-cols-[1fr_6rem] gap-2">
+              <select
+                value={selectedGrantTool?.id ?? grantToolId}
+                onChange={(event) => setGrantToolId(event.target.value)}
+                disabled={grantBusy || highRiskTools.length === 0}
+                className="rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400/50"
+              >
+                {highRiskTools.map((tool) => (
+                  <option key={tool.id} value={tool.id}>
+                    {tool.metadata.name} · R{tool.metadata.riskLevel}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                value={grantTtlMinutes}
+                onChange={(event) => setGrantTtlMinutes(Number(event.target.value))}
+                disabled={grantBusy}
+                className="rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-400/50"
+              />
+              <textarea
+                value={grantReason}
+                onChange={(event) => setGrantReason(event.target.value)}
+                disabled={grantBusy}
+                rows={2}
+                className="md:col-span-2 rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-400/50"
+                placeholder="Grant sebebi..."
+              />
+              <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[10px] text-slate-500 font-mono">
+                  {selectedGrantTool ? selectedGrantTool.metadata.requiredPermissions.join(', ') : 'no high-risk tool'}
+                </div>
+                <button
+                  onClick={createPermissionGrant}
+                  disabled={!selectedGrantTool || grantBusy}
+                  className="px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-950/25 text-xs text-amber-100 hover:bg-amber-900/25 disabled:opacity-45 flex items-center gap-2"
+                >
+                  <KeyRound className="w-4 h-4" />
+                  Grant Oluştur
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-2">
+            {permissionGrants.slice(0, 6).map((grant) => {
+              const active = !grant.revokedAt && Date.parse(grant.expiresAt) > Date.now();
+              return (
+                <div key={grant.id} className="rounded-lg border border-slate-800 bg-slate-900/55 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs text-slate-100 font-mono truncate">{grant.toolIds?.join(', ') || 'all tools'}</div>
+                      <div className="mt-1 text-[10px] text-slate-500 font-mono">{grant.actor} · {grant.permissions.join(', ')}</div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded border text-[10px] font-mono ${active ? 'text-emerald-300 border-emerald-500/30 bg-emerald-950/30' : 'text-slate-400 border-slate-700 bg-slate-950/50'}`}>
+                      {active ? 'ACTIVE' : grant.revokedAt ? 'REVOKED' : 'EXPIRED'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500 line-clamp-2">{grant.reason}</p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="text-[10px] text-slate-600 font-mono">
+                      until {new Date(grant.expiresAt).toLocaleTimeString('tr-TR')}
+                    </div>
+                    <button
+                      onClick={() => revokePermissionGrant(grant.id)}
+                      disabled={!active || grantBusy}
+                      className="px-2 py-1 rounded-md border border-slate-700 text-[10px] text-slate-300 hover:border-red-400/40 hover:text-red-200 disabled:opacity-40 flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      revoke
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {permissionGrants.length === 0 && <Empty text="Henüz permission grant yok." />}
           </div>
         </section>
 

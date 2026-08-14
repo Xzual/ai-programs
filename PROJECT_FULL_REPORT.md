@@ -9,6 +9,28 @@
 
 ---
 
+## İçindekiler
+
+1. [Kısa Özet](#1-kısa-özet)
+2. [Proje Ne Yapıyor?](#2-proje-ne-yapıyor)
+3. [Workspace İçindeki Ana Sistemler](#3-workspace-içindeki-ana-sistemler)
+4. [Teknoloji Mimarisi](#4-teknoloji-mimarisi)
+5. [Kullanıcı Arayüzü](#5-kullanıcı-arayüzü)
+6. [AI ve Sohbet Akışı](#6-ai-ve-sohbet-akışı)
+7. [EDITH Core Durumu](#7-edith-core-durumu)
+8. [Persistence ve Veri Saklama](#8-persistence-ve-veri-saklama)
+9. [Tool Registry ve Güvenlik](#9-tool-registry-ve-güvenlik)
+10. [Task Engine, Planner, Executor, Verifier](#10-task-engine-planner-executor-verifier)
+11. [Memory V2](#11-memory-v2)
+12. [Mark-L ve Crypto Entegrasyon Planı](#12-mark-l-ve-crypto-entegrasyon-planı)
+13. [Son Yapılan Önemli Değişiklikler](#13-son-yapılan-önemli-değişiklikler)
+14. [Test ve Doğrulama Komutları](#14-test-ve-doğrulama-komutları)
+15. [Mevcut Durum](#15-mevcut-durum)
+16. [Bilinen Eksikler ve Sonraki Adımlar](#16-bilinen-eksikler-ve-sonraki-adımlar)
+17. [Genel Değerlendirme](#17-genel-değerlendirme)
+
+---
+
 ## 1. Kısa Özet
 
 AURA / E.D.I.T.H, kullanıcının kendi bilgisayarında çalışan görsel, sesli ve görev odaklı bir yapay zeka asistanıdır. Proje ilk bakışta gelişmiş bir AI dashboard gibi görünse de altyapısı artık daha büyük bir hedefe taşınmaktadır: kullanıcının amacını anlayan, görev oluşturan, plan yapan, araç seçen, sonucu doğrulayan, hata durumunda yeniden planlayabilen ve önemli bilgileri belleğe kaydedebilen kalıcı bir kişisel AI işletim katmanı.
@@ -16,6 +38,17 @@ AURA / E.D.I.T.H, kullanıcının kendi bilgisayarında çalışan görsel, sesl
 Mevcut uygulama sohbet, kod sohbeti, sesli giriş/çıkış, bellek paneli, Knowledge Map, otomasyon araçları, EDITH Ops, entegrasyonlar, ayarlar ve Three.js tabanlı canlı yapay zeka çekirdeği içerir.
 
 Son geliştirmelerde özellikle mimari temel güçlendirildi: SQLite persistence, backend merkezli tool registry, IntentService, TaskService, Planner, Executor, Verifier, Recovery, Agent Registry, Mark-L adapter, Memory V2 ve ModelRouter foundation eklendi.
+
+### Yönetici Özeti
+
+| Başlık | Durum |
+|---|---|
+| Ürün tipi | Local-first kişisel AI asistanı |
+| Ana deneyim | Sohbet, ses, görev, memory, Knowledge Map ve EDITH Ops |
+| Mimari yön | Dashboard'dan kalıcı AI operating layer'a geçiş |
+| Güvenlik yaklaşımı | Backend-enforced registry, permission gate, audit ve kill switch |
+| En güçlü alan | Görsel arayüz + EDITH Core foundation |
+| Sıradaki kritik iş | Memory V2 entegrasyonu, daha güçlü permission/authorization ve uçtan uca task döngüsü |
 
 ---
 
@@ -599,7 +632,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
-| PermissionService | Foundation ve süreli grant modeli hazır; EDITH Ops permission review sıradaki iş |
+| PermissionService | Foundation, süreli grant modeli ve EDITH Ops permission review paneli hazır |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -615,12 +648,12 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 5. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
-6. PermissionService için EDITH Ops permission review ve denied tool sonucundan grant oluşturma akışı eklenmesi.
-6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
-7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
-8. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
-9. Browser/computer control için daha güçlü permission modeli.
-10. Daha kapsamlı end-to-end test senaryoları.
+6. PermissionService için role/authorization, ikinci onay ve denied tool sonucundan tek tık grant oluşturma akışı eklenmesi.
+7. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
+8. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
+9. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
+10. Browser/computer control için daha güçlü permission modeli.
+11. Daha kapsamlı end-to-end test senaryoları.
 
 ---
 
