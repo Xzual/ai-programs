@@ -1,13 +1,16 @@
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import type { EdithAuditEvent, EdithTask, EdithTaskStatus } from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 import type { EdithPersistencePaths, EdithPersistenceStore, PersistenceMigrationResult } from './types';
 
 const DEFAULT_DATA_DIR = path.resolve(process.cwd(), '.edith');
+const require = createRequire(path.join(process.cwd(), 'package.json'));
 
 type DatabaseLike = {
   exec(sql: string): void;
+  close(): void;
   prepare(sql: string): {
     run(...params: unknown[]): unknown;
     get(...params: unknown[]): Record<string, unknown> | undefined;
@@ -295,6 +298,11 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
         const memory = parseJsonColumn<MemoryItem>(row);
         return memory ? [memory] : [];
       });
+  }
+
+  close(): void {
+    this.db?.close();
+    this.db = undefined;
   }
 
   getPaths(): EdithPersistencePaths {

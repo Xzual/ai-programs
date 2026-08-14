@@ -82,6 +82,10 @@ export interface EdithToolResult {
   error?: string;
   structuredOutput?: Record<string, unknown>;
   auditEventId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  errorCode?: 'VALIDATION_ERROR' | 'PERMISSION_DENIED' | 'TIMEOUT' | 'TOOL_ERROR' | 'UNKNOWN_TOOL';
 }
 
 export interface EdithAuditEvent {
@@ -120,6 +124,26 @@ export class EdithPermissionError extends Error {
   }
 }
 
+export class EdithToolValidationError extends Error {
+  constructor(
+    message: string,
+    public readonly validationErrors: string[]
+  ) {
+    super(message);
+    this.name = 'EdithToolValidationError';
+  }
+}
+
+export class EdithToolTimeoutError extends Error {
+  constructor(
+    message: string,
+    public readonly timeoutMs: number
+  ) {
+    super(message);
+    this.name = 'EdithToolTimeoutError';
+  }
+}
+
 export class EdithToolRegistry {
   private readonly tools = new Map<string, EdithRegisteredTool>();
 
@@ -145,10 +169,11 @@ export class EdithToolRegistry {
   ): Promise<EdithToolResult> {
     const tool = this.tools.get(toolId);
     if (!tool) {
-      return { success: false, toolId, error: `Unknown EDITH tool: ${toolId}` };
+      return { success: false, toolId, error: `Unknown EDITH tool: ${toolId}`, errorCode: 'UNKNOWN_TOOL' };
     }
 
     this.assertPermission(tool, context);
+    this.assertInputSchema(tool, args);
 
     if (context.dryRun) {
       return {
@@ -159,7 +184,7 @@ export class EdithToolRegistry {
       };
     }
 
-    return tool.handler(args, context);
+    return this.withTimeout(tool, args, context);
   }
 
   private assertPermission(tool: EdithRegisteredTool, context: EdithToolExecutionContext): void {
@@ -172,6 +197,58 @@ export class EdithToolRegistry {
         missing,
         tool.metadata.riskLevel
       );
+    }
+  }
+
+  private assertInputSchema(tool: EdithRegisteredTool, args: Record<string, unknown>): void {
+    const errors: string[] = [];
+
+    for (const [key, field] of Object.entries(tool.metadata.inputSchema)) {
+      const value = args[key];
+      if (field.required && (value === undefined || value === null || value === '')) {
+        errors.push(`${key} is required`);
+        continue;
+      }
+      if (value === undefined || value === null || value === '') continue;
+
+      if (!this.matchesFieldType(value, field.type)) {
+        errors.push(`${key} must be ${field.type}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      throw new EdithToolValidationError(
+        `Invalid input for ${tool.id}: ${errors.join(', ')}`,
+        errors
+      );
+    }
+  }
+
+  private matchesFieldType(value: unknown, type: EdithToolSchemaField['type']): boolean {
+    if (type === 'array') return Array.isArray(value);
+    if (type === 'object') return typeof value === 'object' && value !== null && !Array.isArray(value);
+    return typeof value === type;
+  }
+
+  private async withTimeout(
+    tool: EdithRegisteredTool,
+    args: Record<string, unknown>,
+    context: EdithToolExecutionContext
+  ): Promise<EdithToolResult> {
+    const timeoutMs = Math.max(1, tool.metadata.timeoutMs);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      return await Promise.race([
+        Promise.resolve(tool.handler(args, context)),
+        new Promise<EdithToolResult>((_resolve, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new EdithToolTimeoutError(`Tool timed out after ${timeoutMs}ms: ${tool.id}`, timeoutMs));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 }

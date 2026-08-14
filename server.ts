@@ -10,7 +10,7 @@ import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskS
 import { getEdithPersistenceStore } from "./src/edith/persistence";
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
 
@@ -122,6 +122,15 @@ app.get("/api/edith/audit", (req, res) => {
   res.json({
     success: true,
     events: readRecentAuditEvents(Number.isFinite(limit) ? limit : 100),
+  });
+});
+
+app.get("/api/edith/tool-runs", (req, res) => {
+  const limit = Number(req.query.limit ?? 100);
+  const store = getEdithPersistenceStore();
+  res.json({
+    success: true,
+    runs: store.listToolRuns?.(Number.isFinite(limit) ? limit : 100) ?? [],
   });
 });
 

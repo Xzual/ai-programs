@@ -26,5 +26,6 @@ export interface EdithPersistenceStore {
   listToolRuns?(limit?: number): ToolExecutionLog[];
   upsertMemory?(memory: MemoryItem): void;
   listMemories?(): MemoryItem[];
+  close?(): void;
   getPaths(): EdithPersistencePaths;
 }

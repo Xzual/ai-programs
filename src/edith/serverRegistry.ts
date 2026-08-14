@@ -2,6 +2,8 @@ import os from 'os';
 import { spawn } from 'child_process';
 import {
   EdithPermissionError,
+  EdithToolTimeoutError,
+  EdithToolValidationError,
   EdithToolRegistry,
   type EdithToolExecutionContext,
   type EdithToolResult,
@@ -9,6 +11,7 @@ import {
 import { appendAuditEvent, createAuditEvent } from './audit';
 import { listExternalSkillProjects } from './skills/catalog';
 import { createStoredTask } from './taskStore';
+import { getEdithPersistenceStore } from './persistence';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
@@ -26,6 +29,26 @@ const HIGH_RISK_PERMISSIONS = [
   'browser:control',
   'computer:control',
 ];
+
+function normalizeToolRunId(toolId: string): string {
+  return `toolrun-${toolId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function recordToolRun(params: {
+  id: string;
+  toolId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  result: string;
+  timestamp: number;
+  status: 'success' | 'error' | 'denied';
+}): void {
+  getEdithPersistenceStore().recordToolRun?.(params);
+}
+
+function safeResultText(result: EdithToolResult): string {
+  return (result.error ?? result.result ?? JSON.stringify(result.structuredOutput ?? {})).slice(0, 4000);
+}
 
 function getStringArg(args: Record<string, unknown>, key: string): string | undefined {
   const value = args[key];
@@ -533,11 +556,24 @@ export async function executeEdithTool(
   };
 
   if (!tool) {
-    return { success: false, toolId, error: `Unknown EDITH tool: ${toolId}` };
+    return { success: false, toolId, error: `Unknown EDITH tool: ${toolId}`, errorCode: 'UNKNOWN_TOOL' };
   }
+
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const toolRunId = normalizeToolRunId(toolId);
 
   try {
     const result = await edithToolRegistry.execute(toolId, args, executionContext);
+    const finishedAtMs = Date.now();
+    const finishedAt = new Date(finishedAtMs).toISOString();
+    const normalizedResult: EdithToolResult = {
+      ...result,
+      startedAt,
+      finishedAt,
+      durationMs: finishedAtMs - startedAtMs,
+      errorCode: result.success ? undefined : result.errorCode ?? 'TOOL_ERROR',
+    };
     const audit = createAuditEvent({
       actor: executionContext.actor,
       taskId: executionContext.taskId,
@@ -545,13 +581,27 @@ export async function executeEdithTool(
       toolId,
       authorization: 'allowed',
       riskLevel: tool.metadata.riskLevel,
-      result: result.success ? 'success' : 'error',
-      message: result.error ?? result.result?.slice(0, 500),
+      result: normalizedResult.success ? 'success' : 'error',
+      message: safeResultText(normalizedResult).slice(0, 500),
     });
     appendAuditEvent(audit);
-    return { ...result, auditEventId: audit.id };
+    const withAudit = { ...normalizedResult, auditEventId: audit.id };
+    recordToolRun({
+      id: toolRunId,
+      toolId,
+      toolName: tool.metadata.name,
+      args,
+      result: safeResultText(withAudit),
+      timestamp: startedAtMs,
+      status: withAudit.success ? 'success' : 'error',
+    });
+    return withAudit;
   } catch (error) {
     const denied = error instanceof EdithPermissionError;
+    const invalid = error instanceof EdithToolValidationError;
+    const timedOut = error instanceof EdithToolTimeoutError;
+    const finishedAtMs = Date.now();
+    const finishedAt = new Date(finishedAtMs).toISOString();
     const audit = createAuditEvent({
       actor: executionContext.actor,
       taskId: executionContext.taskId,
@@ -563,12 +613,38 @@ export async function executeEdithTool(
       message: error instanceof Error ? error.message : String(error),
     });
     appendAuditEvent(audit);
-    return {
+    const result: EdithToolResult = {
       success: false,
       toolId,
       error: audit.message,
       auditEventId: audit.id,
-      structuredOutput: denied ? { missingPermissions: error.missingPermissions } : undefined,
+      startedAt,
+      finishedAt,
+      durationMs: finishedAtMs - startedAtMs,
+      errorCode: denied
+        ? 'PERMISSION_DENIED'
+        : invalid
+        ? 'VALIDATION_ERROR'
+        : timedOut
+        ? 'TIMEOUT'
+        : 'TOOL_ERROR',
+      structuredOutput: denied
+        ? { missingPermissions: error.missingPermissions }
+        : invalid
+        ? { validationErrors: error.validationErrors }
+        : timedOut
+        ? { timeoutMs: error.timeoutMs }
+        : undefined,
     };
+    recordToolRun({
+      id: toolRunId,
+      toolId,
+      toolName: tool.metadata.name,
+      args,
+      result: safeResultText(result),
+      timestamp: startedAtMs,
+      status: denied ? 'denied' : 'error',
+    });
+    return result;
   }
 }

@@ -117,6 +117,10 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
     return readJsonArray<MemoryItem>(this.memoriesFile);
   }
 
+  close(): void {
+    // JSON store opens files per operation, so there is no persistent handle to close.
+  }
+
   getPaths(): EdithPersistencePaths {
     return this.paths;
   }

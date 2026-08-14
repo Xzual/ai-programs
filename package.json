@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit",
     "edith:migrate": "node scripts/migrate-edith-persistence.mjs",
     "test:edith-persistence": "node scripts/test-edith-persistence.mjs",
+    "test:edith-registry": "tsx scripts/test-edith-registry.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",
