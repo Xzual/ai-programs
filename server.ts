@@ -7,6 +7,7 @@ import { edithToolRegistry, executeEdithTool } from "./src/edith/serverRegistry"
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { readRecentAuditEvents } from "./src/edith/audit";
 import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
+import { getEdithPersistenceStore } from "./src/edith/persistence";
 
 const app = express();
 const PORT = 3000;
@@ -124,6 +125,15 @@ app.get("/api/edith/audit", (req, res) => {
   });
 });
 
+app.get("/api/edith/persistence", (_req, res) => {
+  const store = getEdithPersistenceStore();
+  res.json({
+    success: true,
+    kind: store.kind,
+    paths: store.getPaths(),
+  });
+});
+
 app.get("/api/edith/tasks", (_req, res) => {
   res.json({
     success: true,
@@ -158,6 +168,37 @@ app.patch("/api/edith/tasks/:id/status", (req, res) => {
   const task = updateTaskStatus(req.params.id, req.body?.status, req.body?.result);
   if (!task) return res.status(404).json({ success: false, error: "Task not found." });
   res.json({ success: true, task });
+});
+
+app.get("/api/edith/memories", (_req, res) => {
+  const store = getEdithPersistenceStore();
+  res.json({
+    success: true,
+    memories: store.listMemories?.() ?? [],
+  });
+});
+
+app.post("/api/edith/memories", (req, res) => {
+  const store = getEdithPersistenceStore();
+  if (!store.upsertMemory) {
+    return res.status(501).json({ success: false, error: "Memory persistence is unavailable." });
+  }
+
+  const { category = "custom", key, value, isSensitive = false } = req.body ?? {};
+  if (!key || !value) {
+    return res.status(400).json({ success: false, error: "key and value are required." });
+  }
+
+  const memory = {
+    id: req.body?.id || `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    category,
+    key,
+    value,
+    createdAt: Number(req.body?.createdAt ?? Date.now()),
+    isSensitive: Boolean(isSensitive),
+  };
+  store.upsertMemory(memory);
+  res.json({ success: true, memory });
 });
 
 type ChatToolRoute = {

@@ -1,9 +1,5 @@
-import fs from 'fs';
-import path from 'path';
 import type { EdithAuditEvent } from './core';
-
-const AUDIT_DIR = path.resolve(process.cwd(), '.edith');
-const AUDIT_FILE = path.join(AUDIT_DIR, 'audit.log.jsonl');
+import { getEdithPersistenceStore } from './persistence';
 
 export function createAuditEvent(params: Omit<EdithAuditEvent, 'id' | 'timestamp'>): EdithAuditEvent {
   return {
@@ -14,27 +10,14 @@ export function createAuditEvent(params: Omit<EdithAuditEvent, 'id' | 'timestamp
 }
 
 export function appendAuditEvent(event: EdithAuditEvent): void {
-  fs.mkdirSync(AUDIT_DIR, { recursive: true });
-  fs.appendFileSync(AUDIT_FILE, `${JSON.stringify(event)}\n`, 'utf8');
+  getEdithPersistenceStore().appendAuditEvent(event);
 }
 
 export function getAuditLogPath(): string {
-  return AUDIT_FILE;
+  const paths = getEdithPersistenceStore().getPaths();
+  return paths.sqliteFile ?? paths.legacyAuditFile;
 }
 
 export function readRecentAuditEvents(limit = 100): EdithAuditEvent[] {
-  if (!fs.existsSync(AUDIT_FILE)) return [];
-  return fs
-    .readFileSync(AUDIT_FILE, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .slice(-limit)
-    .reverse()
-    .flatMap((line) => {
-      try {
-        return [JSON.parse(line) as EdithAuditEvent];
-      } catch {
-        return [];
-      }
-    });
+  return getEdithPersistenceStore().readRecentAuditEvents(limit);
 }

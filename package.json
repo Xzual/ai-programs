@@ -9,6 +9,8 @@
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "edith:migrate": "node scripts/migrate-edith-persistence.mjs",
+    "test:edith-persistence": "node scripts/test-edith-persistence.mjs",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",
