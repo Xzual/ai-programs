@@ -1,4 +1,5 @@
 import type { EdithPlan, EdithPlanStep, EdithRiskLevel, EdithTask } from './core';
+import { agentRegistryService } from './agentRegistry';
 import { getEdithToolHealth } from './serverRegistry';
 import { taskService } from './taskService';
 
@@ -38,13 +39,6 @@ function inferTools(objective: string): string[] {
   return unique(tools);
 }
 
-function inferAgents(tools: string[]): string[] {
-  const agents = ['orchestrator'];
-  if (tools.some((tool) => tool.includes('browser'))) agents.push('research');
-  if (tools.includes('system_monitor')) agents.push('operations');
-  return unique(agents);
-}
-
 function permissionsForTools(tools: string[]): string[] {
   const registry = new Map(getEdithToolHealth().map((health) => [health.toolId, health]));
   const permissions: string[] = [];
@@ -75,7 +69,11 @@ export class PlannerService {
     const inferredTools = inferTools(`${task.objective} ${task.originalUserRequest}`);
     const requiredTools = unique([...task.toolsRequired, ...inferredTools]);
     const requiredPermissions = unique([...task.permissionsRequired, ...permissionsForTools(requiredTools)]);
-    const requiredAgents = inferAgents(requiredTools);
+    const requiredAgents = agentRegistryService.routeTask({
+      ...task,
+      toolsRequired: requiredTools,
+      permissionsRequired: requiredPermissions,
+    }).map((route) => route.agentId);
     const baseRisk = Math.max(task.riskLevel, requiredPermissions.some((permission) => permission.includes(':control')) ? 3 : 1) as EdithRiskLevel;
     const steps = this.createSteps(task, requiredTools, requiredPermissions, baseRisk);
 

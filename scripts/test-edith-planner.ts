@@ -51,7 +51,8 @@ try {
   assert.equal(result.plan?.status, 'READY');
   assert.equal(result.plan?.requiredTools.includes('system_monitor'), true);
   assert.equal(result.plan?.requiredPermissions.includes('system:read'), true);
-  assert.equal(result.plan?.requiredAgents.includes('operations'), true);
+  assert.equal(result.plan?.requiredAgents.includes('orchestrator'), true);
+  assert.equal(result.plan?.requiredAgents.includes('planning'), true);
   assert.equal(result.plan?.steps.length, 3);
   assert.equal(result.plan?.steps[0].status, 'READY');
   assert.equal(result.plan?.steps[1].dependsOn.includes(result.plan.steps[0].id), true);

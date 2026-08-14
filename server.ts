@@ -14,6 +14,7 @@ import { plannerService } from "./src/edith/planner";
 import { executorService } from "./src/edith/executor";
 import { verificationService } from "./src/edith/verifier";
 import { recoveryService } from "./src/edith/recovery";
+import { agentRegistryService } from "./src/edith/agentRegistry";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -121,6 +122,27 @@ app.get("/api/edith/tools/health", (_req, res) => {
     success: true,
     health: getEdithToolHealth(),
   });
+});
+
+app.get("/api/edith/agents", (_req, res) => {
+  res.json({
+    success: true,
+    agents: agentRegistryService.listAgents(),
+  });
+});
+
+app.post("/api/edith/agents/route", (req, res) => {
+  const objective = String(req.body?.objective ?? "").trim();
+  if (!objective) return res.status(400).json({ success: false, error: "objective is required." });
+  const rawRiskLevel = Number(req.body?.riskLevel ?? 1);
+  const riskLevel = ([0, 1, 2, 3, 4, 5].includes(rawRiskLevel) ? rawRiskLevel : 1) as 0 | 1 | 2 | 3 | 4 | 5;
+  const routes = agentRegistryService.routeTask({
+    objective,
+    riskLevel,
+    toolsRequired: Array.isArray(req.body?.toolsRequired) ? req.body.toolsRequired : [],
+    permissionsRequired: Array.isArray(req.body?.permissionsRequired) ? req.body.permissionsRequired : [],
+  });
+  res.json({ success: true, routes });
 });
 
 app.get("/api/edith/skill-catalog", (_req, res) => {

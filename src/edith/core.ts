@@ -79,6 +79,34 @@ export interface EdithRecoveryEvent {
   newPlanId?: string;
 }
 
+export type EdithAgentHealthState = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE';
+
+export interface EdithAgentMetadata {
+  id: string;
+  name: string;
+  version: string;
+  responsibility: string;
+  capabilities: string[];
+  allowedTools: string[];
+  requiredPermissions: string[];
+  inputSchema: Record<string, EdithToolSchemaField>;
+  outputSchema: Record<string, EdithToolSchemaField>;
+  timeoutMs: number;
+  health: EdithAgentHealthState;
+  metrics: {
+    runs: number;
+    successes: number;
+    failures: number;
+  };
+}
+
+export interface EdithAgentRoute {
+  agentId: string;
+  reason: string;
+  matchedTools: string[];
+  missingPermissions: string[];
+}
+
 export type EdithTaskStatus =
   | 'CREATED'
   | 'ANALYZING'
