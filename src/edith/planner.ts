@@ -35,6 +35,9 @@ function inferTools(objective: string): string[] {
   if (/\b(skill|araç|tool|katalog|yetenek)\b/i.test(lower)) {
     tools.push('ai_skill_catalog');
   }
+  if (/\b(mark-l|mark l|markl|adapter|capability|yetenek sağlayıcı)\b/i.test(lower)) {
+    tools.push('mark_l_capabilities');
+  }
 
   return unique(tools);
 }
@@ -50,6 +53,7 @@ function permissionsForTools(tools: string[]): string[] {
     if (tool === 'system_monitor') permissions.push('system:read');
     if (tool === 'browser_search') permissions.push('network:read');
     if (tool === 'ai_skill_catalog') permissions.push('system:read');
+    if (tool === 'mark_l_capabilities') permissions.push('system:read');
   }
 
   return unique(permissions);

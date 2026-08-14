@@ -12,6 +12,7 @@ import { appendAuditEvent, createAuditEvent } from './audit';
 import { listExternalSkillProjects } from './skills/catalog';
 import { createStoredTask } from './taskStore';
 import { getEdithPersistenceStore } from './persistence';
+import { markLAdapterService } from './markLAdapter';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
@@ -583,6 +584,40 @@ edithToolRegistry.register({
       toolId: 'ai_skill_catalog',
       result: JSON.stringify(projects, null, 2),
       structuredOutput: { projects },
+    };
+  },
+});
+
+edithToolRegistry.register({
+  id: 'mark_l_capabilities',
+  metadata: {
+    name: 'Mark-L Capability Snapshot',
+    version: '0.1.0',
+    description: 'Lists Mark-L capability-provider modules, risk levels, permissions, and adapter status without executing OS actions.',
+    category: 'analytics',
+    inputSchema: {},
+    outputSchema: {
+      root: { type: 'string' },
+      capabilities: { type: 'array' },
+      capabilityCount: { type: 'number' },
+      highRiskCount: { type: 'number' },
+    },
+    requiredPermissions: ['system:read'],
+    riskLevel: 1,
+    timeoutMs: 1000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['Mark-L-main'],
+  },
+  handler: (): EdithToolResult => {
+    const snapshot = markLAdapterService.snapshot();
+    return {
+      success: true,
+      toolId: 'mark_l_capabilities',
+      result: JSON.stringify(snapshot, null, 2),
+      structuredOutput: snapshot as unknown as Record<string, unknown>,
     };
   },
 });
