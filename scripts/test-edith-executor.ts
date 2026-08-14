@@ -49,15 +49,41 @@ try {
   const reloaded = taskService.getTask(task.id);
   const toolRuns = getEdithPersistenceStore().listToolRuns?.(10) ?? [];
 
+  const blockedTask = taskService.createTask({
+    title: 'Executor permission preflight',
+    objective: 'Bilgisayarı kontrol et ve masaüstünde işlem yap',
+    originalUserRequest: 'Bilgisayarı kontrol et.',
+    toolsRequired: ['computer_control_agent'],
+    riskLevel: 5,
+  });
+  const blockedPlanned = plannerService.planTask(blockedTask.id);
+  assert.equal(blockedPlanned.success, true);
+  const beforeBlockedRuns = getEdithPersistenceStore().listToolRuns?.(50) ?? [];
+  const blockedExecuted = await executorService.executeTask(blockedTask.id);
+  const blockedReloaded = taskService.getTask(blockedTask.id);
+  const afterBlockedRuns = getEdithPersistenceStore().listToolRuns?.(50) ?? [];
+
   assert.equal(executed.success, true);
   assert.equal(executed.status, 'VERIFYING');
   assert.equal(executed.toolCalls, 1);
   assert.equal(executed.reports.length, 3);
+  assert.equal(executed.reports.some((report) => report.message.includes('Step completed')), true);
   assert.equal(reloaded?.status, 'VERIFYING');
   assert.equal(reloaded?.plan?.steps.every((step) => step.status === 'COMPLETED'), true);
+  assert.equal(reloaded?.observations.some((observation) => observation.includes('Executor preflight READY')), true);
   assert.equal(reloaded?.observations.some((observation) => observation.includes('Executor tool system_monitor succeeded')), true);
   assert.equal(reloaded?.checkpoints.some((checkpoint) => checkpoint.includes('verification boundary')), true);
   assert.equal(toolRuns.some((run) => run.toolId === 'system_monitor' && run.status === 'success'), true);
+  assert.equal(blockedExecuted.success, false);
+  assert.equal(blockedExecuted.status, 'WAITING_PERMISSION');
+  assert.equal(blockedExecuted.toolCalls, 0);
+  assert.equal(blockedExecuted.reports.some((report) => report.message.includes('Capability preflight')), true);
+  assert.equal(blockedReloaded?.status, 'WAITING_PERMISSION');
+  assert.equal(blockedReloaded?.observations.some((observation) => observation.includes('Executor preflight WAITING_PERMISSION')), true);
+  assert.equal(
+    afterBlockedRuns.filter((run) => run.toolId === 'computer_control_agent').length,
+    beforeBlockedRuns.filter((run) => run.toolId === 'computer_control_agent').length
+  );
 
   getEdithPersistenceStore().close?.();
 
@@ -67,7 +93,8 @@ try {
     status: reloaded?.status,
     toolCalls: executed.toolCalls,
     reports: executed.reports.length,
-    scenarios: ['execute_plan', 'run_tool', 'store_observation', 'complete_steps', 'verification_boundary'],
+    permissionPreflight: blockedExecuted.status,
+    scenarios: ['execute_plan', 'capability_preflight', 'run_tool', 'permission_wait_without_tool_call', 'store_observation', 'complete_steps', 'verification_boundary'],
   }, null, 2));
 } finally {
   process.chdir(originalCwd);

@@ -97,8 +97,12 @@ export class CapabilityService {
       const decision = this.assessTool(toolId, actor);
       return decision ? [decision] : [];
     });
+    const defaultAuthorizedPermissions = permissionService.defaultAuthorizedPermissions();
+    const missingStandalonePermissions = (input.permissionsRequired ?? []).filter(
+      (permission) => !defaultAuthorizedPermissions.includes(permission)
+    );
     const missingPermissions = unique([
-      ...(input.permissionsRequired ?? []),
+      ...missingStandalonePermissions,
       ...toolDecisions.flatMap((decision) => decision.missingPermissions),
     ]);
     const agentRoutes = agentRegistryService.routeTask({

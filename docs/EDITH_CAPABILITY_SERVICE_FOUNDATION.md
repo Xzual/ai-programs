@@ -57,6 +57,19 @@ Planner now calls CapabilityService while creating a plan. The resulting assessm
 - adds a validation criterion noting the assessment result
 - emits audit through CapabilityService
 
+## Executor Integration
+
+Executor now runs a CapabilityService preflight before executing tool-backed plan steps.
+
+If the assessment is `WAITING_PERMISSION`, Executor:
+
+- marks the step failed at the preflight boundary
+- records a task observation with the assessment summary
+- returns task status `WAITING_PERMISSION`
+- avoids calling the blocked tool
+
+This keeps denied high-risk operations from reaching adapter execution just to discover missing authorization.
+
 ## Security Notes
 
 - CapabilityService does not weaken backend enforcement.
@@ -69,6 +82,7 @@ Planner now calls CapabilityService while creating a plan. The resulting assessm
 ```bash
 npm run test:edith-capabilities
 npm run test:edith-planner
+npm run test:edith-executor
 npm run lint
 npm run build
 ```
@@ -79,12 +93,13 @@ Runtime coverage verifies:
 - high-risk computer control waits for permission by default
 - scoped permission grant makes the same high-risk tool authorized/runnable for the actor while dependency-limited adapters may remain `DEGRADED`
 - Planner records capability assessment criteria
+- Executor preflight stops missing-permission steps before tool execution
 - audit events are emitted
 
 ## Remaining Work
 
-1. Use CapabilityService directly in Executor preflight checks.
-2. Add EDITH Ops capability assessment panel.
-3. Store assessment IDs on tasks/plans once task metadata has a dedicated field.
-4. Add capability scoring for model modality, latency, and provider health.
-5. Add adapter-specific capability probes for Mark-L, browser, computer, and crypto adapters.
+1. Add EDITH Ops capability assessment panel.
+2. Store assessment IDs on tasks/plans once task metadata has a dedicated field.
+3. Add capability scoring for model modality, latency, and provider health.
+4. Add adapter-specific capability probes for Mark-L, browser, computer, and crypto adapters.
+5. Add recovery handoff that can request permission grants from denied preflight results.

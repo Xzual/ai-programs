@@ -67,7 +67,7 @@ npm run build
 
 ## Remaining Phase 3 Work
 
-1. Use CapabilityService directly in Executor preflight checks.
+1. Add EDITH Ops visibility for CapabilityService assessments.
 2. Add provider-specific context budgets for ModelRouter decisions.
 3. Continue integrating the ModelRouter foundation into provider health, metrics, and future model adapters.
 4. Route complex objectives through the Planner/Executor/Verifier loop instead of only creating a task shell.

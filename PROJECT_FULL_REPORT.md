@@ -640,7 +640,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ContextService | Planner ve chat prompt assembly entegrasyonu hazır; provider-specific context budget sıradaki iş |
-| CapabilityService | Foundation ve Planner entegrasyonu hazır; Executor preflight ve EDITH Ops görünümü sıradaki iş |
+| CapabilityService | Foundation, Planner entegrasyonu ve Executor preflight hazır; EDITH Ops görünümü sıradaki iş |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
@@ -657,7 +657,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 
 1. Memory V2'nin frontend Bellek paneline bağlanması.
 2. ContextService için provider-specific context budget ve EDITH Ops context görünürlüğü eklenmesi.
-3. CapabilityService'i Executor preflight ve EDITH Ops görünümüne bağlamak.
+3. CapabilityService'i EDITH Ops görünümüne bağlamak.
 4. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 5. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 6. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.

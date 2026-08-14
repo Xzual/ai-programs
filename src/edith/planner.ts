@@ -38,6 +38,9 @@ function inferTools(objective: string): string[] {
   if (/\b(mark-l|mark l|markl|adapter|capability|yetenek sağlayıcı)\b/i.test(lower)) {
     tools.push('mark_l_capabilities');
   }
+  if (/\b(kontrol|control|masaüstü|desktop|ekranı yönet|bilgisayarı yönet)\b/i.test(lower)) {
+    tools.push('computer_control_agent');
+  }
 
   return unique(tools);
 }

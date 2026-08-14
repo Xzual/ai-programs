@@ -1,4 +1,5 @@
 import type { EdithPlanStep, EdithTask, EdithToolResult } from './core';
+import { capabilityService } from './capabilityService';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { executeEdithTool } from './serverRegistry';
 import { taskService } from './taskService';
@@ -7,6 +8,7 @@ export interface ExecutionStepReport {
   stepId: string;
   status: 'COMPLETED' | 'FAILED' | 'SKIPPED';
   toolResults: EdithToolResult[];
+  toolCalls: number;
   message: string;
 }
 
@@ -82,7 +84,7 @@ export class ExecutorService {
 
       const report = await this.executeStep(task, nextStep, task.plan.maxToolCalls - toolCalls);
       reports.push(report);
-      toolCalls += report.toolResults.length;
+      toolCalls += report.toolCalls;
 
       task = taskService.getTask(taskId) ?? task;
       if (report.status === 'FAILED') {
@@ -151,16 +153,45 @@ export class ExecutorService {
         stepId: step.id,
         status: 'COMPLETED',
         toolResults: [],
+        toolCalls: 0,
         message: `Step completed without tools: ${step.title}`,
       };
     }
 
+    const capabilityAssessment = capabilityService.assess({
+      objective: `${task.objective} ${step.objective}`,
+      actor: 'edith-executor',
+      toolsRequired: step.suggestedTools,
+      permissionsRequired: step.requiredPermissions,
+      riskLevel: step.riskLevel,
+    });
+    taskService.addObservation(task.id, `Executor preflight ${capabilityAssessment.status} for ${step.id}: ${capabilityAssessment.summary}`);
+    if (capabilityAssessment.status === 'WAITING_PERMISSION') {
+      const missing = capabilityAssessment.missingPermissions.join(', ');
+      taskService.updatePlanStepStatus(task.id, step.id, 'FAILED', `Step ${step.id} is waiting for permissions: ${missing}.`);
+      return {
+        stepId: step.id,
+        status: 'FAILED',
+        toolResults: [{
+          success: false,
+          toolId: capabilityAssessment.blockedTools[0] ?? step.suggestedTools[0] ?? 'capability_preflight',
+          error: `Capability preflight denied execution before tool call. Missing permissions: ${missing}.`,
+          errorCode: 'PERMISSION_DENIED',
+          structuredOutput: { capabilityAssessment },
+        }],
+        toolCalls: 0,
+        message: `Capability preflight is waiting for permissions: ${missing}.`,
+      };
+    }
+
     const toolResults: EdithToolResult[] = [];
+    let toolCalls = 0;
     for (const toolId of step.suggestedTools.slice(0, remainingToolBudget)) {
       const result = await executeEdithTool(toolId, toolArgsForStep(task, toolId), {
         actor: 'edith-executor',
         taskId: task.id,
       });
+      toolCalls += 1;
       toolResults.push(result);
       taskService.addObservation(
         task.id,
@@ -172,6 +203,7 @@ export class ExecutorService {
           stepId: step.id,
           status: 'FAILED',
           toolResults,
+          toolCalls,
           message: result.error ?? `Tool failed: ${toolId}`,
         };
       }
@@ -182,6 +214,7 @@ export class ExecutorService {
       stepId: step.id,
       status: 'COMPLETED',
       toolResults,
+      toolCalls,
       message: `Step completed: ${step.title}`,
     };
   }
