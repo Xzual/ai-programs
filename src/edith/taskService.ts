@@ -1,5 +1,13 @@
 import { appendAuditEvent, createAuditEvent } from './audit';
-import { createTask, type EdithPlan, type EdithPlanStepStatus, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
+import {
+  createTask,
+  type EdithPlan,
+  type EdithPlanStepStatus,
+  type EdithRiskLevel,
+  type EdithTask,
+  type EdithTaskStatus,
+  type EdithVerificationResult,
+} from './core';
 import { getEdithPersistenceStore } from './persistence';
 
 export interface CreateTaskInput {
@@ -94,6 +102,35 @@ export class TaskService {
         },
       };
     });
+  }
+
+  recordVerification(id: string, verification: EdithVerificationResult): EdithTask | undefined {
+    const statusByVerification: Record<EdithVerificationResult['status'], EdithTaskStatus> = {
+      PASS: 'COMPLETED',
+      FAIL: 'FAILED',
+      PARTIAL: 'PAUSED',
+      RETRYABLE: 'RETRYING',
+    };
+    return this.mutateTask(
+      id,
+      'task.verify',
+      `Verification ${verification.status} for task ${id}`,
+      (task) => ({
+        ...task,
+        status: statusByVerification[verification.status],
+        verification,
+        result: verification.status === 'PASS' ? verification.summary : task.result,
+        failureReason: verification.status === 'FAIL' ? verification.summary : task.failureReason,
+        observations: [
+          ...task.observations,
+          `Verifier ${verification.status}: ${verification.summary}`,
+        ],
+        checkpoints: [
+          ...task.checkpoints,
+          `Verification ${verification.id} recorded at ${verification.checkedAt}`,
+        ],
+      })
+    );
   }
 
   private mutateTask(

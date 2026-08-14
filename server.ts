@@ -12,6 +12,7 @@ import { intentService } from "./src/edith/intent";
 import { taskService } from "./src/edith/taskService";
 import { plannerService } from "./src/edith/planner";
 import { executorService } from "./src/edith/executor";
+import { verificationService } from "./src/edith/verifier";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -224,6 +225,11 @@ app.post("/api/edith/tasks/:id/plan", (req, res) => {
 
 app.post("/api/edith/tasks/:id/execute", async (req, res) => {
   const result = await executorService.executeTask(req.params.id);
+  res.status(result.success ? 200 : 400).json(result);
+});
+
+app.post("/api/edith/tasks/:id/verify", (req, res) => {
+  const result = verificationService.verifyTask(req.params.id);
   res.status(result.success ? 200 : 400).json(result);
 });
 

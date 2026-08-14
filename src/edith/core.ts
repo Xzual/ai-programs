@@ -34,6 +34,27 @@ export interface EdithPlan {
   taskTimeoutMs: number;
 }
 
+export type EdithVerificationStatus = 'PASS' | 'FAIL' | 'PARTIAL' | 'RETRYABLE';
+
+export interface EdithVerificationCheck {
+  id: string;
+  label: string;
+  status: EdithVerificationStatus;
+  evidence: string;
+  required: boolean;
+}
+
+export interface EdithVerificationResult {
+  id: string;
+  taskId: string;
+  verifier: 'heuristic-v1';
+  status: EdithVerificationStatus;
+  checkedAt: string;
+  summary: string;
+  checks: EdithVerificationCheck[];
+  retryable: boolean;
+}
+
 export type EdithTaskStatus =
   | 'CREATED'
   | 'ANALYZING'
@@ -74,6 +95,7 @@ export interface EdithTask {
   observations: string[];
   validationRules: string[];
   plan?: EdithPlan;
+  verification?: EdithVerificationResult;
   result?: string;
   failureReason?: string;
   memoryReferences: string[];
