@@ -30,6 +30,18 @@ const HIGH_RISK_PERMISSIONS = [
   'computer:control',
 ];
 
+export type EdithToolHealthState = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE';
+
+export interface EdithToolHealth {
+  toolId: string;
+  state: EdithToolHealthState;
+  enabled: boolean;
+  highRisk: boolean;
+  missingPermissions: string[];
+  dependencies: string[];
+  message: string;
+}
+
 function normalizeToolRunId(toolId: string): string {
   return `toolrun-${toolId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -48,6 +60,43 @@ function recordToolRun(params: {
 
 function safeResultText(result: EdithToolResult): string {
   return (result.error ?? result.result ?? JSON.stringify(result.structuredOutput ?? {})).slice(0, 4000);
+}
+
+export function getEdithToolHealth(): EdithToolHealth[] {
+  const defaultPermissions = HIGH_RISK_ENABLED
+    ? [...DEFAULT_LOCAL_PERMISSIONS, ...HIGH_RISK_PERMISSIONS]
+    : DEFAULT_LOCAL_PERMISSIONS;
+
+  return edithToolRegistry.list().map(({ id, metadata }) => {
+    const missingPermissions = metadata.requiredPermissions.filter(
+      (permission) => !defaultPermissions.includes(permission)
+    );
+    const highRisk = metadata.riskLevel >= 3 ||
+      metadata.requiredPermissions.some((permission) =>
+        HIGH_RISK_PERMISSIONS.includes(permission)
+      );
+    const enabled = missingPermissions.length === 0;
+    const state: EdithToolHealthState = enabled
+      ? metadata.dependencies.length > 0
+        ? 'DEGRADED'
+        : 'HEALTHY'
+      : 'UNAVAILABLE';
+    const message = enabled
+      ? metadata.dependencies.length > 0
+        ? `Tool is enabled but depends on: ${metadata.dependencies.join(', ')}`
+        : 'Tool is enabled and has no declared external dependencies.'
+      : `Tool is blocked by missing permissions: ${missingPermissions.join(', ')}`;
+
+    return {
+      toolId: id,
+      state,
+      enabled,
+      highRisk,
+      missingPermissions,
+      dependencies: metadata.dependencies,
+      message,
+    };
+  });
 }
 
 function getStringArg(args: Record<string, unknown>, key: string): string | undefined {

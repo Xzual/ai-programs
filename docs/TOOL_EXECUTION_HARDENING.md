@@ -18,6 +18,7 @@ Backend registry execution now applies shared safeguards before and around tool 
 | Normalized errors | Results can now include `errorCode` values such as `VALIDATION_ERROR`, `PERMISSION_DENIED`, `TIMEOUT`, `TOOL_ERROR`, and `UNKNOWN_TOOL` |
 | Timing metadata | Results include `startedAt`, `finishedAt`, and `durationMs` |
 | Tool-run persistence | Every known tool execution result is recorded through the persistence layer |
+| Tool health | Registry can report `HEALTHY`, `DEGRADED`, or `UNAVAILABLE` per tool |
 
 ## Tool Run Access
 
@@ -25,9 +26,10 @@ New endpoint:
 
 ```text
 GET /api/edith/tool-runs
+GET /api/edith/tools/health
 ```
 
-This returns recent persisted tool execution records from the active persistence store.
+These return recent persisted tool execution records and computed registry health from the active backend policy.
 
 ## Files Changed
 
@@ -38,7 +40,7 @@ This returns recent persisted tool execution records from the active persistence
 | `src/edith/persistence/types.ts` | Added optional store close hook for tests |
 | `src/edith/persistence/sqliteStore.ts` | Added ESM-safe SQLite require and close support |
 | `src/edith/persistence/jsonStore.ts` | Added no-op close support |
-| `server.ts` | Added `/api/edith/tool-runs` endpoint |
+| `server.ts` | Added `/api/edith/tool-runs` and `/api/edith/tools/health` endpoints |
 | `scripts/test-edith-registry.ts` | Added registry regression coverage |
 
 `server.ts` also honors the `PORT` environment variable, which allows side-by-side runtime smoke checks without colliding with an already running dev server.
@@ -62,6 +64,7 @@ Registry regression scenarios:
 | `task_create` with missing required input | `VALIDATION_ERROR` |
 | `playwright_browser_agent` without high-risk permission | `PERMISSION_DENIED` |
 | All above | Persisted tool-run records exist |
+| Registry health | High-risk Playwright tool is `UNAVAILABLE` while high-risk mode is disabled |
 
 Runtime smoke check:
 

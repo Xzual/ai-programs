@@ -27,7 +27,7 @@ try {
   process.env.EDITH_PERSISTENCE = 'sqlite';
   delete process.env.EDITH_ENABLE_HIGH_RISK_TOOLS;
 
-  const { executeEdithTool } = await import('../src/edith/serverRegistry');
+  const { executeEdithTool, getEdithToolHealth } = await import('../src/edith/serverRegistry');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
 
   const success = await executeEdithTool('system_monitor', {}, { actor: 'registry-test' });
@@ -38,6 +38,8 @@ try {
     { actor: 'registry-test' }
   );
   const runs = getEdithPersistenceStore().listToolRuns?.(10) ?? [];
+  const health = getEdithToolHealth();
+  const playwrightHealth = health.find((item) => item.toolId === 'playwright_browser_agent');
 
   assert.equal(success.success, true);
   assert.equal(typeof success.durationMs, 'number');
@@ -55,11 +57,14 @@ try {
   assert.equal(runs.some((run) => run.status === 'denied'), true);
   assert.equal(runs.some((run) => run.status === 'error'), true);
   assert.equal(runs.some((run) => run.status === 'success'), true);
+  assert.equal(playwrightHealth?.state, 'UNAVAILABLE');
+  assert.equal(playwrightHealth?.enabled, false);
+  assert.equal(playwrightHealth?.missingPermissions.includes('browser:control'), true);
   getEdithPersistenceStore().close?.();
 
   console.log(JSON.stringify({
     success: true,
-    scenarios: ['success', 'validation_error', 'permission_denied', 'tool_run_persistence'],
+    scenarios: ['success', 'validation_error', 'permission_denied', 'tool_run_persistence', 'health'],
     toolRuns: runs.length,
   }, null, 2));
 } finally {

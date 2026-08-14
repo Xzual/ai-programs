@@ -3,7 +3,7 @@ import path from "path";
 import http from "http";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
-import { edithToolRegistry, executeEdithTool } from "./src/edith/serverRegistry";
+import { edithToolRegistry, executeEdithTool, getEdithToolHealth } from "./src/edith/serverRegistry";
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { readRecentAuditEvents } from "./src/edith/audit";
 import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
@@ -107,6 +107,13 @@ app.get("/api/edith/tools", (_req, res) => {
   res.json({
     success: true,
     tools: edithToolRegistry.list(),
+  });
+});
+
+app.get("/api/edith/tools/health", (_req, res) => {
+  res.json({
+    success: true,
+    health: getEdithToolHealth(),
   });
 });
 
