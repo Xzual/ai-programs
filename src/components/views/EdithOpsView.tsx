@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, RefreshCw, ShieldAlert, Wrench } from 'lucide-react';
+import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, LockKeyhole, Power, RefreshCw, ShieldAlert, Wrench } from 'lucide-react';
 
 interface RegistryTool {
   id: string;
@@ -35,26 +35,46 @@ interface EdithTask {
   toolsRequired: string[];
 }
 
+interface KillSwitchState {
+  active: boolean;
+  reason: string;
+  activatedAt?: string;
+  activatedBy?: string;
+  deactivatedAt?: string;
+  deactivatedBy?: string;
+  disabledCapabilities: string[];
+}
+
 export const EdithOpsView: React.FC = () => {
   const [tools, setTools] = useState<RegistryTool[]>([]);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [tasks, setTasks] = useState<EdithTask[]>([]);
+  const [killSwitch, setKillSwitch] = useState<KillSwitchState | null>(null);
+  const [killReason, setKillReason] = useState('Manual emergency stop from EDITH Ops.');
   const [loading, setLoading] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
+    setError(null);
     try {
-      const [toolRes, auditRes, taskRes] = await Promise.all([
+      const [toolRes, auditRes, taskRes, killSwitchRes] = await Promise.all([
         fetch('/api/edith/tools'),
         fetch('/api/edith/audit?limit=50'),
         fetch('/api/edith/tasks'),
+        fetch('/api/edith/kill-switch'),
       ]);
       const toolData = await toolRes.json();
       const auditData = await auditRes.json();
       const taskData = await taskRes.json();
+      const killSwitchData = await killSwitchRes.json();
       setTools(toolData.tools ?? []);
       setEvents(auditData.events ?? []);
       setTasks(taskData.tasks ?? []);
+      setKillSwitch(killSwitchData.state ?? null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'EDITH Ops verileri alınamadı.');
     } finally {
       setLoading(false);
     }
@@ -65,6 +85,29 @@ export const EdithOpsView: React.FC = () => {
   }, []);
 
   const highRiskTools = tools.filter((tool) => tool.metadata.riskLevel >= 3);
+  const pausedTasks = tasks.filter((task) => task.status === 'PAUSED').length;
+
+  const setKillSwitchActive = async (active: boolean) => {
+    setSwitching(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/edith/kill-switch/${active ? 'activate' : 'deactivate'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: active ? JSON.stringify({ reason: killReason }) : undefined,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? 'Kill switch güncellenemedi.');
+      }
+      setKillSwitch(data.state);
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Kill switch güncellenemedi.');
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-5 custom-scrollbar">
@@ -75,7 +118,7 @@ export const EdithOpsView: React.FC = () => {
               <Activity className="w-5 h-5 text-cyan-300" />
               EDITH Ops
             </h2>
-            <p className="text-xs text-slate-500 mt-1">Görevler, registry, audit ve risk durumu</p>
+            <p className="text-xs text-slate-500 mt-1">Görevler, registry, audit, kill switch ve risk durumu</p>
           </div>
           <button
             onClick={refresh}
@@ -92,6 +135,80 @@ export const EdithOpsView: React.FC = () => {
           <Metric title="Task" value={tasks.length} icon={<ClipboardList className="w-4 h-4" />} />
           <Metric title="Audit Event" value={events.length} icon={<Activity className="w-4 h-4" />} />
         </div>
+
+        {error && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-xs text-amber-100">
+            {error}
+          </div>
+        )}
+
+        <section className={`rounded-lg border p-4 ${killSwitch?.active ? 'border-red-500/35 bg-red-950/20' : 'border-emerald-500/25 bg-emerald-950/10'}`}>
+          <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className={`w-10 h-10 rounded-lg border flex items-center justify-center shrink-0 ${killSwitch?.active ? 'border-red-400/40 bg-red-500/10 text-red-200' : 'border-emerald-400/35 bg-emerald-500/10 text-emerald-200'}`}>
+                {killSwitch?.active ? <AlertOctagon className="w-5 h-5" /> : <LockKeyhole className="w-5 h-5" />}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className={`text-sm font-semibold ${killSwitch?.active ? 'text-red-100' : 'text-emerald-100'}`}>
+                    Kill Switch {killSwitch?.active ? 'AKTİF' : 'Hazır'}
+                  </h3>
+                  <span className={`px-2 py-0.5 rounded border text-[10px] font-mono ${killSwitch?.active ? 'text-red-200 border-red-400/30 bg-red-950/40' : 'text-emerald-200 border-emerald-400/30 bg-emerald-950/30'}`}>
+                    {killSwitch?.active ? 'STOPPING ACTIONS' : 'ALLOWING ACTIONS'}
+                  </span>
+                </div>
+                <p className={`mt-1 text-xs ${killSwitch?.active ? 'text-red-100/75' : 'text-emerald-100/70'}`}>
+                  Aktif olduğunda yeni task creation ve tool execution backend tarafında durdurulur; audit ve mevcut task state korunur.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {(killSwitch?.disabledCapabilities ?? ['task_creation', 'tool_execution', 'browser_control', 'computer_control', 'trading_execution', 'proactive_tasks']).map((capability) => (
+                    <span key={capability} className="px-2 py-0.5 rounded bg-slate-950/50 border border-slate-800 text-[10px] text-slate-400 font-mono">
+                      {capability}
+                    </span>
+                  ))}
+                </div>
+                {killSwitch?.active && (
+                  <div className="mt-3 text-[11px] text-red-100/70 font-mono">
+                    {killSwitch.reason || 'No reason'} · {killSwitch.activatedAt ? new Date(killSwitch.activatedAt).toLocaleString('tr-TR') : 'time unknown'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="w-full xl:w-96 space-y-2">
+              <textarea
+                value={killReason}
+                onChange={(event) => setKillReason(event.target.value)}
+                disabled={killSwitch?.active || switching}
+                rows={2}
+                className="w-full rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-red-400/50 disabled:opacity-50"
+                placeholder="Emergency stop sebebi..."
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setKillSwitchActive(true)}
+                  disabled={Boolean(killSwitch?.active) || switching}
+                  className="px-3 py-2 rounded-lg border border-red-500/35 bg-red-950/30 text-xs text-red-100 hover:bg-red-900/35 disabled:opacity-45 disabled:hover:bg-red-950/30 flex items-center justify-center gap-2"
+                >
+                  <Power className="w-4 h-4" />
+                  Durdur
+                </button>
+                <button
+                  onClick={() => setKillSwitchActive(false)}
+                  disabled={!killSwitch?.active || switching}
+                  className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-xs text-emerald-100 hover:bg-emerald-900/25 disabled:opacity-45 disabled:hover:bg-emerald-950/20 flex items-center justify-center gap-2"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  Devam Et
+                </button>
+              </div>
+              <div className="text-[10px] text-slate-600 font-mono flex items-center justify-between">
+                <span>paused tasks: {pausedTasks}</span>
+                <span>{switching ? 'updating...' : 'backend enforced'}</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
         <section className="rounded-lg border border-red-500/20 bg-red-950/10 p-4">
           <div className="flex items-start gap-3">

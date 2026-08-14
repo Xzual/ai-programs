@@ -13,6 +13,7 @@ The foundation is intentionally conservative: when active, it blocks new task cr
 | File | Role |
 |---|---|
 | `src/edith/killSwitch.ts` | Persistent emergency stop state, assertions, and audit events |
+| `src/components/views/EdithOpsView.tsx` | EDITH Ops kill switch status and control panel |
 | `scripts/test-edith-kill-switch.ts` | Regression coverage for blocking task creation, tool execution, executor execution, deactivation, and audit |
 
 ## Backend Endpoints
@@ -47,6 +48,19 @@ The current implementation enforces the first two directly and uses them to stop
 | Legacy `/api/tools/execute` fallback | Returns HTTP `423` before legacy tool switch execution |
 
 Read-only endpoints such as task listing, audit, persistence status, registry health, and Knowledge Map remain available.
+
+## EDITH Ops UI
+
+EDITH Ops now shows:
+
+- active/inactive kill switch state
+- disabled capability badges
+- reason input before activation
+- activation timestamp/reason while active
+- activate/deactivate controls
+- paused task count
+
+The UI is only a control surface. The enforcement remains in the backend service and execution paths.
 
 ## Persistence
 
@@ -88,11 +102,12 @@ Runtime smoke:
 | Legacy `/api/tools/execute` while active | HTTP `423` |
 | Registered `/api/tools/execute` while active | HTTP `423` |
 | `POST /api/edith/kill-switch/deactivate` | Deactivated emergency stop |
+| Production server on `PORT=3115` | EDITH Ops status/activate/status/deactivate endpoint flow passed |
 
 ## Remaining Work
 
-1. Add a visible EDITH Ops control with confirmation and reason capture.
+1. Add a second confirmation dialog for activation/deactivation.
 2. Bind future browser/computer/trading/proactive adapters directly to capability-specific checks.
 3. Add role/authorization checks before deactivation once user/account auth exists.
-4. Add frontend status banner and polling.
+4. Add global frontend status banner and polling outside EDITH Ops.
 5. Add recovery behavior that can resume paused tasks after user review.

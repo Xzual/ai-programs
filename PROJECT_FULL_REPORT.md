@@ -305,7 +305,7 @@ Kullanıcı amacı
 | Memory V2 | Hazırlanıyor / eklendi | Typed, scoped, provenance-aware server-side memory servisi |
 | ModelRouter | Hazır | Ollama / Gemini / mock fallback sırasını capability ve privacy ipuçlarıyla merkezileştiren temel |
 | Knowledge Map Real Data | Hazır | Persisted task, memory, tool, audit, agent ve model-router node'larından graph snapshot üretir |
-| Kill Switch | Hazır | Yeni task ve tool execution yollarını backend tarafında durduran emergency stop temeli |
+| Kill Switch | Hazır | Yeni task ve tool execution yollarını backend tarafında durduran, EDITH Ops üzerinden yönetilebilen emergency stop temeli |
 
 ---
 
@@ -543,7 +543,7 @@ Market Data
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
-| Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı |
+| Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -594,7 +594,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
-| Kill Switch | Backend foundation hazır; frontend EDITH Ops kontrolü ve role/authorization sıradaki işler |
+| Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -609,7 +609,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
-5. Kill switch için EDITH Ops UI kontrolü, rol/authorization ve paused task resume akışının eklenmesi.
+5. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
 6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
 8. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
