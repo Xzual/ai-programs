@@ -11,6 +11,7 @@ import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
 import { taskService } from "./src/edith/taskService";
 import { plannerService } from "./src/edith/planner";
+import { executorService } from "./src/edith/executor";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -219,6 +220,11 @@ app.post("/api/edith/tasks/:id/plan", (req, res) => {
     return res.status(404).json({ success: false, error: result.error ?? "Task not found." });
   }
   res.json({ success: true, plan: result.plan, task: result.task });
+});
+
+app.post("/api/edith/tasks/:id/execute", async (req, res) => {
+  const result = await executorService.executeTask(req.params.id);
+  res.status(result.success ? 200 : 400).json(result);
 });
 
 app.get("/api/edith/memories", (_req, res) => {

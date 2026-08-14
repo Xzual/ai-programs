@@ -15,6 +15,7 @@
     "test:edith-intent": "tsx scripts/test-edith-intent.ts",
     "test:edith-task-service": "tsx scripts/test-edith-task-service.ts",
     "test:edith-planner": "tsx scripts/test-edith-planner.ts",
+    "test:edith-executor": "tsx scripts/test-edith-executor.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",

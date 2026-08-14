@@ -1,5 +1,5 @@
 import { appendAuditEvent, createAuditEvent } from './audit';
-import { createTask, type EdithPlan, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
+import { createTask, type EdithPlan, type EdithPlanStepStatus, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
 import { getEdithPersistenceStore } from './persistence';
 
 export interface CreateTaskInput {
@@ -73,6 +73,27 @@ export class TaskService {
       validationRules: Array.from(new Set([...task.validationRules, ...plan.validationCriteria])),
       checkpoints: [...task.checkpoints, `Plan ${plan.id} attached at ${new Date().toISOString()}`],
     }));
+  }
+
+  updatePlanStepStatus(
+    id: string,
+    stepId: string,
+    status: EdithPlanStepStatus,
+    observation?: string
+  ): EdithTask | undefined {
+    return this.mutateTask(id, 'task.plan_step', `Plan step ${stepId} changed to ${status}`, (task) => {
+      if (!task.plan) return task;
+      return {
+        ...task,
+        observations: observation ? [...task.observations, observation] : task.observations,
+        plan: {
+          ...task.plan,
+          steps: task.plan.steps.map((step) =>
+            step.id === stepId ? { ...step, status } : step
+          ),
+        },
+      };
+    });
   }
 
   private mutateTask(
