@@ -233,8 +233,40 @@ app.get("/api/edith/permissions/policy", (_req, res) => {
       defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
       highRiskPermissions: HIGH_RISK_PERMISSIONS,
       authorizedPermissions: permissionService.defaultAuthorizedPermissions(),
+      activeGrants: permissionService.listGrants().length,
     },
   });
+});
+
+app.get("/api/edith/permissions/grants", (req, res) => {
+  res.json({
+    success: true,
+    grants: permissionService.listGrants({
+      includeExpired: req.query.includeExpired === 'true',
+      includeRevoked: req.query.includeRevoked === 'true',
+    }),
+  });
+});
+
+app.post("/api/edith/permissions/grants", (req, res) => {
+  try {
+    const grant = permissionService.createGrant({
+      actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined,
+      permissions: Array.isArray(req.body?.permissions) ? req.body.permissions.map(String) : [],
+      toolIds: Array.isArray(req.body?.toolIds) ? req.body.toolIds.map(String) : undefined,
+      reason: String(req.body?.reason ?? ''),
+      grantedBy: 'aura-dashboard',
+      ttlMs: Number(req.body?.ttlMs ?? undefined),
+    });
+    res.json({ success: true, grant });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.delete("/api/edith/permissions/grants/:id", (req, res) => {
+  const grant = permissionService.revokeGrant(req.params.id, 'aura-dashboard');
+  res.status(grant ? 200 : 404).json({ success: Boolean(grant), grant });
 });
 
 app.post("/api/edith/kill-switch/activate", (req, res) => {

@@ -116,8 +116,17 @@ function openUrl(url: string): void {
   }).unref();
 }
 
-function highRiskUnavailable(toolId: string): EdithToolResult | null {
+function highRiskUnavailable(toolId: string, context: EdithToolExecutionContext): EdithToolResult | null {
   if (permissionService.highRiskEnabled()) return null;
+  const tool = edithToolRegistry.get(toolId);
+  if (tool) {
+    const decision = permissionService.decideToolExecution({
+      tool,
+      actor: context.actor,
+      authorizedPermissions: context.authorizedPermissions,
+    });
+    if (decision.status === 'ALLOW') return null;
+  }
   return {
     success: false,
     toolId,
@@ -263,8 +272,8 @@ edithToolRegistry.register({
     platforms: ['win32', 'darwin', 'linux'],
     dependencies: ['open-interpreter'],
   },
-  handler: async (args): Promise<EdithToolResult> => {
-    const unavailable = highRiskUnavailable('open_interpreter_agent');
+  handler: async (args, context): Promise<EdithToolResult> => {
+    const unavailable = highRiskUnavailable('open_interpreter_agent', context);
     if (unavailable) return unavailable;
     const prompt = getStringArg(args, 'prompt');
     if (!prompt) {
@@ -297,8 +306,8 @@ edithToolRegistry.register({
     platforms: ['win32'],
     dependencies: ['computer-use plugin or Mark-L computer_control adapter'],
   },
-  handler: (args): EdithToolResult => {
-    const unavailable = highRiskUnavailable('computer_control_agent');
+  handler: (args, context): EdithToolResult => {
+    const unavailable = highRiskUnavailable('computer_control_agent', context);
     if (unavailable) return unavailable;
     const instruction = getStringArg(args, 'instruction');
     if (!instruction) {
@@ -340,8 +349,8 @@ edithToolRegistry.register({
     platforms: ['win32', 'darwin', 'linux'],
     dependencies: ['browser-use'],
   },
-  handler: async (args): Promise<EdithToolResult> => {
-    const unavailable = highRiskUnavailable('browser_use_agent');
+  handler: async (args, context): Promise<EdithToolResult> => {
+    const unavailable = highRiskUnavailable('browser_use_agent', context);
     if (unavailable) return unavailable;
     const task = getStringArg(args, 'task');
     if (!task) {
@@ -385,8 +394,8 @@ edithToolRegistry.register({
     platforms: ['win32', 'darwin', 'linux'],
     dependencies: ['playwright'],
   },
-  handler: async (args): Promise<EdithToolResult> => {
-    const unavailable = highRiskUnavailable('playwright_browser_agent');
+  handler: async (args, context): Promise<EdithToolResult> => {
+    const unavailable = highRiskUnavailable('playwright_browser_agent', context);
     if (unavailable) return unavailable;
     const rawUrl = getStringArg(args, 'url');
     if (!rawUrl) return { success: false, toolId: 'playwright_browser_agent', error: 'url is required.' };

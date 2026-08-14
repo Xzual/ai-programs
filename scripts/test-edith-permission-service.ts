@@ -33,12 +33,15 @@ try {
 
   const { permissionService } = await import('../src/edith/permissionService');
   const { edithToolRegistry, executeEdithTool, getEdithToolHealth } = await import('../src/edith/serverRegistry');
+  const { readRecentAuditEvents } = await import('../src/edith/audit');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
 
   const systemTool = edithToolRegistry.get('system_monitor');
   const browserTool = edithToolRegistry.get('playwright_browser_agent');
+  const computerTool = edithToolRegistry.get('computer_control_agent');
   assert.ok(systemTool);
   assert.ok(browserTool);
+  assert.ok(computerTool);
 
   const localDecision = permissionService.decideToolExecution({
     tool: systemTool,
@@ -65,6 +68,33 @@ try {
   });
   delete process.env.EDITH_ENABLE_HIGH_RISK_TOOLS;
 
+  const grant = permissionService.createGrant({
+    actor: 'permission-test',
+    permissions: ['computer:control', 'system:exec'],
+    toolIds: ['computer_control_agent'],
+    reason: 'Regression scoped computer-control grant.',
+    grantedBy: 'test',
+    ttlMs: 60_000,
+  });
+  const grantDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'permission-test',
+  });
+  const otherActorDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'other-actor',
+  });
+  const grantedRun = await executeEdithTool('computer_control_agent', { instruction: 'inspect desktop status' }, {
+    actor: 'permission-test',
+  });
+  const revokedGrant = permissionService.revokeGrant(grant.id, 'test');
+  const revokedDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'permission-test',
+  });
+  const allGrants = permissionService.listGrants({ includeRevoked: true, includeExpired: true });
+  const auditEvents = readRecentAuditEvents(1000);
+
   assert.equal(localDecision.status, 'ALLOW');
   assert.equal(localDecision.highRisk, false);
   assert.equal(deniedDecision.status, 'DENY');
@@ -76,6 +106,16 @@ try {
   assert.equal(health.find((item) => item.toolId === 'playwright_browser_agent')?.enabled, false);
   assert.equal(elevatedDecision.status, 'ALLOW');
   assert.equal(explicitDecision.status, 'ALLOW');
+  assert.equal(grantDecision.status, 'ALLOW');
+  assert.deepEqual(grantDecision.activeGrantIds, [grant.id]);
+  assert.equal(otherActorDecision.status, 'DENY');
+  assert.equal(grantedRun.errorCode, 'TOOL_ERROR');
+  assert.equal(grantedRun.structuredOutput?.capability, 'CONFIGURATION_REQUIRED');
+  assert.equal(revokedGrant?.revokedBy, 'test');
+  assert.equal(revokedDecision.status, 'DENY');
+  assert.equal(allGrants.some((candidate) => candidate.id === grant.id && candidate.revokedAt), true);
+  assert.equal(auditEvents.some((event) => event.action === 'permission.grant'), true);
+  assert.equal(auditEvents.some((event) => event.action === 'permission.revoke'), true);
 
   getEdithPersistenceStore().close?.();
 
@@ -88,6 +128,9 @@ try {
       'health_uses_permission_service',
       'env_high_risk_allow',
       'explicit_permission_allow',
+      'scoped_permission_grant',
+      'grant_revoke',
+      'grant_audit',
     ],
     deniedMissingPermissions: deniedDecision.missingPermissions,
   }, null, 2));
