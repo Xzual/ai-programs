@@ -3,6 +3,7 @@ import {
   MemoryItem,
   UserSettings,
   AutomationTool,
+  ToolInputField,
   ToolExecutionLog,
   IntegrationConfig,
 } from '../types';
@@ -413,6 +414,88 @@ export const DEFAULT_TOOLS: AutomationTool[] = [
     ],
   },
 ];
+
+type RegistryToolSchemaField = {
+  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
+  required?: boolean;
+  description?: string;
+};
+
+export type RegistryToolDefinition = {
+  id: string;
+  metadata: {
+    name: string;
+    description: string;
+    category: AutomationTool['category'];
+    inputSchema: Record<string, RegistryToolSchemaField>;
+    requiredPermissions: string[];
+    riskLevel: 0 | 1 | 2 | 3 | 4 | 5;
+  };
+};
+
+function labelFromKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function inputTypeFromSchema(field: RegistryToolSchemaField): ToolInputField['type'] {
+  if (field.type === 'number') return 'number';
+  if (field.type === 'object' || field.type === 'array') return 'textarea';
+  return 'text';
+}
+
+function registryToolToAutomationTool(
+  registryTool: RegistryToolDefinition,
+  fallback?: AutomationTool
+): AutomationTool {
+  const metadata = registryTool.metadata;
+  const highRisk = metadata.riskLevel >= 3 ||
+    metadata.requiredPermissions.some((permission) =>
+      permission.includes(':write') ||
+      permission.includes(':exec') ||
+      permission.includes(':control')
+    );
+
+  return {
+    id: registryTool.id,
+    name: fallback?.name ?? metadata.name,
+    description: fallback?.description ?? metadata.description,
+    permissions: metadata.requiredPermissions,
+    lastRun: fallback?.lastRun,
+    status: fallback?.status ?? 'idle',
+    requiresConfirmation: fallback?.requiresConfirmation ?? highRisk,
+    category: metadata.category,
+    inputFields: Object.entries(metadata.inputSchema).map(([key, field]) => ({
+      key,
+      label: fallback?.inputFields?.find((existing) => existing.key === key)?.label ?? labelFromKey(key),
+      type: inputTypeFromSchema(field),
+      placeholder: field.description,
+      required: field.required,
+    })),
+  };
+}
+
+export function mergeRegistryTools(
+  localTools: AutomationTool[],
+  registryTools: RegistryToolDefinition[]
+): AutomationTool[] {
+  const localById = new Map(localTools.map((tool) => [tool.id, tool]));
+  const registryById = new Map(registryTools.map((tool) => [tool.id, tool]));
+
+  const merged = localTools.map((localTool) => {
+    const registryTool = registryById.get(localTool.id);
+    return registryTool ? registryToolToAutomationTool(registryTool, localTool) : localTool;
+  });
+
+  for (const registryTool of registryTools) {
+    if (!localById.has(registryTool.id)) {
+      merged.push(registryToolToAutomationTool(registryTool));
+    }
+  }
+
+  return merged;
+}
 
 export const DEFAULT_INTEGRATIONS: IntegrationConfig[] = [
   {

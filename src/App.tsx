@@ -28,6 +28,8 @@ import {
   saveIntegrations,
   DEFAULT_TOOLS,
   DEFAULT_INITIAL_MESSAGE,
+  mergeRegistryTools,
+  type RegistryToolDefinition,
 } from './lib/storage';
 import {
   AiState,
@@ -99,6 +101,33 @@ export default function App() {
     root.style.setProperty('--edith-surface', activeProfile.surface);
     root.style.setProperty('--edith-text', activeProfile.text);
   }, [activeProfile]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateToolsFromRegistry() {
+      try {
+        const response = await fetch('/api/edith/tools');
+        if (!response.ok) return;
+        const data = await response.json() as { tools?: RegistryToolDefinition[] };
+        if (!Array.isArray(data.tools) || cancelled) return;
+
+        setTools((prev) => {
+          const merged = mergeRegistryTools(prev, data.tools ?? []);
+          saveToolStates(merged);
+          return merged;
+        });
+      } catch (error) {
+        console.warn('EDITH registry metadata could not be loaded:', error);
+      }
+    }
+
+    hydrateToolsFromRegistry();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const updateSettings = (updates: Partial<UserSettings>) => {
     if (updates.assistantPersona && updates.assistantPersona !== settings.assistantPersona) {
