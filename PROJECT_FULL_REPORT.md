@@ -91,6 +91,7 @@ Ana ürün şu anda AURA / E.D.I.T.H uygulamasıdır. Mark-L ve crypto klasörle
 | `src/edith/markLAdapter.ts` | Mark-L entegrasyon adapter temeli |
 | `src/edith/memoryService.ts` | Memory V2 servis temeli |
 | `src/edith/modelRouter.ts` | Ollama / Gemini / mock provider route temeli |
+| `src/edith/knowledgeMapService.ts` | Gerçek EDITH state'inden Knowledge Map graph snapshot üretimi |
 | `src/edith/persistence/` | SQLite ve JSON persistence katmanı |
 
 ---
@@ -302,6 +303,7 @@ Kullanıcı amacı
 | Mark-L Adapter | Hazır | Mark-L'i güvenli capability provider olarak bağlama temeli |
 | Memory V2 | Hazırlanıyor / eklendi | Typed, scoped, provenance-aware server-side memory servisi |
 | ModelRouter | Hazır | Ollama / Gemini / mock fallback sırasını capability ve privacy ipuçlarıyla merkezileştiren temel |
+| Knowledge Map Real Data | Hazır | Persisted task, memory, tool, audit, agent ve model-router node'larından graph snapshot üretir |
 
 ---
 
@@ -538,6 +540,7 @@ Market Data
 | Mark-L adapter | Mark-L entegrasyonu için güvenli adapter temeli eklendi |
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
+| Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Dokümantasyon | Baseline, architecture snapshot ve her foundation için dokümanlar oluşturuldu |
 
 ---
@@ -561,6 +564,7 @@ npm run test:edith-agents
 npm run test:edith-mark-l
 npm run test:edith-memory-v2
 npm run test:edith-model-router
+npm run test:edith-knowledge-map
 ```
 
 Bu testler EDITH servislerinin temel regression davranışlarını korumak için eklenmiştir.
@@ -585,6 +589,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
+| Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Mark-L | Adapter foundation hazır |
 | Crypto | Ayrı sistem olarak korunuyor |
 | High-risk tools | Varsayılan kapalı, güvenlik modeli korunuyor |
@@ -598,7 +603,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 1. Memory V2'nin frontend Bellek paneline bağlanması.
 2. ContextService ile Memory V2'nin chat ve planner promptlarına kontrollü dahil edilmesi.
 3. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
-4. Knowledge Map'in gerçek persisted memory/task/tool/audit ilişkilerini göstermesi.
+4. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 5. Kill switch modelinin backend-enforced hale getirilmesi.
 6. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 7. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.

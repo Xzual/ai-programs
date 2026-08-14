@@ -23,17 +23,28 @@ interface KnowledgeMapViewProps {
 interface GraphNode {
   id: string;
   label: string;
-  type: 'core' | 'memory' | 'tool' | 'task' | 'audit';
+  type: 'core' | 'memory' | 'tool' | 'task' | 'audit' | 'agent' | 'model';
   x: number;
   y: number;
   size: number;
   meta?: string;
+  status?: string;
+  riskLevel?: number;
 }
 
 interface GraphEdge {
   from: string;
   to: string;
   label: string;
+  source?: string;
+}
+
+interface KnowledgeMapSnapshot {
+  generatedAt: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  metrics: Array<{ label: string; value: number; type: GraphNode['type'] }>;
+  sources: Record<string, number>;
 }
 
 type StoredTask = {
@@ -49,6 +60,8 @@ const typeLabel: Record<GraphNode['type'], string> = {
   tool: 'Tool',
   task: 'Task',
   audit: 'Audit',
+  agent: 'Agent',
+  model: 'Model',
 };
 
 const colorFor = (type: GraphNode['type']) => {
@@ -63,6 +76,10 @@ const colorFor = (type: GraphNode['type']) => {
       return '#f59e0b';
     case 'audit':
       return '#fb7185';
+    case 'agent':
+      return '#a78bfa';
+    case 'model':
+      return '#14b8a6';
   }
 };
 
@@ -81,6 +98,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string>('edith-core');
   const [tasks, setTasks] = useState<StoredTask[]>([]);
+  const [snapshot, setSnapshot] = useState<KnowledgeMapSnapshot | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const loadTasks = async () => {
@@ -93,11 +111,31 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
     }
   };
 
+  const loadKnowledgeMap = async () => {
+    try {
+      const response = await fetch('/api/edith/knowledge-map');
+      const data = await response.json();
+      if (data.success && data.map?.nodes && data.map?.edges) {
+        setSnapshot(data.map);
+        return;
+      }
+      setSnapshot(null);
+      await loadTasks();
+    } catch {
+      setSnapshot(null);
+      await loadTasks();
+    }
+  };
+
   useEffect(() => {
-    loadTasks();
+    loadKnowledgeMap();
   }, []);
 
   const { nodes, edges } = useMemo(() => {
+    if (snapshot) {
+      return { nodes: snapshot.nodes, edges: snapshot.edges };
+    }
+
     const builtNodes: GraphNode[] = [
       { id: 'edith-core', label: 'E.D.I.T.H Core', type: 'core', x: 50, y: 50, size: 34, meta: 'routing kernel' },
       { id: 'memory-hub', label: 'Memory', type: 'memory', x: 23, y: 28, size: 22, meta: `${memories.length} kayıt` },
@@ -168,7 +206,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
     });
 
     return { nodes: builtNodes, edges: builtEdges };
-  }, [memories, tools, logs, tasks]);
+  }, [memories, tools, logs, tasks, snapshot]);
 
   const filteredNodes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -192,12 +230,20 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   const filteredIds = new Set(filteredNodes.map((node) => node.id));
   const latestLog = logs[0];
 
-  const metrics = [
-    { icon: <Brain className="w-4 h-4" />, label: 'Memory', value: memories.length, type: 'memory' as const },
-    { icon: <Wrench className="w-4 h-4" />, label: 'Tools', value: tools.length, type: 'tool' as const },
-    { icon: <Database className="w-4 h-4" />, label: 'Tasks', value: tasks.length, type: 'task' as const },
-    { icon: <CircleDot className="w-4 h-4" />, label: 'Logs', value: logs.length, type: 'audit' as const },
-  ];
+  const metrics = (snapshot?.metrics ?? [
+    { label: 'Memory', value: memories.length, type: 'memory' as const },
+    { label: 'Tools', value: tools.length, type: 'tool' as const },
+    { label: 'Tasks', value: tasks.length, type: 'task' as const },
+    { label: 'Logs', value: logs.length, type: 'audit' as const },
+  ]).map((metric) => ({
+    ...metric,
+    icon:
+      metric.type === 'memory' ? <Brain className="w-4 h-4" /> :
+      metric.type === 'tool' ? <Wrench className="w-4 h-4" /> :
+      metric.type === 'task' ? <Database className="w-4 h-4" /> :
+      metric.type === 'agent' ? <Network className="w-4 h-4" /> :
+      <CircleDot className="w-4 h-4" />,
+  }));
 
   return (
     <div className="flex-1 bg-[var(--edith-bg)] overflow-hidden flex text-slate-100">
@@ -230,10 +276,10 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
           <div className="flex items-center gap-2">
             <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/70 text-[11px] font-mono text-slate-400">
               <ShieldCheck className="w-4 h-4 text-emerald-300" />
-              map synced
+              {snapshot ? 'backend synced' : 'local view'}
             </div>
             <button
-              onClick={loadTasks}
+              onClick={loadKnowledgeMap}
               className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/80 text-xs text-slate-200 hover:border-[var(--edith-primary)]/45 hover:text-white flex items-center gap-2 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
@@ -446,7 +492,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
             Node Tipleri
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            {(['core', 'memory', 'tool', 'task', 'audit'] as GraphNode['type'][]).map((type) => (
+            {(['core', 'memory', 'tool', 'task', 'audit', 'agent', 'model'] as GraphNode['type'][]).map((type) => (
               <div key={type} className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
                 <span className="w-2 h-2 rounded-full" style={{ background: colorFor(type) }} />
                 {typeLabel[type]}

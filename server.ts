@@ -17,6 +17,7 @@ import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
+import { knowledgeMapService } from "./src/edith/knowledgeMapService";
 import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
 import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
 
@@ -205,6 +206,13 @@ app.get("/api/edith/tool-runs", (req, res) => {
   res.json({
     success: true,
     runs: store.listToolRuns?.(Number.isFinite(limit) ? limit : 100) ?? [],
+  });
+});
+
+app.get("/api/edith/knowledge-map", (_req, res) => {
+  res.json({
+    success: true,
+    map: knowledgeMapService.snapshot(),
   });
 });
 

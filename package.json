@@ -14,6 +14,7 @@
     "test:edith-registry": "tsx scripts/test-edith-registry.ts",
     "test:edith-intent": "tsx scripts/test-edith-intent.ts",
     "test:edith-agents": "tsx scripts/test-edith-agents.ts",
+    "test:edith-knowledge-map": "tsx scripts/test-edith-knowledge-map.ts",
     "test:edith-mark-l": "tsx scripts/test-edith-mark-l.ts",
     "test:edith-memory-v2": "tsx scripts/test-edith-memory-v2.ts",
     "test:edith-model-router": "tsx scripts/test-edith-model-router.ts",
