@@ -203,6 +203,16 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
     return task;
   }
 
+  updateTask(task: EdithTask): EdithTask {
+    this.getDb()
+      .prepare(`
+        INSERT OR REPLACE INTO tasks (id, status, created_at, updated_at, json)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      .run(task.id, task.status, task.createdAt, new Date().toISOString(), JSON.stringify(task));
+    return task;
+  }
+
   updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
     const row = this.getDb().prepare('SELECT json FROM tasks WHERE id = ?').get(id);
     const task = parseJsonColumn<EdithTask>(row);
@@ -217,10 +227,7 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
         `Status changed to ${status} at ${new Date().toISOString()}`,
       ],
     };
-    this.getDb()
-      .prepare('UPDATE tasks SET status = ?, updated_at = ?, json = ? WHERE id = ?')
-      .run(updated.status, new Date().toISOString(), JSON.stringify(updated), id);
-    return updated;
+    return this.updateTask(updated);
   }
 
   appendAuditEvent(event: EdithAuditEvent): void {

@@ -1,8 +1,9 @@
-import { createTask, type EdithTask, type EdithTaskStatus } from './core';
+import type { EdithTask, EdithTaskStatus } from './core';
 import { getEdithPersistenceStore } from './persistence';
+import { taskService } from './taskService';
 
 export function listTasks(): EdithTask[] {
-  return getEdithPersistenceStore().listTasks();
+  return taskService.listTasks();
 }
 
 export function createStoredTask(params: {
@@ -13,12 +14,11 @@ export function createStoredTask(params: {
   permissionsRequired?: string[];
   riskLevel?: 0 | 1 | 2 | 3 | 4 | 5;
 }): EdithTask {
-  const task = createTask(params);
-  return getEdithPersistenceStore().createTask(task);
+  return taskService.createTask(params);
 }
 
 export function updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
-  return getEdithPersistenceStore().updateTaskStatus(id, status, result);
+  return taskService.updateStatus(id, status, result);
 }
 
 export function getTaskStorePath(): string {

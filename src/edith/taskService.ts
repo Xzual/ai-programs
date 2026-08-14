@@ -1,0 +1,92 @@
+import { appendAuditEvent, createAuditEvent } from './audit';
+import { createTask, type EdithRiskLevel, type EdithTask, type EdithTaskStatus } from './core';
+import { getEdithPersistenceStore } from './persistence';
+
+export interface CreateTaskInput {
+  title: string;
+  objective: string;
+  originalUserRequest: string;
+  normalizedIntent?: string;
+  toolsRequired?: string[];
+  permissionsRequired?: string[];
+  riskLevel?: EdithRiskLevel;
+  validationRules?: string[];
+}
+
+export class TaskService {
+  listTasks(): EdithTask[] {
+    return getEdithPersistenceStore().listTasks();
+  }
+
+  getTask(id: string): EdithTask | undefined {
+    return this.listTasks().find((task) => task.id === id);
+  }
+
+  createTask(input: CreateTaskInput): EdithTask {
+    const task = createTask(input);
+    const enriched: EdithTask = {
+      ...task,
+      normalizedIntent: input.normalizedIntent,
+      validationRules: input.validationRules ?? task.validationRules,
+    };
+    const stored = getEdithPersistenceStore().createTask(enriched);
+    this.auditTaskMutation(stored, 'task.create', `Task created: ${stored.title}`);
+    return stored;
+  }
+
+  updateStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
+    const task = getEdithPersistenceStore().updateTaskStatus(id, status, result);
+    if (task) this.auditTaskMutation(task, 'task.status', `Task status changed to ${status}`);
+    return task;
+  }
+
+  addObservation(id: string, observation: string): EdithTask | undefined {
+    return this.mutateTask(id, 'task.observation', `Observation added to task ${id}`, (task) => ({
+      ...task,
+      observations: [...task.observations, observation],
+    }));
+  }
+
+  addCheckpoint(id: string, checkpoint: string): EdithTask | undefined {
+    return this.mutateTask(id, 'task.checkpoint', `Checkpoint added to task ${id}`, (task) => ({
+      ...task,
+      checkpoints: [...task.checkpoints, checkpoint],
+    }));
+  }
+
+  addArtifact(id: string, artifact: string): EdithTask | undefined {
+    return this.mutateTask(id, 'task.artifact', `Artifact added to task ${id}`, (task) => ({
+      ...task,
+      artifacts: [...task.artifacts, artifact],
+    }));
+  }
+
+  private mutateTask(
+    id: string,
+    action: string,
+    auditMessage: string,
+    mutator: (task: EdithTask) => EdithTask
+  ): EdithTask | undefined {
+    const task = this.getTask(id);
+    if (!task) return undefined;
+    const updated = getEdithPersistenceStore().updateTask(mutator(task));
+    this.auditTaskMutation(updated, action, auditMessage);
+    return updated;
+  }
+
+  private auditTaskMutation(task: EdithTask, action: string, message: string): void {
+    const event = createAuditEvent({
+      actor: 'edith-task-service',
+      taskId: task.id,
+      action,
+      toolId: 'task_service',
+      authorization: 'allowed',
+      riskLevel: task.riskLevel,
+      result: 'success',
+      message,
+    });
+    appendAuditEvent(event);
+  }
+}
+
+export const taskService = new TaskService();

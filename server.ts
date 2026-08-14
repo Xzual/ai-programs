@@ -9,6 +9,7 @@ import { readRecentAuditEvents } from "./src/edith/audit";
 import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
 import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
+import { taskService } from "./src/edith/taskService";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -183,6 +184,30 @@ app.post("/api/edith/tasks", (req, res) => {
 
 app.patch("/api/edith/tasks/:id/status", (req, res) => {
   const task = updateTaskStatus(req.params.id, req.body?.status, req.body?.result);
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/observations", (req, res) => {
+  const observation = String(req.body?.observation ?? "").trim();
+  if (!observation) return res.status(400).json({ success: false, error: "observation is required." });
+  const task = taskService.addObservation(req.params.id, observation);
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/checkpoints", (req, res) => {
+  const checkpoint = String(req.body?.checkpoint ?? "").trim();
+  if (!checkpoint) return res.status(400).json({ success: false, error: "checkpoint is required." });
+  const task = taskService.addCheckpoint(req.params.id, checkpoint);
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/artifacts", (req, res) => {
+  const artifact = String(req.body?.artifact ?? "").trim();
+  if (!artifact) return res.status(400).json({ success: false, error: "artifact is required." });
+  const task = taskService.addArtifact(req.params.id, artifact);
   if (!task) return res.status(404).json({ success: false, error: "Task not found." });
   res.json({ success: true, task });
 });

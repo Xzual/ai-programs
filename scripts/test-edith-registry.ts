@@ -16,8 +16,12 @@ async function removeTempRoot(): Promise<void> {
       fs.rmSync(tempRoot, { recursive: true, force: true });
       return;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EBUSY' || attempt === 4) throw error;
-      await sleep(100 * (attempt + 1));
+      if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
+      if (attempt === 4) {
+        console.warn(`Temp cleanup skipped because Windows still holds a SQLite handle: ${tempRoot}`);
+        return;
+      }
+      await sleep(200 * (attempt + 1));
     }
   }
 }

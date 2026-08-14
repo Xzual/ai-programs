@@ -72,6 +72,16 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
     return task;
   }
 
+  updateTask(task: EdithTask): EdithTask {
+    const tasks = this.listTasks();
+    const exists = tasks.some((existing) => existing.id === task.id);
+    const updated = exists
+      ? tasks.map((existing) => existing.id === task.id ? task : existing)
+      : [task, ...tasks];
+    writeJsonArray(this.paths.legacyTaskFile, updated);
+    return task;
+  }
+
   updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
     const updated = this.listTasks().map((task) =>
       task.id === id
@@ -86,8 +96,9 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
           }
         : task
     );
-    writeJsonArray(this.paths.legacyTaskFile, updated);
-    return updated.find((task) => task.id === id);
+    const task = updated.find((item) => item.id === id);
+    if (task) this.updateTask(task);
+    return task;
   }
 
   appendAuditEvent(event: EdithAuditEvent): void {

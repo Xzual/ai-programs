@@ -19,6 +19,7 @@ export interface EdithPersistenceStore {
   migrateLegacyData(): PersistenceMigrationResult;
   listTasks(): EdithTask[];
   createTask(task: EdithTask): EdithTask;
+  updateTask(task: EdithTask): EdithTask;
   updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined;
   appendAuditEvent(event: EdithAuditEvent): void;
   readRecentAuditEvents(limit?: number): EdithAuditEvent[];
