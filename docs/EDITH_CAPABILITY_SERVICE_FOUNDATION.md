@@ -102,4 +102,4 @@ Runtime coverage verifies:
 2. Store assessment IDs on tasks/plans once task metadata has a dedicated field.
 3. Add capability scoring for model modality, latency, and provider health.
 4. Add adapter-specific capability probes for Mark-L, browser, computer, and crypto adapters.
-5. Add recovery handoff that can request permission grants from denied preflight results.
+5. Add one-click grant creation from recovery permission requests in EDITH Ops.

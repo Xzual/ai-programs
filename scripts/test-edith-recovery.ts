@@ -87,6 +87,11 @@ try {
   assert.equal(permissionRecovery.classification, 'PERMISSION_DENIED');
   assert.equal(permissionReloaded?.status, 'WAITING_PERMISSION');
   assert.equal(permissionReloaded?.recoveryEvents?.length, 1);
+  assert.equal(Boolean(permissionReloaded?.recoveryEvents?.[0]?.capabilityAssessmentId), true);
+  assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.toolIds.includes('computer_control_agent'), true);
+  assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('computer:control'), true);
+  assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('system:exec'), true);
+  assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.highRiskToolIds.includes('computer_control_agent'), true);
 
   getEdithPersistenceStore().close?.();
 
@@ -98,7 +103,8 @@ try {
     classification: recovered.classification,
     recoveryEvents: reloaded?.recoveryEvents?.length,
     permissionAction: permissionRecovery.action,
-    scenarios: ['retryable_verification', 'replan', 'persist_recovery', 'audit', 'permission_wait'],
+    permissionRequest: permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions,
+    scenarios: ['retryable_verification', 'replan', 'persist_recovery', 'audit', 'permission_wait', 'permission_request_details'],
   }, null, 2));
 } finally {
   process.chdir(originalCwd);

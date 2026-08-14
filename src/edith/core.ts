@@ -106,6 +106,14 @@ export interface EdithRecoveryEvent {
   newStatus: EdithTaskStatus;
   previousPlanId?: string;
   newPlanId?: string;
+  capabilityAssessmentId?: string;
+  permissionRequest?: {
+    actor: string;
+    toolIds: string[];
+    permissions: string[];
+    highRiskToolIds: string[];
+    rationale: string;
+  };
 }
 
 export type EdithAgentHealthState = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE';

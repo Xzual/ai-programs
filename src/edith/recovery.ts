@@ -5,6 +5,7 @@ import type {
   EdithTask,
   EdithTaskStatus,
 } from './core';
+import { capabilityService, type CapabilityAssessment } from './capabilityService';
 import { plannerService } from './planner';
 import { taskService } from './taskService';
 
@@ -47,6 +48,16 @@ function recoveryReason(task: EdithTask, classification: EdithRecoveryClassifica
   return `Recovery classified task ${task.id} as ${classification}.`;
 }
 
+function permissionAssessmentFor(task: EdithTask): CapabilityAssessment {
+  return capabilityService.assess({
+    objective: task.objective,
+    actor: 'edith-recovery',
+    toolsRequired: task.toolsRequired,
+    permissionsRequired: task.permissionsRequired,
+    riskLevel: task.riskLevel,
+  });
+}
+
 function allowedForRecovery(status: EdithTaskStatus): boolean {
   return status === 'RETRYING' ||
     status === 'PAUSED' ||
@@ -72,7 +83,8 @@ export class RecoveryService {
     const maxRetries = retryBudget(task);
 
     if (classification === 'PERMISSION_DENIED') {
-      const recovery = this.createRecovery(task, attempt, classification, 'WAIT_PERMISSION', task.status, 'WAITING_PERMISSION');
+      const assessment = permissionAssessmentFor(task);
+      const recovery = this.createRecovery(task, attempt, classification, 'WAIT_PERMISSION', task.status, 'WAITING_PERMISSION', undefined, assessment);
       const updated = taskService.recordRecovery(taskId, recovery);
       return {
         success: false,
@@ -122,7 +134,8 @@ export class RecoveryService {
     action: EdithRecoveryAction,
     previousStatus: EdithTaskStatus,
     newStatus: EdithTaskStatus,
-    newPlanId?: string
+    newPlanId?: string,
+    capabilityAssessment?: CapabilityAssessment
   ): EdithRecoveryEvent {
     return {
       id: recoveryId(task.id),
@@ -136,6 +149,16 @@ export class RecoveryService {
       newStatus,
       previousPlanId: task.plan?.id,
       newPlanId,
+      capabilityAssessmentId: capabilityAssessment?.id,
+      permissionRequest: capabilityAssessment && capabilityAssessment.missingPermissions.length > 0
+        ? {
+            actor: capabilityAssessment.actor,
+            toolIds: capabilityAssessment.blockedTools,
+            permissions: capabilityAssessment.missingPermissions,
+            highRiskToolIds: capabilityAssessment.highRiskBlockedTools,
+            rationale: capabilityAssessment.summary,
+          }
+        : undefined,
     };
   }
 }

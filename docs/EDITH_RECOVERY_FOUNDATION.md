@@ -23,7 +23,7 @@ New core types:
 |---|---|
 | `EdithRecoveryClassification` | Failure/recovery category |
 | `EdithRecoveryAction` | `REPLAN`, `WAIT_PERMISSION`, or `STOP` |
-| `EdithRecoveryEvent` | Persisted recovery attempt metadata |
+| `EdithRecoveryEvent` | Persisted recovery attempt metadata, including optional permission request details |
 
 Recovery history is stored on:
 
@@ -52,6 +52,17 @@ task.recoveryEvents
 
 When `REPLAN` is selected, the service creates a new structured plan through the existing PlannerService and stores both the previous plan ID and the new plan ID in the recovery event.
 
+When `WAIT_PERMISSION` is selected, the service runs CapabilityService and stores:
+
+- capability assessment ID
+- actor
+- blocked tool IDs
+- missing permissions
+- high-risk blocked tool IDs
+- rationale
+
+This keeps permission recovery structured. EDITH Ops or a future approval UI can use `permissionRequest` to propose a scoped permission grant without parsing freeform error text.
+
 ## Retry Budget
 
 The first recovery service uses:
@@ -78,6 +89,7 @@ Commands:
 
 ```bash
 npm run test:edith-recovery
+npm run test:edith-capabilities
 npm run test:edith-verifier
 npm run test:edith-executor
 npm run test:edith-planner
@@ -97,6 +109,7 @@ Regression scenarios:
 - recovery event persists previous and new plan IDs
 - `task.recover` audit event exists
 - permission-denied task stays in `WAITING_PERMISSION`
+- permission recovery stores structured missing-permission details
 
 Runtime smoke:
 
@@ -112,7 +125,7 @@ Runtime smoke:
 
 ## Remaining Recovery Work
 
-1. Add automatic Executor handoff only when policy permits it.
+1. Connect structured permission requests to user-facing approval flows.
 2. Add backoff timing and scheduled retry windows.
 3. Add fallback tool selection when a required tool is unavailable.
 4. Add alternative agent selection.

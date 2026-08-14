@@ -583,6 +583,7 @@ Market Data
 | Memory V2 | Typed/scoped/provenance-aware memory servisi eklendi |
 | ContextService | Planner ve chat prompt assembly için güvenli memory/task/tool/audit context snapshot temeli eklendi |
 | CapabilityService | Tool health, permission kararları ve agent routing tek assessment katmanında toplandı |
+| Recovery permission request | WAITING_PERMISSION durumunda eksik izin/tool bilgisi structured recovery event olarak saklanıyor |
 | ModelRouter | Ollama / Gemini / mock fallback sırası servis olarak merkezileştirildi |
 | Knowledge Map real data | Knowledge Map backend snapshot endpoint'i ile gerçek EDITH state'inden beslenmeye başladı |
 | Kill switch | Backend-enforced emergency stop ile task creation ve tool execution bloklandı; EDITH Ops kontrol paneli eklendi |
@@ -640,7 +641,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 | Recovery | Foundation hazır |
 | Memory V2 | Backend foundation hazır, frontend entegrasyonu sıradaki işlerden |
 | ContextService | Planner ve chat prompt assembly entegrasyonu hazır; provider-specific context budget sıradaki iş |
-| CapabilityService | Foundation, Planner entegrasyonu ve Executor preflight hazır; EDITH Ops görünümü sıradaki iş |
+| CapabilityService | Foundation, Planner entegrasyonu, Executor preflight ve Recovery permission handoff hazır; EDITH Ops görünümü sıradaki iş |
 | ModelRouter | Foundation hazır; provider adapter, health cache ve metrics sıradaki işler |
 | Knowledge Map | Backend-backed graph snapshot'a bağlandı; daha zengin filtreler ve canlı güncelleme sıradaki işler |
 | Kill Switch | Backend foundation ve EDITH Ops kontrolü hazır; role/authorization ve global status banner sıradaki işler |
@@ -661,7 +662,7 @@ Bu testler EDITH servislerinin temel regression davranışlarını korumak için
 4. ModelRouter'ı provider adapter, health cache, latency/failure metrics ve task tipine göre route kararlarıyla genişletmek.
 5. Knowledge Map'in filtre, task-step, artifact ve canlı güncelleme desteğiyle genişletilmesi.
 6. Kill switch için rol/authorization, global status banner ve paused task resume akışının eklenmesi.
-7. PermissionService için role/authorization, ikinci onay ve denied tool sonucundan tek tık grant oluşturma akışı eklenmesi.
+7. PermissionService için role/authorization, ikinci onay ve recovery permission request üzerinden tek tık grant oluşturma akışı eklenmesi.
 8. Mark-L adapter capability'lerinin kademeli olarak tool registry'ye bağlanması.
 9. Crypto sisteminin önce read-only adapter olarak EDITH'e tanıtılması.
 10. Voice tarafında wake word, VAD, streaming STT/TTS ve barge-in davranışının geliştirilmesi.
