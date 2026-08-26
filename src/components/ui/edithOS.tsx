@@ -33,7 +33,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import { AiState, AutomationTool, ChatMessage, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
+import { AiState, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
 
 export interface AssistantTheme {
   primary: string;
@@ -138,13 +138,22 @@ export function EmptyState({ icon, title, text }: { icon: React.ReactNode; title
   );
 }
 
-export function TaskTimeline() {
+export function TaskTimeline({
+  aiState = 'idle',
+  hasObjective = false,
+  logs = [],
+}: {
+  aiState?: AiState;
+  hasObjective?: boolean;
+  logs?: ToolExecutionLog[];
+}) {
+  const active = aiState !== 'idle' && aiState !== 'success';
   const steps = [
-    ['Intent detected', 'Kullanıcı hedefi alındı', 'complete'],
-    ['Task created', 'Görev kaydı hazır', 'complete'],
-    ['Plan generated', 'Agent planı üretildi', 'active'],
-    ['Tools selected', 'Browser, Memory, Verifier bekliyor', 'pending'],
-    ['Verification', 'Sonuç doğrulama kuyruğunda', 'pending'],
+    ['Intent', hasObjective ? 'Chat command present' : 'Awaiting user command', hasObjective ? 'complete' : 'pending'],
+    ['Runtime state', statusCopy[aiState], active ? 'active' : 'pending'],
+    ['Tools', logs.length > 0 ? `${logs.length} audit events recorded` : 'No tool audit events yet', logs.length > 0 ? 'complete' : 'pending'],
+    ['Approval', 'High-risk actions remain gated', 'pending'],
+    ['Verification', logs.some((log) => log.status === 'success') ? 'Latest tool result logged' : 'No verified task result', logs.some((log) => log.status === 'success') ? 'complete' : 'pending'],
   ];
   return (
     <div className="space-y-3">
@@ -157,7 +166,7 @@ export function TaskTimeline() {
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-200">{title}</span>
-              <span className="font-mono text-[10px] text-slate-600">{new Date(Date.now() + index * 60000).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="font-mono text-[10px] text-slate-600">{state === 'pending' ? 'not started' : new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <p className="mt-1 text-[11px] text-slate-500">{text}</p>
           </div>
@@ -279,7 +288,7 @@ export function CommandCenter({
                 <div className="text-sm font-semibold text-slate-100">Yeni hedef bekleniyor</div>
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">Bir komut verdiğinizde E.D.I.T.H. intent, plan, agent seçimi, tool kullanımı, onay ve doğrulamayı burada görünür hale getirir.</p>
                 <div className="mt-4">
-                  <TaskTimeline />
+                  <TaskTimeline aiState={aiState} hasObjective={messages.length > 1} logs={logs} />
                 </div>
               </OSPanel>
             </div>
@@ -361,14 +370,15 @@ function HealthRows({ rows }: { rows: Array<[string, string, boolean]> }) {
   );
 }
 
-export function AgentsScreen() {
+export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiState?: AiState; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const runningTools = tools.filter((tool) => tool.status === 'running').length;
   const agents = [
-    ['Orchestrator', 'Görev ayrıştırma, handoff ve genel kontrol', 'ACTIVE', ['planner', 'router']],
-    ['Research Agent', 'Kaynak toplama, güvenilirlik ve çelişki kontrolü', 'STANDBY', ['browser', 'sources']],
+    ['Orchestrator', 'Görev ayrıştırma, handoff ve genel kontrol', aiState === 'thinking' ? 'ACTIVE' : 'STANDBY', ['planner', 'router']],
+    ['Research Agent', 'Kaynak toplama, güvenilirlik ve çelişki kontrolü', aiState === 'browser_use' || aiState === 'searching' ? 'ACTIVE' : 'STANDBY', ['browser', 'sources']],
     ['Computer Agent', 'Observe -> Understand -> Plan -> Action -> Verify döngüsü', 'READ ONLY', ['vision', 'screen']],
-    ['Security Agent', 'Risk, approval ve prompt-injection kontrolü', 'ACTIVE', ['policy', 'audit']],
-    ['Trading Agent', 'Paper/live ayrımı ve risk engine koordinasyonu', 'LOCKED', ['risk', 'market']],
-    ['QA Agent', 'Sonuç doğrulama ve final rapor kalitesi', 'WAITING', ['verifier']],
+    ['Security Agent', 'Risk, approval ve prompt-injection kontrolü', tools.some((tool) => tool.requiresConfirmation) ? 'ACTIVE' : 'STANDBY', ['policy', 'audit']],
+    ['Trading Agent', 'UI shell only; live execution locked', 'LOCKED', ['risk', 'market']],
+    ['QA Agent', 'Sonuç doğrulama ve final rapor kalitesi', logs.length > 0 ? 'WAITING' : 'STANDBY', ['verifier']],
   ] as const;
   return (
     <ScreenFrame title="Agent Operations" icon={<Network className="h-5 w-5" />} subtitle="Multi-agent orchestration graph and operational units">
@@ -382,6 +392,11 @@ export function AgentsScreen() {
           ))}
         </div>
       </OSPanel>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <ActionRow label="Registered tools" value={String(tools.length)} />
+        <ActionRow label="Running tools" value={String(runningTools)} />
+        <ActionRow label="Audit events" value={String(logs.length)} />
+      </div>
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {agents.map(([name, role, status, tools]) => <AgentCard key={name} name={name} role={role} status={status} tools={[...tools]} />)}
       </div>
@@ -389,7 +404,12 @@ export function AgentsScreen() {
   );
 }
 
-export function ComputerUseScreen() {
+export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const computerTools = tools.filter((tool) =>
+    tool.category === 'computer' ||
+    tool.permissions.some((permission) => permission.includes('computer') || permission.includes('control'))
+  );
+  const latestComputerLog = logs.find((log) => computerTools.some((tool) => tool.id === log.toolId));
   return (
     <ScreenFrame title="Computer Use" icon={<Cpu className="h-5 w-5" />} subtitle="Visible perception-action cockpit. Default mode: READ ONLY.">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
@@ -405,9 +425,9 @@ export function ComputerUseScreen() {
           <div className="mt-4 space-y-2">
             <StatusPill label="READ ONLY" tone="success" />
             <StatusPill label="Approval required for control" tone="warning" />
-            <ActionRow label="Target element" value="Bekleniyor" />
-            <ActionRow label="Confidence" value="-" />
-            <ActionRow label="Risk" value="No action" />
+            <ActionRow label="Control adapters" value={String(computerTools.length)} />
+            <ActionRow label="Latest audit" value={latestComputerLog?.status ?? 'none'} />
+            <ActionRow label="Risk" value="No action pending" />
           </div>
           <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-red-400/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100">
             <Square className="h-4 w-4" /> Stop Computer Agent
@@ -418,7 +438,12 @@ export function ComputerUseScreen() {
   );
 }
 
-export function BrowserResearchScreen() {
+export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const browserTools = tools.filter((tool) =>
+    tool.category === 'browser' ||
+    tool.category === 'web' ||
+    tool.permissions.some((permission) => permission.includes('browser') || permission.includes('network'))
+  );
   return (
     <ScreenFrame title="Browser / Research" icon={<Globe2 className="h-5 w-5" />} subtitle="AI research cockpit for sources, claims, conflicts and synthesis">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
@@ -427,9 +452,10 @@ export function BrowserResearchScreen() {
         </OSPanel>
         <OSPanel title="Source Board" eyebrow="VERIFICATION" icon={<Database className="h-4 w-4" />}>
           <div className="space-y-2">
-            {['Sources being evaluated', 'Claims extracted', 'Conflicts detected', 'Final answer draft'].map((item) => (
-              <ActionRow key={item} label={item} value="Bekleniyor" />
-            ))}
+            <ActionRow label="Browser-capable tools" value={String(browserTools.length)} />
+            <ActionRow label="Research audit events" value={String(logs.filter((log) => browserTools.some((tool) => tool.id === log.toolId)).length)} />
+            <ActionRow label="Sources being evaluated" value="none active" />
+            <ActionRow label="Final answer draft" value="not generated" />
           </div>
         </OSPanel>
       </div>
@@ -437,7 +463,7 @@ export function BrowserResearchScreen() {
   );
 }
 
-export function TasksScreen() {
+export function TasksScreen({ aiState = 'idle', messages = [], logs = [] }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[] }) {
   return (
     <ScreenFrame title="Tasks" icon={<Clock3 className="h-5 w-5" />} subtitle="Autonomous task timeline with checkpoints, tools, approvals and result status">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
@@ -449,7 +475,7 @@ export function TasksScreen() {
           </div>
         </OSPanel>
         <OSPanel title="Active Task Timeline" eyebrow="MISSION LOG" icon={<Route className="h-4 w-4" />}>
-          <TaskTimeline />
+          <TaskTimeline aiState={aiState} hasObjective={messages.length > 1} logs={logs} />
         </OSPanel>
       </div>
     </ScreenFrame>
@@ -625,7 +651,7 @@ export function KnowledgeGraphScreen({
             </div>
 
             <div className="absolute bottom-3 left-4 right-4 flex flex-wrap gap-2 rounded-lg border border-white/10 bg-black/45 p-2 backdrop-blur-xl">
-              {['zoom ready', 'drag model', 'expand selected', 'isolate project', 'timeline overlay'].map((control) => (
+              {['zoom shell', 'drag placeholder', 'expand selected', 'isolate view', 'timeline placeholder'].map((control) => (
                 <StatusPill key={control} label={control} tone="muted" />
               ))}
             </div>
@@ -692,10 +718,16 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
   );
 }
 
-export function AutomationsMissionScreen() {
+export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const automationTools = tools.filter((tool) => tool.category === 'reminder' || tool.category === 'monitor');
   return (
     <ScreenFrame title="Automations" icon={<Zap className="h-5 w-5" />} subtitle="Mission scheduling for recurring, event-based and trigger-driven work">
       <OSPanel title="Automation Types" eyebrow="TRIGGERS" icon={<Zap className="h-4 w-4" />}>
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <ActionRow label="Configured automation tools" value={String(automationTools.length)} />
+          <ActionRow label="Automation audit events" value={String(logs.filter((log) => automationTools.some((tool) => tool.id === log.toolId)).length)} />
+          <ActionRow label="Live scheduler" value="backend dependent" />
+        </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           {['time-based', 'recurring', 'event-based', 'file-change', 'email-triggered', 'price-triggered', 'news-triggered', 'system-triggered', 'webhook-triggered'].map((type) => (
             <div key={type} className="rounded-md border border-white/10 bg-white/[0.03] p-3 text-xs text-slate-300">{type}</div>
@@ -713,15 +745,17 @@ export function VoiceScreen() {
         <LoopBar items={['Wake Word', 'Speech Recognition', 'Intent', 'Assistant', 'Model', 'Response', 'TTS']} active={0} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <ActionRow label="Microphone" value="permission required" />
-          <ActionRow label="Wake word" value="ready" />
-          <ActionRow label="Barge-in" value="waiting" />
+          <ActionRow label="Wake word" value="placeholder" />
+          <ActionRow label="Barge-in" value="not active" />
         </div>
       </OSPanel>
     </ScreenFrame>
   );
 }
 
-export function SecurityCenterScreen() {
+export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?: AutomationTool[]; integrations?: IntegrationConfig[] }) {
+  const highRiskTools = tools.filter((tool) => tool.requiresConfirmation);
+  const connectedIntegrations = integrations.filter((integration) => integration.status === 'connected' && integration.enabled);
   return (
     <ScreenFrame title="Security Center" icon={<LockKeyhole className="h-5 w-5" />} subtitle="Approvals, high-risk tools, sessions, locks and emergency control">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
@@ -731,8 +765,8 @@ export function SecurityCenterScreen() {
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               <ActionRow label="Agent" value="Computer Agent" />
               <ActionRow label="Tool" value="computer_control_agent" />
-              <ActionRow label="Target" value="External UI" />
-              <ActionRow label="Risk" value="HIGH" />
+              <ActionRow label="Target" value="No active request" />
+              <ActionRow label="Risk" value={`${highRiskTools.length} gated tools`} />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {['Approve once', 'Approve for session', 'Deny', 'Always ask'].map((action) => <button key={action} className="rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">{action}</button>)}
@@ -741,16 +775,18 @@ export function SecurityCenterScreen() {
         </OSPanel>
         <OSPanel title="Locks" eyebrow="GUARDRAILS" icon={<KeyRound className="h-4 w-4" />}>
           <ActionRow label="Computer-use lock" value="READ ONLY" />
-          <ActionRow label="Trading lock" value="PAPER MODE" />
+          <ActionRow label="Trading lock" value="UI ONLY" />
           <ActionRow label="High-risk tools" value="approval required" />
-          <ActionRow label="Prompt injection" value="monitored" />
+          <ActionRow label="Connected integrations" value={String(connectedIntegrations.length)} />
         </OSPanel>
       </div>
     </ScreenFrame>
   );
 }
 
-export function TradingScreen() {
+export function TradingScreen({ integrations = [], tools = [], logs = [] }: { integrations?: IntegrationConfig[]; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const financeTools = tools.filter((tool) => tool.category === 'finance');
+  const financeIntegrations = integrations.filter((integration) => integration.id.includes('finance') || integration.id.includes('trading'));
   return (
     <ScreenFrame title="Finance / Trading" icon={<TrendingUp className="h-5 w-5" />} subtitle="Professional, cautious trading cockpit with separate AI decision and Risk Engine">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
@@ -758,7 +794,12 @@ export function TradingScreen() {
           <div className="mb-4 flex flex-wrap gap-2">
             <StatusPill label="PAPER MODE" tone="success" />
             <StatusPill label="LIVE MODE LOCKED" tone="danger" />
-            <RiskBadge level="MEDIUM" label="RISK REVIEW" />
+            <RiskBadge level="MEDIUM" label="UI RISK REVIEW" />
+          </div>
+          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <ActionRow label="Finance tools" value={String(financeTools.length)} />
+            <ActionRow label="Finance integrations" value={String(financeIntegrations.length)} />
+            <ActionRow label="Execution logs" value={String(logs.filter((log) => financeTools.some((tool) => tool.id === log.toolId)).length)} />
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {['BUY', 'SELL', 'HOLD', 'NO TRADE'].map((decision) => (
@@ -767,10 +808,10 @@ export function TradingScreen() {
           </div>
         </OSPanel>
         <OSPanel title="Risk Engine" eyebrow="VETO LAYER" icon={<ShieldCheck className="h-4 w-4" />}>
-          <ActionRow label="Mode" value="Paper" />
-          <ActionRow label="Max loss" value="locked" />
+          <ActionRow label="Mode" value="UI shell only" />
+          <ActionRow label="Max loss" value="not connected" />
           <ActionRow label="Live approval" value="required" />
-          <ActionRow label="AI can suggest" value="Risk can veto" />
+          <ActionRow label="Backend execution" value="not implemented here" />
         </OSPanel>
       </div>
     </ScreenFrame>
@@ -781,13 +822,19 @@ export function FilesScreen() {
   return <ScreenFrame title="Files / Documents" icon={<Archive className="h-5 w-5" />} subtitle="File context, document references and generated artifacts"><EmptyState icon={<FileText className="h-4 w-4" />} title="Dosya oturumu bekleniyor" text="E.D.I.T.H. dosya araçları çalıştığında kaynaklar, çıktılar ve doküman referansları burada görünür." /></ScreenFrame>;
 }
 
-export function SystemHealthScreen() {
-  return <ScreenFrame title="System Health" icon={<Activity className="h-5 w-5" />} subtitle="Provider, tools, automation, network and local runtime state"><OSPanel title="Runtime Status" eyebrow="SYSTEM" icon={<Activity className="h-4 w-4" />}><HealthRows rows={[['Internet', 'status unknown', false], ['Provider', 'configured', true], ['Automation', 'ready', true], ['Security', 'guarded', true], ['Computer Use', 'read only', true]]} /></OSPanel></ScreenFrame>;
+export function SystemHealthScreen({ ollamaConnected = false, settings, tools = [], logs = [] }: { ollamaConnected?: boolean; settings?: UserSettings; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const runningTools = tools.filter((tool) => tool.status === 'running').length;
+  return <ScreenFrame title="System Health" icon={<Activity className="h-5 w-5" />} subtitle="Provider, tools, automation, network and local runtime state"><OSPanel title="Runtime Status" eyebrow="SYSTEM" icon={<Activity className="h-4 w-4" />}><HealthRows rows={[['Provider', ollamaConnected ? 'connected' : `${settings?.aiProvider ?? 'provider'} degraded`, ollamaConnected], ['Registered tools', String(tools.length), true], ['Running tools', String(runningTools), runningTools === 0], ['Audit events', String(logs.length), true], ['Computer Use', 'read only shell', true]]} /></OSPanel></ScreenFrame>;
 }
 
-export function SettingsArchitectureScreen() {
+export function SettingsArchitectureScreen({ settings, integrations = [] }: { settings?: UserSettings; integrations?: IntegrationConfig[] }) {
   return (
     <ScreenFrame title="Settings" icon={<SlidersHorizontal className="h-5 w-5" />} subtitle="Grouped settings architecture for E.D.I.T.H.">
+      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <ActionRow label="Assistant persona" value={settings?.assistantPersona ?? 'unknown'} />
+        <ActionRow label="Provider" value={settings?.aiProvider ?? 'unknown'} />
+        <ActionRow label="Configured integrations" value={String(integrations.length)} />
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {['General', 'Appearance', 'Assistants', 'Models', 'Providers', 'Voice', 'Memory', 'Agents', 'Tools', 'Computer Use', 'Browser', 'Automation', 'Security', 'Trading', 'Integrations', 'Notifications', 'System', 'Advanced'].map((group) => (
           <div key={group} className="rounded-lg border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-200">{group}</div>

@@ -60,7 +60,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           assistant={profile}
           ollamaConnected={ollamaConnected}
         >
-          <CommandSurface assistantName={profile.name} aiState={aiState} provider={settings.aiProvider} model={settings.selectedModel} />
+          <CommandSurface
+            assistantName={profile.name}
+            aiState={aiState}
+            provider={settings.aiProvider}
+            model={settings.selectedModel}
+            messageCount={messages.length}
+            toolCount={tools.length}
+            pendingApprovals={tools.filter((tool) => tool.requiresConfirmation).length}
+          />
         </CommandCenter>
         <VoiceBar
           aiState={aiState}
@@ -81,18 +89,24 @@ function CommandSurface({
   aiState,
   provider,
   model,
+  messageCount,
+  toolCount,
+  pendingApprovals,
 }: {
   assistantName: string;
   aiState: AiState;
   provider: string;
   model: string;
+  messageCount: number;
+  toolCount: number;
+  pendingApprovals: number;
 }) {
   const tracks = [
-    ['Intent', 'Komut bekleniyor'],
-    ['Plan', 'Hazır'],
-    ['Agents', 'Standby'],
-    ['Tools', 'Approval gated'],
-    ['Verify', 'Queued'],
+    ['Intent', messageCount > 1 ? 'Chat state active' : 'Awaiting command'],
+    ['Plan', aiState === 'thinking' ? 'Model response running' : 'No active plan'],
+    ['Agents', aiState === 'browser_use' || aiState === 'computer_use' ? aiState.replace('_', ' ') : 'Standby'],
+    ['Tools', `${toolCount} registered`],
+    ['Approvals', `${pendingApprovals} gated tools`],
   ];
 
   return (

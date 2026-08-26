@@ -81,13 +81,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {/* Messages List Container */}
       <div className="relative flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar bg-[radial-gradient(circle_at_80%_20%,var(--assistant-glow),transparent_28%),radial-gradient(circle_at_20%_90%,rgba(255,255,255,0.04),transparent_28%)]">
         {messages.map((msg) => (
-          <TransmissionCard
+          <div
             key={msg.id}
-            message={msg}
-            settings={settings}
-            assistantName={activeProfile.name}
-            onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
-          />
+            className={activeSpeakingId === msg.id ? 'rounded-lg ring-1 ring-[var(--assistant-primary)]/60 shadow-[0_0_26px_var(--assistant-glow)]' : ''}
+          >
+            <TransmissionCard
+              message={msg}
+              settings={settings}
+              assistantName={activeProfile.name}
+              onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
+            />
+          </div>
         ))}
         <div ref={messagesEndRef} />
       </div>

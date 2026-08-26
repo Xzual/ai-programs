@@ -16,6 +16,7 @@ interface ChatConsoleViewProps {
   onSpeakMessage: (text: string) => void;
   onOpenOllamaModal: () => void;
   isStreaming: boolean;
+  activeSpeakingId?: string | null;
   assistantProfile: {
     name: string;
     primary: string;
@@ -35,6 +36,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
   onSpeakMessage,
   onOpenOllamaModal,
   isStreaming,
+  activeSpeakingId,
   assistantProfile,
 }) => {
   return (
@@ -67,6 +69,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
           ollamaConnected={ollamaConnected}
           onSpeakMessage={onSpeakMessage}
           onOpenOllamaModal={onOpenOllamaModal}
+          activeSpeakingId={activeSpeakingId}
           className="min-h-0 h-full rounded-lg"
         />
       </div>

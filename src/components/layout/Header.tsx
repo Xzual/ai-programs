@@ -13,6 +13,7 @@ interface HeaderProps {
   onTestConnection: () => void;
   onToggleAutoSpeech: () => void;
   onUpdateSettings: (updates: Partial<UserSettings>) => void;
+  onEmergencyStop: () => void;
   onLogout: () => void;
   isTestingConnection: boolean;
 }
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onTestConnection,
   onToggleAutoSpeech,
   onUpdateSettings,
+  onEmergencyStop,
   onLogout,
   isTestingConnection,
 }) => {
@@ -135,9 +137,9 @@ export const Header: React.FC<HeaderProps> = ({
 
         <div className="hidden 2xl:flex items-center gap-2">
           <StatusPill label="Voice" value={settings.autoSpeech ? 'ON' : 'OFF'} tone={settings.autoSpeech ? 'success' : 'muted'} />
-          <StatusPill label="Internet" value="READY" tone="info" />
+          <StatusPill label="Network" value="UI ONLY" tone="muted" />
           <StatusPill label="Computer" value="READ" tone="success" />
-          <StatusPill label="Automation" value="SAFE" tone="info" />
+          <StatusPill label="Automation" value="GATED" tone="info" />
           <StatusPill label="Security" value="GUARDED" tone="success" />
         </div>
 
@@ -191,8 +193,9 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <button
+          onClick={onEmergencyStop}
           className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-400/40 bg-red-500/12 text-red-100 text-xs font-semibold hover:bg-red-500/20"
-          title="Emergency Stop"
+          title="Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur"
         >
           <Power className="w-4 h-4" />
           <span className="hidden xl:inline">Emergency Stop</span>

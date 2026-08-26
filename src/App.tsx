@@ -765,6 +765,7 @@ export default function App() {
           onTestConnection={checkHealth}
           onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
           onUpdateSettings={updateSettings}
+          onEmergencyStop={stopSpeech}
           onLogout={handleLogout}
           isTestingConnection={isTestingConnection}
         />
@@ -804,16 +805,17 @@ export default function App() {
               onSpeakMessage={(txt) => speakText(txt)}
               onOpenOllamaModal={() => setShowOllamaModal(true)}
               isStreaming={isStreaming}
+              activeSpeakingId={activeSpeakingId}
             />
           )}
 
-          {activeTab === 'agents' && <AgentsScreen />}
+          {activeTab === 'agents' && <AgentsScreen aiState={aiState} tools={tools} logs={logs} />}
 
-          {activeTab === 'tasks' && <TasksScreen />}
+          {activeTab === 'tasks' && <TasksScreen aiState={aiState} messages={activeSession.messages} logs={logs} />}
 
-          {activeTab === 'computer' && <ComputerUseScreen />}
+          {activeTab === 'computer' && <ComputerUseScreen tools={tools} logs={logs} />}
 
-          {activeTab === 'browser' && <BrowserResearchScreen />}
+          {activeTab === 'browser' && <BrowserResearchScreen tools={tools} logs={logs} />}
 
           {activeTab === 'code' && (
             <CodeChatView
@@ -834,7 +836,7 @@ export default function App() {
           )}
 
           {activeTab === 'automations' && (
-            <AutomationsMissionScreen />
+            <AutomationsMissionScreen tools={tools} logs={logs} />
           )}
 
           {activeTab === 'files' && <FilesScreen />}
@@ -843,11 +845,11 @@ export default function App() {
 
           {activeTab === 'voice' && <VoiceScreen />}
 
-          {activeTab === 'crypto' && <TradingScreen />}
+          {activeTab === 'crypto' && <TradingScreen integrations={integrations} tools={tools} logs={logs} />}
 
-          {activeTab === 'security' && <SecurityCenterScreen />}
+          {activeTab === 'security' && <SecurityCenterScreen tools={tools} integrations={integrations} />}
 
-          {activeTab === 'system' && <SystemHealthScreen />}
+          {activeTab === 'system' && <SystemHealthScreen ollamaConnected={ollamaConnected} settings={settings} tools={tools} logs={logs} />}
 
           {activeTab === 'integrations' && (
             <IntegrationsView
@@ -857,7 +859,7 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsArchitectureScreen />
+            <SettingsArchitectureScreen settings={settings} integrations={integrations} />
           )}
           {activeTab !== 'dashboard' && activeTab !== 'chat' && (
             <ContextPanel aiState={aiState} assistant={activeProfile} tools={tools} logs={logs} />
