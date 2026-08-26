@@ -16,6 +16,47 @@ export type AiState =
 export type AiProvider = 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'local' | 'mock';
 export type AssistantPersona = 'jarvis' | 'friday' | 'ultron' | 'karen' | 'alfred' | 'homer';
 
+export interface AssistantThemeTokens {
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  surface: string;
+  text: string;
+  glow: string;
+  bgTint: string;
+  core: string;
+  notification: string;
+}
+
+export interface AssistantProfile {
+  id: AssistantPersona;
+  name: string;
+  description: string;
+  platform: 'E.D.I.T.H.';
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  surface: string;
+  text: string;
+  themeTokens: AssistantThemeTokens;
+  systemPrompt: string;
+  personality: string;
+  speakingStyle: string;
+  greetingStyle: string;
+  voice: string;
+  voiceId: string;
+  memoryNamespace: string;
+  notificationIdentity: string;
+  taskReportSignature: string;
+  preferredModel: 'auto' | string;
+  preferredProvider: 'auto' | AiProvider;
+  fallbackModels: string[];
+  tools: string[];
+  agentPolicy: string;
+}
+
 export type MemoryCategory = 'user_pref' | 'fact' | 'summary' | 'custom';
 
 export type MemoryType =
@@ -35,6 +76,8 @@ export interface ChatMessage {
   sender: 'user' | 'assistant' | 'system';
   text: string;
   timestamp: number;
+  assistantProfileId?: AssistantPersona;
+  assistantName?: string;
   isStreaming?: boolean;
   audioUrl?: string;
   toolsUsed?: string[];
@@ -70,6 +113,7 @@ export interface MemoryItem {
   relatedEntityIds?: string[];
   mergeOf?: string[];
   deletedAt?: number;
+  assistantNamespace?: string;
 }
 
 export interface AutomationTool {
@@ -103,6 +147,9 @@ export interface ToolExecutionLog {
   result: string;
   timestamp: number;
   status: 'success' | 'error' | 'denied';
+  assistantProfileId?: AssistantPersona;
+  assistantName?: string;
+  taskReportSignature?: string;
 }
 
 export interface IntegrationConfig {

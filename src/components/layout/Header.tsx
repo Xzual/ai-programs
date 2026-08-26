@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Activity, Bot, ChevronDown, Globe2, LogOut, Mic2, PlusCircle, Power, RotateCcw, ShieldCheck, UserRound, Volume2, VolumeX, Wrench } from 'lucide-react';
-import { EdithAuthSession, UserSettings } from '../../types';
-import assistantProfiles from '../../config/assistantProfiles.json';
+import { Activity, Bot, ChevronDown, LogOut, PlusCircle, Power, RotateCcw, UserRound, Volume2, VolumeX } from 'lucide-react';
+import { AssistantProfile, EdithAuthSession, UserSettings } from '../../types';
 import { StatusPill } from '../ui/edithOS';
 
 interface HeaderProps {
   settings: UserSettings;
+  activeAssistant: AssistantProfile;
+  assistantProfiles: AssistantProfile[];
   authSession: EdithAuthSession;
   ollamaConnected: boolean;
   onNewChat: () => void;
@@ -20,6 +21,8 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   settings,
+  activeAssistant,
+  assistantProfiles,
   authSession,
   ollamaConnected,
   onNewChat,
@@ -32,9 +35,6 @@ export const Header: React.FC<HeaderProps> = ({
   isTestingConnection,
 }) => {
   const [profileOpen, setProfileOpen] = useState(false);
-  const activeProfile =
-    assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
-    assistantProfiles[0];
   const providerLabel: Record<string, string> = {
     ollama: settings.selectedModel,
     gemini: 'Gemini',
@@ -60,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Bot className="h-4 w-4 text-[var(--assistant-primary)]" />
             <span className="hidden sm:inline">Assistant:</span>
-            <span>{activeProfile.name}</span>
+            <span>{activeAssistant.name}</span>
             <ChevronDown
               className={`w-4 h-4 text-[var(--assistant-primary)] transition-transform duration-300 ${profileOpen ? 'rotate-180' : ''}`}
             />
@@ -69,7 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
           {profileOpen && (
             <div className="edith-profile-menu absolute left-0 top-12 w-60 rounded-lg border border-slate-700/70 bg-slate-950/95 backdrop-blur-2xl shadow-2xl shadow-black/50 p-1.5 z-50">
               {assistantProfiles.map((profile) => {
-                const active = profile.id === activeProfile.id;
+                const active = profile.id === activeAssistant.id;
                 return (
                   <button
                     key={profile.id}
@@ -108,6 +108,11 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-[var(--assistant-primary)] font-medium">
             {providerLabel[settings.aiProvider] ?? settings.selectedModel}
           </span>
+        </div>
+
+        <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-950/54 border border-white/10 text-[11px] font-mono text-slate-300">
+          <span className="text-slate-500">Provider:</span>
+          <span className="text-slate-200">{settings.aiProvider.toUpperCase()}</span>
         </div>
 
         {/* Connection Status Button */}

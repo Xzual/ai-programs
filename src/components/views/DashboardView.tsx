@@ -1,6 +1,6 @@
 import React from 'react';
 import { VoiceBar } from '../chat/VoiceBar';
-import { AiState, AutomationTool, ChatMessage, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
+import { AiState, AssistantProfile, AutomationTool, ChatMessage, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
 import { CommandCenter, StatusPill } from '../ui/edithOS';
 
 interface DashboardViewProps {
@@ -18,13 +18,7 @@ interface DashboardViewProps {
   memories?: MemoryItem[];
   tools?: AutomationTool[];
   logs?: ToolExecutionLog[];
-  assistantProfile?: {
-    id?: string;
-    primary: string;
-    secondary: string;
-    accent: string;
-    name: string;
-  };
+  assistantProfile?: AssistantProfile;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -77,6 +71,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onVoiceTranscript={onVoiceTranscript}
           isStreaming={isStreaming}
           handsFree={settings.voiceHandsFree}
+          assistantName={profile.name}
         />
       </div>
 

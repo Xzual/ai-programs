@@ -9,6 +9,7 @@ import {
   EdithAuthSession,
   EdithUserAccount,
 } from '../types';
+import { DEFAULT_ASSISTANT_ID, getAssistantProfile, isAssistantPersona } from '../config/assistantProfileRegistry';
 
 const STORAGE_KEYS = {
   SETTINGS: 'edith_settings_v1',
@@ -103,14 +104,18 @@ export const DEFAULT_SETTINGS: UserSettings = {
 export const DEFAULT_INITIAL_MESSAGE = {
   id: 'msg-welcome',
   sender: 'assistant' as const,
-  text: 'Merhaba. EDITH kişisel AI sistemi hazır. Yazabilir veya mikrofon düğmesine basarak konuşabilirsiniz.',
+  assistantProfileId: DEFAULT_ASSISTANT_ID,
+  assistantName: getAssistantProfile(DEFAULT_ASSISTANT_ID).name,
+  text: `${getAssistantProfile(DEFAULT_ASSISTANT_ID).greetingStyle} Ben ${getAssistantProfile(DEFAULT_ASSISTANT_ID).name}; E.D.I.T.H. içinde aktif asistan profilinizim.`,
   timestamp: Date.now(),
 };
 
 export const DEFAULT_CODE_INITIAL_MESSAGE = {
   id: 'msg-code-welcome',
   sender: 'assistant' as const,
-  text: 'Kod chat hazır. Burada kod yazdırabilir, dosya mimarisi tasarlatabilir, hata açıklatabilir veya refactor isteyebilirsiniz. Normal sohbet geçmişinden ayrı tutulur.',
+  assistantProfileId: DEFAULT_ASSISTANT_ID,
+  assistantName: getAssistantProfile(DEFAULT_ASSISTANT_ID).name,
+  text: `${getAssistantProfile(DEFAULT_ASSISTANT_ID).name} kod kanalı hazır. Burada kod yazdırabilir, dosya mimarisi tasarlatabilir, hata açıklatabilir veya refactor isteyebilirsiniz. Normal sohbet geçmişinden ayrı tutulur.`,
   timestamp: Date.now(),
 };
 
@@ -645,7 +650,11 @@ export function loadSettings(): UserSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.SETTINGS);
     if (!raw) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    return {
+      ...parsed,
+      assistantPersona: isAssistantPersona(parsed.assistantPersona) ? parsed.assistantPersona : DEFAULT_ASSISTANT_ID,
+    };
   } catch (e) {
     return DEFAULT_SETTINGS;
   }

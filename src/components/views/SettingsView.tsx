@@ -399,7 +399,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 className="rounded border-slate-800 bg-slate-950 text-cyan-600 focus:ring-cyan-500"
               />
               <label htmlFor="voiceHandsFreeCheck" className="text-slate-300 font-medium">
-                Jarvis Modu: Sürekli Dinle ve Otomatik Gönder
+                Aktif Asistan Modu: Sürekli Dinle ve Otomatik Gönder
               </label>
             </div>
           </div>

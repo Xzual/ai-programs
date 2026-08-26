@@ -9,6 +9,7 @@ interface VoiceBarProps {
   onVoiceTranscript: (text: string) => void;
   isStreaming: boolean;
   handsFree?: boolean;
+  assistantName?: string;
 }
 
 // Web Speech API desteklenip desteklenmediğini güvenli şekilde kontrol et
@@ -33,6 +34,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
   onVoiceTranscript,
   isStreaming,
   handsFree = false,
+  assistantName = 'EDITH',
 }) => {
   const [inputText, setInputText]         = useState('');
   const [isListening, setIsListening]     = useState(false);
@@ -264,11 +266,11 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
 
         {handsFree && (
           <div
-            title="Jarvis modu açık"
+            title={`${assistantName} hands-free modu açık`}
             className="hidden sm:flex items-center gap-1.5 px-3 py-3 rounded-2xl border border-[var(--edith-primary)]/30 bg-[var(--edith-primary)]/14 text-[var(--edith-text)] text-[11px] font-mono shadow-[0_0_24px_rgba(34,211,238,0.12)]"
           >
             <Radio className="w-3.5 h-3.5 animate-pulse" />
-            Auto Listen
+            {assistantName} Listen
           </div>
         )}
 
@@ -281,8 +283,8 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={
               sttSupported
-                ? 'EDITH asistanınıza yazın veya mikrofona basın...'
-                : 'EDITH asistanınıza bir şeyler sorun veya görev verin...'
+                ? `${assistantName} asistanınıza yazın veya mikrofona basın...`
+                : `${assistantName} asistanınıza bir şeyler sorun veya görev verin...`
             }
             rows={1}
             disabled={isStreaming && aiState !== 'speaking'}

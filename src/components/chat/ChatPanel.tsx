@@ -4,8 +4,7 @@ import {
   AlertTriangle,
   Terminal,
 } from 'lucide-react';
-import { ChatMessage, UserSettings } from '../../types';
-import assistantProfiles from '../../config/assistantProfiles.json';
+import { AssistantProfile, ChatMessage, UserSettings } from '../../types';
 import { TransmissionCard } from '../ui/edithOS';
 
 interface ChatPanelProps {
@@ -15,6 +14,7 @@ interface ChatPanelProps {
   onSpeakMessage: (text: string) => void;
   onOpenOllamaModal: () => void;
   activeSpeakingId?: string | null;
+  assistantProfile: AssistantProfile;
   className?: string;
 }
 
@@ -25,12 +25,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   onSpeakMessage,
   onOpenOllamaModal,
   activeSpeakingId,
+  assistantProfile,
   className = '',
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const activeProfile =
-    assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
-    assistantProfiles[0];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -88,7 +86,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <TransmissionCard
               message={msg}
               settings={settings}
-              assistantName={activeProfile.name}
+              assistantName={msg.assistantName ?? assistantProfile.name}
               onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
             />
           </div>

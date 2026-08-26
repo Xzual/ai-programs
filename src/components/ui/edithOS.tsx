@@ -33,7 +33,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import { AiState, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
+import { AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
 
 export interface AssistantTheme {
   primary: string;
@@ -44,6 +44,9 @@ export interface AssistantTheme {
   text?: string;
   name: string;
   id?: string;
+  taskReportSignature?: string;
+  notificationIdentity?: string;
+  memoryNamespace?: string;
 }
 
 export const statusCopy: Record<AiState, string> = {
@@ -463,11 +466,17 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
   );
 }
 
-export function TasksScreen({ aiState = 'idle', messages = [], logs = [] }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[] }) {
+export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assistant }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[]; assistant?: AssistantProfile }) {
   return (
     <ScreenFrame title="Tasks" icon={<Clock3 className="h-5 w-5" />} subtitle="Autonomous task timeline with checkpoints, tools, approvals and result status">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
         <OSPanel title="Task Status Model" eyebrow="QUEUE" icon={<CircleDot className="h-4 w-4" />}>
+          {assistant && (
+            <div className="mb-3 space-y-2">
+              <ActionRow label="Report identity" value={assistant.taskReportSignature} />
+              <ActionRow label="Assistant" value={assistant.name} />
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {['QUEUED', 'PLANNING', 'RUNNING', 'WAITING_APPROVAL', 'BLOCKED', 'RECOVERING', 'COMPLETED', 'FAILED', 'CANCELLED'].map((state) => (
               <StatusPill key={state} label={state} tone={state.includes('FAILED') || state === 'BLOCKED' ? 'danger' : state.includes('WAITING') ? 'warning' : state === 'COMPLETED' ? 'success' : 'muted'} />
@@ -710,7 +719,7 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
       </div>
       <div className="mt-4">
         <OSPanel title="Recent Tool Logs" eyebrow="AUDIT" icon={<Terminal className="h-4 w-4" />}>
-          {logs.slice(0, 6).map((log) => <ActionRow key={log.id} label={log.toolName} value={log.status} />)}
+          {logs.slice(0, 6).map((log) => <ActionRow key={log.id} label={`${log.assistantName ?? 'EDITH'} / ${log.toolName}`} value={log.status} />)}
           {logs.length === 0 && <EmptyState icon={<Terminal className="h-4 w-4" />} title="Henüz araç çağrısı yok" text="Tool çalıştırmaları audit özetleriyle burada listelenecek." />}
         </OSPanel>
       </div>
@@ -827,12 +836,14 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
   return <ScreenFrame title="System Health" icon={<Activity className="h-5 w-5" />} subtitle="Provider, tools, automation, network and local runtime state"><OSPanel title="Runtime Status" eyebrow="SYSTEM" icon={<Activity className="h-4 w-4" />}><HealthRows rows={[['Provider', ollamaConnected ? 'connected' : `${settings?.aiProvider ?? 'provider'} degraded`, ollamaConnected], ['Registered tools', String(tools.length), true], ['Running tools', String(runningTools), runningTools === 0], ['Audit events', String(logs.length), true], ['Computer Use', 'read only shell', true]]} /></OSPanel></ScreenFrame>;
 }
 
-export function SettingsArchitectureScreen({ settings, integrations = [] }: { settings?: UserSettings; integrations?: IntegrationConfig[] }) {
+export function SettingsArchitectureScreen({ settings, integrations = [], assistant }: { settings?: UserSettings; integrations?: IntegrationConfig[]; assistant?: AssistantProfile }) {
   return (
     <ScreenFrame title="Settings" icon={<SlidersHorizontal className="h-5 w-5" />} subtitle="Grouped settings architecture for E.D.I.T.H.">
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <ActionRow label="Assistant persona" value={settings?.assistantPersona ?? 'unknown'} />
+        <ActionRow label="Assistant" value={assistant?.name ?? settings?.assistantPersona ?? 'unknown'} />
+        <ActionRow label="Memory namespace" value={assistant?.memoryNamespace ?? 'not configured'} />
         <ActionRow label="Provider" value={settings?.aiProvider ?? 'unknown'} />
+        <ActionRow label="Model" value={settings?.selectedModel ?? 'auto'} />
         <ActionRow label="Configured integrations" value={String(integrations.length)} />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

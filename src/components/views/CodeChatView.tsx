@@ -12,11 +12,12 @@ import {
   Terminal,
   User,
 } from 'lucide-react';
-import { ChatMessage, UserSettings } from '../../types';
+import { AssistantProfile, ChatMessage, UserSettings } from '../../types';
 
 interface CodeChatViewProps {
   messages: ChatMessage[];
   settings: UserSettings;
+  assistantProfile: AssistantProfile;
   onSendMessage: (text: string) => void;
   onReset: () => void;
   isStreaming: boolean;
@@ -46,6 +47,7 @@ function splitCodeBlocks(text: string): Array<{ type: 'text' | 'code'; content: 
 export const CodeChatView: React.FC<CodeChatViewProps> = ({
   messages,
   settings,
+  assistantProfile,
   onSendMessage,
   onReset,
   isStreaming,
@@ -87,7 +89,7 @@ export const CodeChatView: React.FC<CodeChatViewProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-semibold tracking-wide text-slate-100">Kod Chat</h2>
-              <p className="text-[11px] text-slate-500 font-mono">Ayrı geçmiş · kod odaklı sistem prompt’u</p>
+              <p className="text-[11px] text-slate-500 font-mono">{assistantProfile.name} · ayrı geçmiş · kod odaklı sistem prompt’u</p>
             </div>
           </div>
           <button
@@ -116,7 +118,7 @@ export const CodeChatView: React.FC<CodeChatViewProps> = ({
                 </div>
                 <div className={`max-w-[86%] border rounded-lg ${isUser ? 'bg-slate-900 border-slate-700' : 'bg-slate-900/80 border-[var(--edith-primary)]/25'}`}>
                   <div className="px-3 py-2 border-b border-slate-800/80 flex items-center justify-between gap-3">
-                    <span className="text-[11px] font-mono text-slate-400">{isUser ? settings.userName : 'EDITH Code'}</span>
+                    <span className="text-[11px] font-mono text-slate-400">{isUser ? settings.userName : `${msg.assistantName ?? assistantProfile.name} Code`}</span>
                     <button
                       onClick={() => copy(msg.text, msg.id)}
                       className="p-1 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition-colors"

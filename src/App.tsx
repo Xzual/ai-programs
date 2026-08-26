@@ -33,7 +33,7 @@ import {
   TradingScreen,
   VoiceScreen,
 } from './components/ui/edithOS';
-import assistantProfiles from './config/assistantProfiles.json';
+import { applyAssistantTheme, assistantProfiles, getAssistantProfile } from './config/assistantProfileRegistry';
 import {
   clearAuthSession,
   loadAuthSession,
@@ -109,38 +109,27 @@ export default function App() {
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
   const [themeTransition, setThemeTransition] = useState<{
     id: number;
-    from: (typeof assistantProfiles)[number];
-    to: (typeof assistantProfiles)[number];
+    from: ReturnType<typeof getAssistantProfile>;
+    to: ReturnType<typeof getAssistantProfile>;
   } | null>(null);
 
   // Audio Context & Analyser Node for 3D Orb frequency visualization
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const activeProfile =
-    assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
-    assistantProfiles[0];
+  const activeAssistant = getAssistantProfile(settings.assistantPersona);
 
   const assistantInitialMessage = (): ChatMessage => ({
     id: `msg-welcome-${settings.assistantPersona}-${Date.now()}`,
     sender: 'assistant',
-    text: `${activeProfile.greetingStyle || 'Merhaba.'} Ben ${activeProfile.name}; EDITH içinde aktif asistan profilinizim.`,
+    assistantProfileId: activeAssistant.id,
+    assistantName: activeAssistant.name,
+    text: `${activeAssistant.greetingStyle || 'Merhaba.'} Ben ${activeAssistant.name}; E.D.I.T.H. içinde aktif asistan profilinizim.`,
     timestamp: Date.now(),
   });
 
   useEffect(() => {
-    const root = document.documentElement;
-    root.style.setProperty('--edith-primary', activeProfile.primary);
-    root.style.setProperty('--edith-secondary', activeProfile.secondary);
-    root.style.setProperty('--edith-accent', activeProfile.accent);
-    root.style.setProperty('--edith-bg', activeProfile.background);
-    root.style.setProperty('--edith-surface', activeProfile.surface);
-    root.style.setProperty('--edith-text', activeProfile.text);
-    root.style.setProperty('--assistant-primary', activeProfile.primary);
-    root.style.setProperty('--assistant-secondary', activeProfile.secondary);
-    root.style.setProperty('--assistant-accent', activeProfile.accent);
-    root.style.setProperty('--assistant-glow', `${activeProfile.primary}42`);
-    root.style.setProperty('--assistant-bg-tint', `${activeProfile.secondary}30`);
-  }, [activeProfile]);
+    applyAssistantTheme(activeAssistant);
+  }, [activeAssistant]);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,7 +166,7 @@ export default function App() {
       if (nextProfile) {
         setThemeTransition({
           id: Date.now(),
-          from: activeProfile,
+          from: activeAssistant,
           to: nextProfile,
         });
       }
@@ -289,7 +278,9 @@ export default function App() {
           body: JSON.stringify({
             text,
             apiKey: settings.claudeVoiceApiKey,
-            voiceId: settings.claudeVoiceId,
+            voiceId: activeAssistant.voiceId || settings.claudeVoiceId,
+            assistantPersona: activeAssistant.id,
+            voiceIdentity: activeAssistant.voice,
           }),
         });
         if (!response.ok) throw new Error(await response.text());
@@ -359,6 +350,8 @@ export default function App() {
     const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       sender: 'assistant',
+      assistantProfileId: activeAssistant.id,
+      assistantName: activeAssistant.name,
       text: '',
       timestamp: Date.now() + 1,
       isStreaming: true,
@@ -380,8 +373,11 @@ export default function App() {
           model: settings.selectedModel,
           ollamaUrl: settings.ollamaUrl,
           temperature: settings.temperature,
-          systemPrompt: activeProfile.systemPrompt || settings.systemPrompt,
-          assistantPersona: settings.assistantPersona,
+          systemPrompt: activeAssistant.systemPrompt || settings.systemPrompt,
+          assistantPersona: activeAssistant.id,
+          assistantName: activeAssistant.name,
+          assistantPlatform: activeAssistant.platform,
+          memoryNamespace: activeAssistant.memoryNamespace,
           memories: settings.memoryEnabled ? memories : [],
           memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
@@ -454,6 +450,8 @@ export default function App() {
     const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       sender: 'assistant',
+      assistantProfileId: activeAssistant.id,
+      assistantName: activeAssistant.name,
       text: '',
       timestamp: Date.now() + 1,
       isStreaming: true,
@@ -481,8 +479,11 @@ export default function App() {
           ollamaUrl: settings.ollamaUrl,
           temperature: Math.min(settings.temperature, 0.35),
           systemPrompt:
-            'Sen EDITH Code adında kıdemli bir yazılım mühendisliği asistanısın. Türkçe yanıt ver. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.',
-          assistantPersona: settings.assistantPersona,
+            `${activeAssistant.systemPrompt}\n\nKod kanalındasın: kıdemli bir yazılım mühendisliği asistanı gibi davran. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.`,
+          assistantPersona: activeAssistant.id,
+          assistantName: activeAssistant.name,
+          assistantPlatform: activeAssistant.platform,
+          memoryNamespace: activeAssistant.memoryNamespace,
           memories: settings.memoryEnabled ? memories : [],
           memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
@@ -629,6 +630,7 @@ export default function App() {
       value,
       createdAt: Date.now(),
       isSensitive,
+      assistantNamespace: activeAssistant.memoryNamespace,
     };
     const updated = [newMem, ...memories];
     setMemories(updated);
@@ -668,7 +670,15 @@ export default function App() {
       const res = await fetch('/api/tools/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ toolId, args }),
+        body: JSON.stringify({
+          toolId,
+          args: {
+            ...args,
+            assistantPersona: activeAssistant.id,
+            notificationIdentity: activeAssistant.notificationIdentity,
+            taskReportSignature: activeAssistant.taskReportSignature,
+          },
+        }),
       });
       const data = await res.json();
 
@@ -680,6 +690,9 @@ export default function App() {
         result: data.result || data.error || 'İşlem tamamlandı.',
         timestamp: Date.now(),
         status: data.success ? 'success' : 'error',
+        assistantProfileId: activeAssistant.id,
+        assistantName: activeAssistant.name,
+        taskReportSignature: activeAssistant.taskReportSignature,
       };
 
       const updatedLogs = [newLog, ...logs];
@@ -758,6 +771,8 @@ export default function App() {
       <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
         <Header
           settings={settings}
+          activeAssistant={activeAssistant}
+          assistantProfiles={assistantProfiles}
           authSession={authSession}
           ollamaConnected={ollamaConnected}
           onNewChat={handleNewChat}
@@ -777,7 +792,7 @@ export default function App() {
               aiState={aiState}
               messages={activeSession.messages}
               settings={settings}
-              assistantProfile={activeProfile}
+              assistantProfile={activeAssistant}
               ollamaConnected={ollamaConnected}
               onSendMessage={handleSendMessage}
               onStopSpeech={stopSpeech}
@@ -797,7 +812,7 @@ export default function App() {
               aiState={aiState}
               messages={activeSession.messages}
               settings={settings}
-              assistantProfile={activeProfile}
+              assistantProfile={activeAssistant}
               ollamaConnected={ollamaConnected}
               onSendMessage={handleSendMessage}
               onStopSpeech={stopSpeech}
@@ -811,7 +826,7 @@ export default function App() {
 
           {activeTab === 'agents' && <AgentsScreen aiState={aiState} tools={tools} logs={logs} />}
 
-          {activeTab === 'tasks' && <TasksScreen aiState={aiState} messages={activeSession.messages} logs={logs} />}
+          {activeTab === 'tasks' && <TasksScreen aiState={aiState} messages={activeSession.messages} logs={logs} assistant={activeAssistant} />}
 
           {activeTab === 'computer' && <ComputerUseScreen tools={tools} logs={logs} />}
 
@@ -821,6 +836,7 @@ export default function App() {
             <CodeChatView
               messages={codeSession.messages}
               settings={settings}
+              assistantProfile={activeAssistant}
               onSendMessage={handleSendCodeMessage}
               onReset={handleResetCodeChat}
               isStreaming={isStreaming}
@@ -859,10 +875,10 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsArchitectureScreen settings={settings} integrations={integrations} />
+            <SettingsArchitectureScreen settings={settings} integrations={integrations} assistant={activeAssistant} />
           )}
           {activeTab !== 'dashboard' && activeTab !== 'chat' && (
-            <ContextPanel aiState={aiState} assistant={activeProfile} tools={tools} logs={logs} />
+            <ContextPanel aiState={aiState} assistant={activeAssistant} tools={tools} logs={logs} />
           )}
         </main>
       </div>

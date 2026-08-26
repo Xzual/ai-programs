@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageSquare, RadioTower, ShieldCheck } from 'lucide-react';
 import { ChatPanel } from '../chat/ChatPanel';
 import { VoiceBar } from '../chat/VoiceBar';
-import { AiState, ChatMessage, UserSettings } from '../../types';
+import { AiState, AssistantProfile, ChatMessage, UserSettings } from '../../types';
 import { OSPanel, StatusPill } from '../ui/edithOS';
 
 interface ChatConsoleViewProps {
@@ -17,12 +17,7 @@ interface ChatConsoleViewProps {
   onOpenOllamaModal: () => void;
   isStreaming: boolean;
   activeSpeakingId?: string | null;
-  assistantProfile: {
-    name: string;
-    primary: string;
-    secondary: string;
-    accent: string;
-  };
+  assistantProfile: AssistantProfile;
 }
 
 export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
@@ -70,6 +65,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
           onSpeakMessage={onSpeakMessage}
           onOpenOllamaModal={onOpenOllamaModal}
           activeSpeakingId={activeSpeakingId}
+          assistantProfile={assistantProfile}
           className="min-h-0 h-full rounded-lg"
         />
       </div>
@@ -80,6 +76,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
         onVoiceTranscript={onVoiceTranscript}
         isStreaming={isStreaming}
         handsFree={settings.voiceHandsFree}
+        assistantName={assistantProfile.name}
       />
     </div>
   );
