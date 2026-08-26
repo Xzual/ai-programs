@@ -1,16 +1,12 @@
 import React, { useRef, useEffect } from 'react';
 import {
-  Copy,
-  Check,
-  Volume2,
-  VolumeX,
   Bot,
-  User,
   AlertTriangle,
-  ExternalLink,
   Terminal,
 } from 'lucide-react';
 import { ChatMessage, UserSettings } from '../../types';
+import assistantProfiles from '../../config/assistantProfiles.json';
+import { TransmissionCard } from '../ui/edithOS';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
@@ -31,27 +27,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   activeSpeakingId,
   className = '',
 }) => {
-  const [copiedId, setCopiedId] = React.useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeProfile =
+    assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
+    assistantProfiles[0];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
   return (
-    <div className={`flex flex-col h-full bg-slate-950/60 backdrop-blur-xl border-l border-slate-800/80 ${className}`}>
-      {/* Panel Top Header */}
-      <div className="p-3 sm:p-4 border-b border-slate-800/80 flex items-center justify-between">
+    <div className={`relative flex flex-col overflow-hidden bg-black/28 backdrop-blur-[34px] border border-white/10 shadow-[inset_1px_1px_0_rgba(255,255,255,0.07),0_24px_70px_rgba(0,0,0,0.32)] ${className}`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(142deg,var(--assistant-glow),transparent_18%,transparent_68%,rgba(255,255,255,0.04)),radial-gradient(circle_at_18%_12%,var(--assistant-glow),transparent_24%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.045),transparent_8%,transparent_92%,rgba(255,255,255,0.03))]" />
+      <div className="pointer-events-none absolute inset-x-3 top-0 h-px bg-gradient-to-r from-transparent via-[var(--assistant-primary)]/50 to-transparent" />
+
+      <div className="relative p-3 sm:p-4 border-b border-white/10 flex items-center justify-between bg-white/[0.025]">
         <div className="flex items-center gap-2">
-          <Bot className="w-4 h-4 text-[var(--edith-accent)]" />
+          <div className="w-7 h-7 rounded-lg bg-[var(--assistant-primary)]/10 border border-[var(--assistant-primary)]/20 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-[var(--assistant-primary)]" />
+          </div>
           <h3 className="text-xs font-semibold text-slate-200 tracking-wider font-mono uppercase">
-            Sohbet
+            Transmission Console
           </h3>
         </div>
         <span className="text-[10px] text-slate-500 font-mono">
@@ -61,7 +58,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       {/* Ollama Offline Banner */}
       {!ollamaConnected && settings.aiProvider === 'ollama' && (
-        <div className="m-3 p-3 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5 shadow-lg">
+        <div className="relative m-3 p-3 rounded-xl bg-amber-500/13 backdrop-blur-xl border border-amber-300/35 text-amber-200 text-xs flex items-start gap-2.5 shadow-[0_14px_36px_rgba(245,158,11,0.16),inset_0_1px_0_rgba(255,255,255,0.08)]">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="font-medium text-amber-300">Ollama Yerel Sunucu Bağlantısı Yok</p>
@@ -82,102 +79,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       )}
 
       {/* Messages List Container */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar">
-        {messages.map((msg) => {
-          const isUser = msg.sender === 'user';
-          const isAssistant = msg.sender === 'assistant';
-
-          return (
-            <div
-              key={msg.id}
-              className={`flex items-start gap-3 ${
-                isUser ? 'flex-row-reverse' : 'flex-row'
-              } animate-fadeIn`}
-            >
-              {/* Avatar Icon */}
-              <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-xs font-semibold shadow-md ${
-                  isUser
-                    ? 'text-white'
-                    : 'text-white'
-                }`}
-                style={{
-                  background: isUser
-                    ? 'linear-gradient(135deg, var(--edith-secondary), var(--edith-primary))'
-                    : 'linear-gradient(135deg, var(--edith-primary), var(--edith-accent))',
-                }}
-              >
-                {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
-
-              {/* Message Bubble Container */}
-              <div
-                className={`max-w-[85%] rounded-2xl p-3.5 text-xs sm:text-sm leading-relaxed ${
-                  isUser
-                    ? 'bg-slate-900 border border-slate-700/80 text-slate-100 rounded-tr-none'
-                    : 'bg-slate-900/90 border border-[var(--edith-primary)]/30 text-slate-200 rounded-tl-none shadow-lg'
-                }`}
-                style={
-                  isAssistant
-                    ? { boxShadow: '0 18px 36px color-mix(in srgb, var(--edith-primary) 14%, transparent)' }
-                    : undefined
-                }
-              >
-                {/* Header Meta */}
-                <div className="flex items-center justify-between gap-2 mb-1.5 text-[10px] text-slate-400 font-mono">
-                  <span className="font-semibold text-slate-300">
-                    {isUser ? settings.userName : 'AURA'}
-                  </span>
-                  <span>
-                    {new Date(msg.timestamp).toLocaleTimeString('tr-TR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                </div>
-
-                {/* Message Body Content */}
-                <div className="whitespace-pre-wrap break-words font-sans">
-                  {msg.text}
-                  {msg.isStreaming && (
-                    <span className="inline-block w-1.5 h-4 ml-1 bg-[var(--edith-accent)] animate-pulse align-middle" />
-                  )}
-                </div>
-
-                {/* Footer Controls for Assistant Messages */}
-                {isAssistant && !msg.isStreaming && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-end gap-2">
-                    {/* Speak Message Button */}
-                    <button
-                      onClick={() => onSpeakMessage(msg.text)}
-                      className={`p-1 rounded hover:bg-slate-800 transition-colors ${
-                        activeSpeakingId === msg.id
-                          ? 'text-[var(--edith-accent)] animate-pulse'
-                          : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                      title="Sesli Okut"
-                    >
-                      <Volume2 className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Copy Text Button */}
-                    <button
-                      onClick={() => copyToClipboard(msg.text, msg.id)}
-                      className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-                      title="Kopyala"
-                    >
-                      {copiedId === msg.id ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="relative flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar bg-[radial-gradient(circle_at_80%_20%,var(--assistant-glow),transparent_28%),radial-gradient(circle_at_20%_90%,rgba(255,255,255,0.04),transparent_28%)]">
+        {messages.map((msg) => (
+          <TransmissionCard
+            key={msg.id}
+            message={msg}
+            settings={settings}
+            assistantName={activeProfile.name}
+            onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
+          />
+        ))}
         <div ref={messagesEndRef} />
       </div>
     </div>

@@ -53,7 +53,7 @@ try {
   });
 
   const enabled = buildChatSystemPrompt({
-    systemPrompt: 'Sen AURA asistanısın.',
+    systemPrompt: 'Sen EDITH asistanısın.',
     userName: 'Arda',
     memoryEnabled: true,
     lastUserMessage: 'Chat context memory nasıl çalışıyor?',
@@ -73,7 +73,7 @@ try {
   });
 
   const disabled = buildChatSystemPrompt({
-    systemPrompt: 'Sen AURA asistanısın.',
+    systemPrompt: 'Sen EDITH asistanısın.',
     userName: 'Arda',
     memoryEnabled: false,
     lastUserMessage: 'Chat context memory nasıl çalışıyor?',
@@ -98,7 +98,7 @@ try {
   assert.equal(disabled.fullSystem.includes('EDITH Context Snapshot'), false);
   assert.equal(disabled.fullSystem.includes('ui.language'), false);
   assert.equal(disabled.contextSnapshot, undefined);
-  assert.equal(auditEvents.some((event) => event.action === 'context.build' && event.actor === 'aura-chat-context'), true);
+  assert.equal(auditEvents.some((event) => event.action === 'context.build' && event.actor === 'edith-chat-context'), true);
 
   getEdithPersistenceStore().close?.();
 

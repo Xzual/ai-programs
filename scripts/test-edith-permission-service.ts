@@ -93,6 +93,25 @@ try {
     actor: 'permission-test',
   });
   const allGrants = permissionService.listGrants({ includeRevoked: true, includeExpired: true });
+  const denyPolicy = permissionService.updatePolicy({ mode: 'deny', updatedBy: 'test' });
+  const denyReadDecision = permissionService.decideToolExecution({
+    tool: systemTool,
+    actor: 'permission-test',
+  });
+  const denyWriteDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'permission-test',
+  });
+  const fullPolicy = permissionService.updatePolicy({ mode: 'full_access', updatedBy: 'test' });
+  const fullComputerDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'other-actor',
+  });
+  const askPolicy = permissionService.updatePolicy({ mode: 'ask', updatedBy: 'test' });
+  const askComputerDecision = permissionService.decideToolExecution({
+    tool: computerTool,
+    actor: 'other-actor',
+  });
   const auditEvents = readRecentAuditEvents(1000);
 
   assert.equal(localDecision.status, 'ALLOW');
@@ -114,8 +133,16 @@ try {
   assert.equal(revokedGrant?.revokedBy, 'test');
   assert.equal(revokedDecision.status, 'DENY');
   assert.equal(allGrants.some((candidate) => candidate.id === grant.id && candidate.revokedAt), true);
+  assert.equal(denyPolicy.mode, 'deny');
+  assert.equal(denyReadDecision.status, 'ALLOW');
+  assert.equal(denyWriteDecision.status, 'DENY');
+  assert.equal(fullPolicy.mode, 'full_access');
+  assert.equal(fullComputerDecision.status, 'ALLOW');
+  assert.equal(askPolicy.mode, 'ask');
+  assert.equal(askComputerDecision.status, 'DENY');
   assert.equal(auditEvents.some((event) => event.action === 'permission.grant'), true);
   assert.equal(auditEvents.some((event) => event.action === 'permission.revoke'), true);
+  assert.equal(auditEvents.some((event) => event.action === 'permission.policy.update'), true);
 
   getEdithPersistenceStore().close?.();
 
@@ -131,6 +158,9 @@ try {
       'scoped_permission_grant',
       'grant_revoke',
       'grant_audit',
+      'policy_deny_read_only',
+      'policy_full_access_allows_high_risk',
+      'policy_ask_restores_grant_flow',
     ],
     deniedMissingPermissions: deniedDecision.missingPermissions,
   }, null, 2));

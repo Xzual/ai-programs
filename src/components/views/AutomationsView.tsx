@@ -25,6 +25,10 @@ import {
   Search,
   Filter,
   X,
+  Boxes,
+  RadioTower,
+  Landmark,
+  Network,
 } from 'lucide-react';
 import { AutomationTool, ToolExecutionLog, ToolInputField } from '../../types';
 
@@ -45,6 +49,13 @@ const CATEGORY_META: Record<string, { label: string; color: string; bg: string; 
   media:   { label: 'Medya',       color: 'text-rose-400',    bg: 'bg-rose-950/60',    border: 'border-rose-500/30' },
   code:    { label: 'Kod',         color: 'text-fuchsia-400', bg: 'bg-fuchsia-950/60', border: 'border-fuchsia-500/30' },
   monitor: { label: 'İzleme',      color: 'text-teal-400',    bg: 'bg-teal-950/60',    border: 'border-teal-500/30' },
+  vision:  { label: 'Vision',      color: 'text-sky-400',     bg: 'bg-sky-950/60',     border: 'border-sky-500/30' },
+  computer:{ label: 'Computer',    color: 'text-red-400',     bg: 'bg-red-950/60',     border: 'border-red-500/30' },
+  browser: { label: 'Browser',     color: 'text-blue-400',    bg: 'bg-blue-950/60',    border: 'border-blue-500/30' },
+  design3d:{ label: '3D',          color: 'text-cyan-300',    bg: 'bg-cyan-950/60',    border: 'border-cyan-500/30' },
+  iot:     { label: 'IoT',         color: 'text-lime-400',    bg: 'bg-lime-950/60',    border: 'border-lime-500/30' },
+  finance: { label: 'Finans',      color: 'text-amber-300',   bg: 'bg-amber-950/60',   border: 'border-amber-500/30' },
+  knowledge:{ label: 'Knowledge',   color: 'text-cyan-300',    bg: 'bg-cyan-950/60',    border: 'border-cyan-500/30' },
 };
 
 // ── Araç ikonu ────────────────────────────────────────────────────────────────
@@ -63,6 +74,15 @@ function ToolIcon({ id, className = 'w-5 h-5' }: { id: string; className?: strin
     playwright_browser_agent:<Chrome className={`${className} text-cyan-400`} />,
     open_interpreter_agent:<Terminal className={`${className} text-red-400`} />,
     computer_control_agent:<MonitorCheck className={`${className} text-red-400`} />,
+    computer_action:    <MonitorCheck className={`${className} text-red-400`} />,
+    vision_observe:     <Eye         className={`${className} text-sky-400`} />,
+    browser_workflow:   <Chrome      className={`${className} text-blue-400`} />,
+    design3d_cad_foundation:<Boxes   className={`${className} text-cyan-300`} />,
+    design3d_render_foundation:<Boxes className={`${className} text-cyan-300`} />,
+    design3d_simulation_foundation:<Boxes className={`${className} text-cyan-300`} />,
+    iot_feedback_stub:  <RadioTower  className={`${className} text-lime-400`} />,
+    finance_trading_guard:<Landmark  className={`${className} text-amber-300`} />,
+    obsidian_save_note:  <Network    className={`${className} text-cyan-300`} />,
     task_create:        <Bot         className={`${className} text-cyan-400`} />,
     ai_skill_catalog:   <Bot         className={`${className} text-emerald-400`} />,
     weather_report:     <CloudSun    className={`${className} text-sky-400`} />,

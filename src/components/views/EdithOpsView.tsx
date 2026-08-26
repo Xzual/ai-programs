@@ -202,7 +202,7 @@ export const EdithOpsView: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          actor: 'aura-dashboard',
+          actor: 'edith-dashboard',
           permissions: selectedGrantTool.metadata.requiredPermissions,
           toolIds: [selectedGrantTool.id],
           reason: grantReason,

@@ -19,7 +19,7 @@ export interface EdithIntentDecision {
 
 function stripCommandNoise(text: string): string {
   return text
-    .replace(/\b(lütfen|please|edith|aura|jarvis|şunu|bunu|bir|bi)\b/gi, ' ')
+    .replace(/\b(lütfen|please|edith|jarvis|şunu|bunu|bir|bi)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

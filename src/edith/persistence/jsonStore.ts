@@ -1,6 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import type { EdithAuditEvent, EdithTask, EdithTaskStatus } from '../core';
+import type {
+  EdithAuditEvent,
+  EdithTask,
+  EdithTaskStatus,
+  KnowledgeChunk,
+  KnowledgeGraphNode,
+  KnowledgeGraphRelationship,
+  KnowledgeSyncEvent,
+  ObsidianNoteIndexRecord,
+} from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 import type { EdithPersistencePaths, EdithPersistenceStore, PersistenceMigrationResult } from './types';
 
@@ -42,6 +51,11 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
   private readonly paths: EdithPersistencePaths;
   private readonly toolRunsFile: string;
   private readonly memoriesFile: string;
+  private readonly knowledgeNodesFile: string;
+  private readonly knowledgeRelationshipsFile: string;
+  private readonly obsidianIndexFile: string;
+  private readonly knowledgeChunksFile: string;
+  private readonly knowledgeSyncEventsFile: string;
 
   constructor(dataDir = DEFAULT_DATA_DIR) {
     this.paths = {
@@ -51,6 +65,11 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
     };
     this.toolRunsFile = path.join(dataDir, 'tool-runs.json');
     this.memoriesFile = path.join(dataDir, 'memories.json');
+    this.knowledgeNodesFile = path.join(dataDir, 'knowledge-nodes.json');
+    this.knowledgeRelationshipsFile = path.join(dataDir, 'knowledge-relationships.json');
+    this.obsidianIndexFile = path.join(dataDir, 'obsidian-index.json');
+    this.knowledgeChunksFile = path.join(dataDir, 'knowledge-chunks.json');
+    this.knowledgeSyncEventsFile = path.join(dataDir, 'knowledge-sync-events.json');
   }
 
   initialize(): void {
@@ -133,6 +152,63 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
     const next = memories.filter((memory) => memory.id !== id);
     writeJsonArray(this.memoriesFile, next);
     return next.length !== memories.length;
+  }
+
+  upsertKnowledgeNode(node: KnowledgeGraphNode): void {
+    const nodes = this.listKnowledgeNodes();
+    writeJsonArray(this.knowledgeNodesFile, [node, ...nodes.filter((item) => item.id !== node.id)]);
+  }
+
+  listKnowledgeNodes(): KnowledgeGraphNode[] {
+    return readJsonArray<KnowledgeGraphNode>(this.knowledgeNodesFile);
+  }
+
+  upsertKnowledgeRelationship(relationship: KnowledgeGraphRelationship): void {
+    const relationships = this.listKnowledgeRelationships();
+    writeJsonArray(this.knowledgeRelationshipsFile, [
+      relationship,
+      ...relationships.filter((item) => item.id !== relationship.id),
+    ]);
+  }
+
+  listKnowledgeRelationships(): KnowledgeGraphRelationship[] {
+    return readJsonArray<KnowledgeGraphRelationship>(this.knowledgeRelationshipsFile);
+  }
+
+  upsertObsidianNoteIndex(record: ObsidianNoteIndexRecord): void {
+    const records = this.listObsidianNoteIndex();
+    writeJsonArray(this.obsidianIndexFile, [record, ...records.filter((item) => item.path !== record.path)]);
+  }
+
+  listObsidianNoteIndex(): ObsidianNoteIndexRecord[] {
+    return readJsonArray<ObsidianNoteIndexRecord>(this.obsidianIndexFile);
+  }
+
+  deleteObsidianNoteIndex(notePath: string, deletedAt: string): void {
+    const records = this.listObsidianNoteIndex();
+    writeJsonArray(this.obsidianIndexFile, records.map((record) =>
+      record.path === notePath ? { ...record, deletedAt, indexedAt: deletedAt } : record
+    ));
+  }
+
+  replaceKnowledgeChunksForNote(notePath: string, chunks: KnowledgeChunk[]): void {
+    const existing = this.listKnowledgeChunks(Number.MAX_SAFE_INTEGER);
+    writeJsonArray(this.knowledgeChunksFile, [
+      ...chunks,
+      ...existing.filter((chunk) => chunk.notePath !== notePath),
+    ]);
+  }
+
+  listKnowledgeChunks(limit = 100): KnowledgeChunk[] {
+    return readJsonArray<KnowledgeChunk>(this.knowledgeChunksFile).slice(0, limit);
+  }
+
+  appendKnowledgeSyncEvent(event: KnowledgeSyncEvent): void {
+    writeJsonArray(this.knowledgeSyncEventsFile, [event, ...this.listKnowledgeSyncEvents(Number.MAX_SAFE_INTEGER)]);
+  }
+
+  listKnowledgeSyncEvents(limit = 100): KnowledgeSyncEvent[] {
+    return readJsonArray<KnowledgeSyncEvent>(this.knowledgeSyncEventsFile).slice(0, limit);
   }
 
   close(): void {

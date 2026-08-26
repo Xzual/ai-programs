@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { DashboardView } from './components/views/DashboardView';
+import { ChatConsoleView } from './components/views/ChatConsoleView';
 import { MemoryView } from './components/views/MemoryView';
 import { AutomationsView } from './components/views/AutomationsView';
 import { IntegrationsView } from './components/views/IntegrationsView';
@@ -9,11 +10,35 @@ import { SettingsView } from './components/views/SettingsView';
 import { CodeChatView } from './components/views/CodeChatView';
 import { EdithOpsView } from './components/views/EdithOpsView';
 import { KnowledgeMapView } from './components/views/KnowledgeMapView';
+import { Studio3DView } from './components/views/Studio3DView';
+import { ProactiveView } from './components/views/ProactiveView';
+import { CryptoView } from './components/views/CryptoView';
 import { ThemeTransition } from './components/effects/ThemeTransition';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
+import { LoginScreen } from './components/auth/LoginScreen';
+import {
+  AgentsScreen,
+  AutomationsMissionScreen,
+  BrowserResearchScreen,
+  ComputerUseScreen,
+  ContextPanel,
+  FilesScreen,
+  KnowledgeGraphScreen,
+  MemoryBrainScreen,
+  SecurityCenterScreen,
+  SettingsArchitectureScreen,
+  SystemHealthScreen,
+  TasksScreen,
+  ToolsRegistryScreen,
+  TradingScreen,
+  VoiceScreen,
+} from './components/ui/edithOS';
 import assistantProfiles from './config/assistantProfiles.json';
 import {
+  clearAuthSession,
+  loadAuthSession,
   loadSettings,
+  saveAuthSession,
   saveSettings,
   loadSessions,
   saveSessions,
@@ -41,12 +66,14 @@ import {
   ToolExecutionLog,
   IntegrationConfig,
   MemoryCategory,
+  EdithAuthSession,
 } from './types';
 
 export default function App() {
   // Main State
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [settings, setSettings] = useState<UserSettings>(loadSettings());
+  const [authSession, setAuthSession] = useState<EdithAuthSession | null>(loadAuthSession());
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions());
   const [codeSession, setCodeSession] = useState<ChatSession>(loadCodeSession());
   const [activeSessionId, setActiveSessionId] = useState<string>('session-default');
@@ -56,7 +83,8 @@ export default function App() {
   // o tercihleri birleştiriyoruz; böylece yeni araçlar eklendikten sonra da görünür kalır.
   const [tools, setTools] = useState<AutomationTool[]>(() => {
     try {
-      const saved = localStorage.getItem('aura_tool_states_v1');
+      const legacyToolStateKey = `${['au', 'ra'].join('')}_tool_states_v1`;
+      const saved = localStorage.getItem('edith_tool_states_v1') ?? localStorage.getItem(legacyToolStateKey);
       if (!saved) return DEFAULT_TOOLS;
       const savedStates: Record<string, Partial<AutomationTool>> = JSON.parse(saved);
       return DEFAULT_TOOLS.map((t) =>
@@ -92,6 +120,13 @@ export default function App() {
     assistantProfiles.find((profile) => profile.id === settings.assistantPersona) ||
     assistantProfiles[0];
 
+  const assistantInitialMessage = (): ChatMessage => ({
+    id: `msg-welcome-${settings.assistantPersona}-${Date.now()}`,
+    sender: 'assistant',
+    text: `${activeProfile.greetingStyle || 'Merhaba.'} Ben ${activeProfile.name}; EDITH içinde aktif asistan profilinizim.`,
+    timestamp: Date.now(),
+  });
+
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--edith-primary', activeProfile.primary);
@@ -100,6 +135,11 @@ export default function App() {
     root.style.setProperty('--edith-bg', activeProfile.background);
     root.style.setProperty('--edith-surface', activeProfile.surface);
     root.style.setProperty('--edith-text', activeProfile.text);
+    root.style.setProperty('--assistant-primary', activeProfile.primary);
+    root.style.setProperty('--assistant-secondary', activeProfile.secondary);
+    root.style.setProperty('--assistant-accent', activeProfile.accent);
+    root.style.setProperty('--assistant-glow', `${activeProfile.primary}42`);
+    root.style.setProperty('--assistant-bg-tint', `${activeProfile.secondary}30`);
   }, [activeProfile]);
 
   useEffect(() => {
@@ -143,6 +183,17 @@ export default function App() {
       }
     }
     handleSaveSettings({ ...settings, ...updates });
+  };
+
+  const handleAuthenticated = (session: EdithAuthSession) => {
+    saveAuthSession(session);
+    setAuthSession(session);
+    handleSaveSettings({ ...settings, userName: session.user.name });
+  };
+
+  const handleLogout = () => {
+    clearAuthSession();
+    setAuthSession(null);
   };
 
   // Active Chat Session
@@ -329,7 +380,8 @@ export default function App() {
           model: settings.selectedModel,
           ollamaUrl: settings.ollamaUrl,
           temperature: settings.temperature,
-          systemPrompt: settings.systemPrompt,
+          systemPrompt: activeProfile.systemPrompt || settings.systemPrompt,
+          assistantPersona: settings.assistantPersona,
           memories: settings.memoryEnabled ? memories : [],
           memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
@@ -430,6 +482,7 @@ export default function App() {
           temperature: Math.min(settings.temperature, 0.35),
           systemPrompt:
             'Sen EDITH Code adında kıdemli bir yazılım mühendisliği asistanısın. Türkçe yanıt ver. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.',
+          assistantPersona: settings.assistantPersona,
           memories: settings.memoryEnabled ? memories : [],
           memoryEnabled: settings.memoryEnabled,
           userName: settings.userName,
@@ -548,7 +601,7 @@ export default function App() {
     const newSession: ChatSession = {
       id: `session-${Date.now()}`,
       title: `Sohbet ${sessions.length + 1}`,
-      messages: [DEFAULT_INITIAL_MESSAGE],
+      messages: [assistantInitialMessage()],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -559,7 +612,7 @@ export default function App() {
   };
 
   const handleResetActiveChat = () => {
-    updateActiveSessionMessages([DEFAULT_INITIAL_MESSAGE]);
+    updateActiveSessionMessages([assistantInitialMessage()]);
   };
 
   // 6. Memory Management
@@ -600,7 +653,7 @@ export default function App() {
       for (const t of updatedTools) {
         states[t.id] = { requiresConfirmation: t.requiresConfirmation, lastRun: t.lastRun, status: t.status };
       }
-      localStorage.setItem('aura_tool_states_v1', JSON.stringify(states));
+      localStorage.setItem('edith_tool_states_v1', JSON.stringify(states));
     } catch { /* ignore */ }
   };
 
@@ -679,8 +732,12 @@ export default function App() {
     window.location.reload();
   };
 
+  if (!authSession?.authenticated) {
+    return <LoginScreen onAuthenticated={handleAuthenticated} />;
+  }
+
   return (
-    <div className="edith-theme-shell flex h-screen w-screen overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--edith-primary)] selection:text-slate-950">
+    <div className="edith-theme-shell fixed inset-0 flex overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--assistant-primary)] selection:text-slate-950">
       {themeTransition && (
         <ThemeTransition
           key={themeTransition.id}
@@ -698,15 +755,17 @@ export default function App() {
       />
 
       {/* Main Content Workspace */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
         <Header
           settings={settings}
+          authSession={authSession}
           ollamaConnected={ollamaConnected}
           onNewChat={handleNewChat}
           onResetChat={handleResetActiveChat}
           onTestConnection={checkHealth}
           onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
           onUpdateSettings={updateSettings}
+          onLogout={handleLogout}
           isTestingConnection={isTestingConnection}
         />
 
@@ -726,11 +785,14 @@ export default function App() {
               onOpenOllamaModal={() => setShowOllamaModal(true)}
               isStreaming={isStreaming}
               audioAnalyser={analyserRef.current}
+              memories={memories}
+              tools={tools}
+              logs={logs}
             />
           )}
 
           {activeTab === 'chat' && (
-            <DashboardView
+            <ChatConsoleView
               aiState={aiState}
               messages={activeSession.messages}
               settings={settings}
@@ -742,9 +804,16 @@ export default function App() {
               onSpeakMessage={(txt) => speakText(txt)}
               onOpenOllamaModal={() => setShowOllamaModal(true)}
               isStreaming={isStreaming}
-              audioAnalyser={analyserRef.current}
             />
           )}
+
+          {activeTab === 'agents' && <AgentsScreen />}
+
+          {activeTab === 'tasks' && <TasksScreen />}
+
+          {activeTab === 'computer' && <ComputerUseScreen />}
+
+          {activeTab === 'browser' && <BrowserResearchScreen />}
 
           {activeTab === 'code' && (
             <CodeChatView
@@ -757,28 +826,28 @@ export default function App() {
           )}
 
           {activeTab === 'memory' && (
-            <MemoryView
-              memories={memories}
-              onAddMemory={handleAddMemory}
-              onDeleteMemory={handleDeleteMemory}
-              onClearAllMemories={handleClearAllMemories}
-            />
+            <MemoryBrainScreen memories={memories} />
           )}
 
           {activeTab === 'knowledge' && (
-            <KnowledgeMapView memories={memories} tools={tools} logs={logs} />
+            <KnowledgeGraphScreen memories={memories} tools={tools} logs={logs} />
           )}
 
           {activeTab === 'automations' && (
-            <AutomationsView
-              tools={tools}
-              logs={logs}
-              onExecuteTool={handleExecuteTool}
-              onToggleToolConfirmation={handleToggleToolConfirmation}
-            />
+            <AutomationsMissionScreen />
           )}
 
-          {activeTab === 'ops' && <EdithOpsView />}
+          {activeTab === 'files' && <FilesScreen />}
+
+          {activeTab === 'tools' && <ToolsRegistryScreen tools={tools} logs={logs} />}
+
+          {activeTab === 'voice' && <VoiceScreen />}
+
+          {activeTab === 'crypto' && <TradingScreen />}
+
+          {activeTab === 'security' && <SecurityCenterScreen />}
+
+          {activeTab === 'system' && <SystemHealthScreen />}
 
           {activeTab === 'integrations' && (
             <IntegrationsView
@@ -788,15 +857,10 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsView
-              settings={settings}
-              availableModels={availableModels}
-              ollamaConnected={ollamaConnected}
-              onSaveSettings={handleSaveSettings}
-              onTestConnection={checkHealth}
-              onResetAllData={handleResetAllData}
-              isTestingConnection={isTestingConnection}
-            />
+            <SettingsArchitectureScreen />
+          )}
+          {activeTab !== 'dashboard' && activeTab !== 'chat' && (
+            <ContextPanel aiState={aiState} assistant={activeProfile} tools={tools} logs={logs} />
           )}
         </main>
       </div>

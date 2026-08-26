@@ -11,8 +11,24 @@ import {
   Globe,
   Zap,
   Terminal,
+  Bot,
+  ShieldCheck,
+  Network,
 } from 'lucide-react';
 import { UserSettings, AiProvider } from '../../types';
+
+interface ProviderProfile {
+  provider: AiProvider;
+  displayName: string;
+  privacy: 'local' | 'cloud' | 'offline';
+  defaultModel: string;
+  modelExamples: string[];
+  tasks: string[];
+  capabilities: string[];
+  requiredEnv: string[];
+  status: 'available' | 'unavailable' | 'configuration_required';
+  notes: string;
+}
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -22,6 +38,29 @@ interface SettingsViewProps {
   onTestConnection: () => Promise<void>;
   onResetAllData: () => void;
   isTestingConnection: boolean;
+}
+
+interface ObsidianStatus {
+  vaultExists: boolean;
+  obsidianConfigExists: boolean;
+  watcherActive: boolean;
+  lastSyncAt?: string;
+  indexedNotes: number;
+  chunks: number;
+  settings: { vaultPath: string };
+}
+
+type PermissionMode = 'deny' | 'ask' | 'full_access';
+
+interface PermissionPolicyStatus {
+  mode: PermissionMode;
+  highRiskEnabled: boolean;
+  authorizedPermissions: string[];
+  activeGrants: number;
+  policy?: {
+    updatedAt: string;
+    updatedBy: string;
+  };
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -35,16 +74,89 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 }) => {
   const [form, setForm] = useState<UserSettings>(settings);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>([]);
+  const [obsidianStatus, setObsidianStatus] = useState<ObsidianStatus | null>(null);
+  const [permissionPolicy, setPermissionPolicy] = useState<PermissionPolicyStatus | null>(null);
 
   useEffect(() => {
     setForm(settings);
   }, [settings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCapabilities() {
+      try {
+        const response = await fetch(`/api/edith/models/capabilities?ollamaAvailable=${ollamaConnected}`);
+        const data = await response.json();
+        if (!cancelled) setProviderProfiles(data.providers ?? []);
+      } catch {
+        if (!cancelled) setProviderProfiles([]);
+      }
+    }
+    loadCapabilities();
+    return () => {
+      cancelled = true;
+    };
+  }, [ollamaConnected]);
+
+  useEffect(() => {
+    loadObsidianStatus();
+    loadPermissionPolicy();
+  }, []);
 
   const handleChange = (key: keyof UserSettings, value: any) => {
     const updated = { ...form, [key]: value };
     setForm(updated);
     onSaveSettings(updated);
   };
+
+  const handleProviderChange = (provider: AiProvider) => {
+    const profile = providerProfiles.find((candidate) => candidate.provider === provider);
+    const updated = {
+      ...form,
+      aiProvider: provider,
+      selectedModel: profile?.defaultModel ?? form.selectedModel,
+    };
+    setForm(updated);
+    onSaveSettings(updated);
+  };
+
+  const activeProviderProfile = providerProfiles.find((profile) => profile.provider === form.aiProvider);
+
+  async function loadObsidianStatus() {
+    try {
+      const response = await fetch('/api/edith/obsidian/status');
+      const data = await response.json();
+      if (data.success) setObsidianStatus(data.status);
+    } catch {
+      setObsidianStatus(null);
+    }
+  }
+
+  async function syncObsidianNow() {
+    await fetch('/api/edith/obsidian/sync-now', { method: 'POST' });
+    await loadObsidianStatus();
+  }
+
+  async function loadPermissionPolicy() {
+    try {
+      const response = await fetch('/api/edith/permissions/policy');
+      const data = await response.json();
+      if (data.success) setPermissionPolicy(data.policy);
+    } catch {
+      setPermissionPolicy(null);
+    }
+  }
+
+  async function updatePermissionMode(mode: PermissionMode) {
+    const response = await fetch('/api/edith/permissions/policy', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    const data = await response.json();
+    if (data.success) setPermissionPolicy(data.policy);
+  }
 
   return (
     <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-slate-950/60 custom-scrollbar">
@@ -78,12 +190,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className="block text-slate-400 mb-1.5 font-medium">Yapay Zekâ Sağlayıcısı</label>
               <select
                 value={form.aiProvider}
-                onChange={(e) => handleChange('aiProvider', e.target.value as AiProvider)}
+                onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-purple-500 font-sans"
               >
                 <option value="ollama">Yerel Ollama API (Önerilen - %100 Yerel)</option>
                 <option value="gemini">Google Gemini API (Bulut / Dev Preview)</option>
-                <option value="mock">AURA Yerel Mock Motoru (Çevrimdışı Test)</option>
+                <option value="openai">OpenAI API (Adapter Hazırlık)</option>
+                <option value="anthropic">Anthropic Claude API (Adapter Hazırlık)</option>
+                <option value="openrouter">OpenRouter Gateway (Adapter Hazırlık)</option>
+                <option value="local">Yerel Provider Slotu (Gelecek Runtime)</option>
+                <option value="mock">EDITH Yerel Mock Motoru (Çevrimdışı Test)</option>
               </select>
             </div>
 
@@ -117,8 +233,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={(e) => handleChange('selectedModel', e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
               >
-                {availableModels.length > 0 ? (
+                {form.aiProvider === 'ollama' && availableModels.length > 0 ? (
                   availableModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))
+                ) : activeProviderProfile ? (
+                  activeProviderProfile.modelExamples.map((m) => (
                     <option key={m} value={m}>
                       {m}
                     </option>
@@ -149,6 +271,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
                 className="w-full accent-fuchsia-500 bg-slate-950 cursor-pointer"
               />
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2">
+                <Bot className="w-4 h-4 text-cyan-300" />
+                <h3 className="text-xs font-semibold text-slate-200">Assistant Persona ≠ Model Provider</h3>
+              </div>
+              <span className="text-[10px] font-mono text-slate-500">
+                Assistant: {form.assistantPersona.toUpperCase()} · Provider: {form.aiProvider}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+              {providerProfiles.map((profile) => (
+                <div
+                  key={profile.provider}
+                  className={`border p-3 ${
+                    profile.provider === form.aiProvider
+                      ? 'border-[var(--edith-primary)] bg-[var(--edith-primary)]/10'
+                      : 'border-slate-800 bg-slate-900/50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-100">{profile.displayName}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">{profile.defaultModel} · {profile.privacy}</div>
+                    </div>
+                    <ProviderStatus status={profile.status} />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {profile.capabilities.map((capability) => (
+                      <span key={capability} className="px-1.5 py-0.5 rounded border border-slate-700 bg-slate-950 text-[9px] text-slate-400 font-mono">
+                        {capability}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">{profile.notes}</p>
+                  {profile.requiredEnv.length > 0 && (
+                    <p className="mt-1 text-[10px] text-amber-300 font-mono">
+                      env: {profile.requiredEnv.join(', ')}
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -284,6 +451,81 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              Agent İzin Modu
+            </h2>
+            <span className="text-[10px] font-mono text-slate-500">
+              {permissionPolicy?.authorizedPermissions.length ?? 0} izin · {permissionPolicy?.activeGrants ?? 0} aktif grant
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <PermissionModeCard
+              mode="deny"
+              active={permissionPolicy?.mode === 'deny'}
+              title="İzin Verme"
+              description="Yazma, kontrol, exec ve yüksek riskli işlemleri kapatır; sadece güvenli okuma katmanı kalır."
+              tone="warn"
+              onClick={updatePermissionMode}
+            />
+            <PermissionModeCard
+              mode="ask"
+              active={!permissionPolicy || permissionPolicy.mode === 'ask'}
+              title="Onay İste"
+              description="Varsayılan güvenli mod. Riskli araçlar grant/izin ister, düşük riskli işler akmaya devam eder."
+              tone="neutral"
+              onClick={updatePermissionMode}
+            />
+            <PermissionModeCard
+              mode="full_access"
+              active={permissionPolicy?.mode === 'full_access'}
+              title="Tam Erişim"
+              description="Yüksek risk izinlerini varsayılan yetkili sayar; kill switch ve yasak aksiyon korumaları yine çalışır."
+              tone="good"
+              onClick={updatePermissionMode}
+            />
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <StatusRow label="Aktif Mod" value={permissionModeLabel(permissionPolicy?.mode ?? 'ask')} tone={permissionPolicy?.mode === 'full_access' ? 'good' : permissionPolicy?.mode === 'deny' ? 'warn' : 'neutral'} />
+              <StatusRow label="High Risk" value={permissionPolicy?.highRiskEnabled ? 'enabled' : 'restricted'} tone={permissionPolicy?.highRiskEnabled ? 'good' : 'warn'} />
+              <StatusRow label="Son Güncelleyen" value={permissionPolicy?.policy?.updatedBy ?? '-'} />
+              <StatusRow label="Son Güncelleme" value={permissionPolicy?.policy?.updatedAt ? new Date(permissionPolicy.policy.updatedAt).toLocaleString() : '-'} />
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-xl">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+              <Network className="w-4 h-4 text-cyan-400" />
+              Obsidian Knowledge Sync
+            </h2>
+            <button
+              type="button"
+              onClick={syncObsidianNow}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono flex items-center gap-1"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              Reindex
+            </button>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <StatusRow label="Vault" value={obsidianStatus?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'} />
+              <StatusRow label="Watcher" value={obsidianStatus?.watcherActive ? 'active' : 'idle'} tone={obsidianStatus?.watcherActive ? 'good' : 'warn'} />
+              <StatusRow label="Obsidian Config" value={obsidianStatus?.obsidianConfigExists ? 'found' : 'missing'} tone={obsidianStatus?.obsidianConfigExists ? 'good' : 'warn'} />
+              <StatusRow label="Indexed Notes" value={String(obsidianStatus?.indexedNotes ?? 0)} />
+              <StatusRow label="RAG Chunks" value={String(obsidianStatus?.chunks ?? 0)} />
+              <StatusRow label="Last Sync" value={obsidianStatus?.lastSyncAt ? new Date(obsidianStatus.lastSyncAt).toLocaleString() : 'not yet'} />
+            </div>
+          </div>
+        </div>
+
         {/* Danger Zone */}
         <div className="p-5 rounded-2xl bg-red-950/20 border border-red-500/30 space-y-3">
           <h2 className="text-sm font-semibold text-red-300 flex items-center gap-2">
@@ -309,7 +551,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <h3 className="text-base font-bold text-slate-100">Verileri Sıfırla</h3>
             <p className="text-xs text-slate-300">
-              Bu işlem geri alınamaz. AURA fabrika ayarlarına döndürülecektir.
+              Bu işlem geri alınamaz. EDITH fabrika ayarlarına döndürülecektir.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
@@ -334,3 +576,84 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     </div>
   );
 };
+
+function StatusRow({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'good' | 'warn' }) {
+  const color = tone === 'good' ? 'text-emerald-300' : tone === 'warn' ? 'text-amber-300' : 'text-slate-300';
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/70 px-3 py-2">
+      <span className="text-slate-500">{label}</span>
+      <span className={`font-mono text-right break-all ${color}`}>{value}</span>
+    </div>
+  );
+}
+
+function permissionModeLabel(mode: PermissionMode): string {
+  if (mode === 'deny') return 'İzin Verme';
+  if (mode === 'full_access') return 'Tam Erişim';
+  return 'Onay İste';
+}
+
+function PermissionModeCard({
+  mode,
+  active,
+  title,
+  description,
+  tone,
+  onClick,
+}: {
+  mode: PermissionMode;
+  active: boolean;
+  title: string;
+  description: string;
+  tone: 'neutral' | 'good' | 'warn';
+  onClick: (mode: PermissionMode) => void;
+}) {
+  const activeClass = tone === 'good'
+    ? 'border-emerald-400/60 bg-emerald-500/10'
+    : tone === 'warn'
+      ? 'border-amber-400/60 bg-amber-500/10'
+      : 'border-cyan-400/60 bg-cyan-500/10';
+  const idleClass = 'border-slate-800 bg-slate-950/65 hover:border-slate-600';
+  const dotClass = tone === 'good'
+    ? 'bg-emerald-300'
+    : tone === 'warn'
+      ? 'bg-amber-300'
+      : 'bg-cyan-300';
+
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(mode)}
+      className={`text-left rounded-xl border p-4 transition-colors ${active ? activeClass : idleClass}`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm font-semibold text-slate-100">{title}</span>
+        <span className={`w-2.5 h-2.5 rounded-full ${active ? dotClass : 'bg-slate-700'}`} />
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{description}</p>
+    </button>
+  );
+}
+
+function ProviderStatus({ status }: { status: ProviderProfile['status'] }) {
+  if (status === 'available') {
+    return (
+      <span className="px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-950/30 text-[10px] text-emerald-300 font-mono flex items-center gap-1">
+        <ShieldCheck className="w-3 h-3" />
+        AVAILABLE
+      </span>
+    );
+  }
+  if (status === 'unavailable') {
+    return (
+      <span className="px-2 py-0.5 rounded border border-red-500/30 bg-red-950/30 text-[10px] text-red-300 font-mono">
+        OFFLINE
+      </span>
+    );
+  }
+  return (
+    <span className="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-950/30 text-[10px] text-amber-300 font-mono">
+      SETUP
+    </span>
+  );
+}

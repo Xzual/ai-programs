@@ -1,4 +1,5 @@
 import type { AiProvider } from '../types';
+import { modelCapabilityRegistry } from './modelCapabilities';
 
 export type EdithModelTaskType =
   | 'conversation'
@@ -28,6 +29,7 @@ export interface EdithModelCandidate {
   health: EdithProviderHealth;
   privacy: 'local' | 'cloud' | 'offline';
   capabilities: EdithModelTaskType[];
+  modelCapabilities: string[];
   priority: number;
   skippedReason?: string;
 }
@@ -45,24 +47,18 @@ export interface EdithModelRoute {
   rationale: string;
 }
 
-const DEFAULT_MODELS: Record<AiProvider, string> = {
-  ollama: 'llama3.2',
-  gemini: 'gemini-2.5-flash',
-  mock: 'aura-mock',
-};
-
-const PROVIDER_CAPABILITIES: Record<AiProvider, EdithModelTaskType[]> = {
-  ollama: ['conversation', 'classification', 'planning', 'verification', 'coding'],
-  gemini: ['conversation', 'classification', 'planning', 'verification', 'coding', 'vision'],
-  mock: ['conversation', 'classification'],
-};
-
 function routeId(): string {
   return `model-route-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function normalizeProvider(provider: unknown): AiProvider {
-  return provider === 'gemini' || provider === 'mock' || provider === 'ollama'
+  return provider === 'gemini' ||
+    provider === 'mock' ||
+    provider === 'ollama' ||
+    provider === 'openai' ||
+    provider === 'anthropic' ||
+    provider === 'openrouter' ||
+    provider === 'local'
     ? provider
     : 'ollama';
 }
@@ -70,8 +66,10 @@ function normalizeProvider(provider: unknown): AiProvider {
 function fallbackOrderFor(provider: AiProvider, privacy: EdithPrivacyPreference): AiProvider[] {
   if (privacy === 'offline_only') return provider === 'mock' ? ['mock'] : ['ollama', 'mock'];
   if (provider === 'mock') return ['mock'];
-  if (provider === 'gemini') return ['gemini', 'mock'];
-  return ['ollama', 'gemini', 'mock'];
+  if (provider === 'ollama' || provider === 'local') return [provider, 'gemini', 'mock'];
+  return [provider, 'gemini', 'ollama', 'mock'].filter((candidate, index, list) =>
+    list.indexOf(candidate) === index
+  ) as AiProvider[];
 }
 
 export class ModelRouterService {
@@ -82,24 +80,34 @@ export class ModelRouterService {
     const privacyPreference = request.privacyPreference ?? 'local_first';
     const fallbackOrder = fallbackOrderFor(requestedProvider, privacyPreference);
     const health = request.providerHealth ?? {};
+    const profiles = new Map(modelCapabilityRegistry.list(health).map((profile) => [profile.provider, profile]));
 
     const candidates = fallbackOrder.map((provider, index): EdithModelCandidate => {
+      const profile = profiles.get(provider) ?? modelCapabilityRegistry.get(provider);
       const providerHealth = health[provider] ?? (provider === 'mock' ? 'available' : 'unknown');
-      const capabilities = PROVIDER_CAPABILITIES[provider];
+      const capabilities = profile.tasks;
       const supportsTask = capabilities.includes(taskType) || taskType === 'conversation';
-      const supportsModality = modality === 'text' || (modality === 'image' && provider === 'gemini');
+      const supportsModality =
+        modality === 'text' ||
+        (modality === 'image' && profile.capabilities.includes('vision')) ||
+        (modality === 'screen' && profile.capabilities.includes('vision')) ||
+        (modality === 'audio' && (profile.capabilities.includes('audioInput') || profile.capabilities.includes('audioOutput')));
       const skippedReasons = [
         providerHealth === 'unavailable' ? 'provider unavailable' : undefined,
+        profile.status === 'configuration_required' && provider !== 'ollama' && provider !== 'mock'
+          ? 'provider adapter or credentials are not configured'
+          : undefined,
         !supportsTask ? `does not advertise ${taskType}` : undefined,
         !supportsModality ? `does not support ${modality}` : undefined,
       ].filter(Boolean);
 
       return {
         provider,
-        model: provider === requestedProvider && request.model ? request.model : DEFAULT_MODELS[provider],
+        model: provider === requestedProvider && request.model ? request.model : profile.defaultModel,
         health: providerHealth,
-        privacy: provider === 'ollama' ? 'local' : provider === 'gemini' ? 'cloud' : 'offline',
+        privacy: profile.privacy,
         capabilities,
+        modelCapabilities: profile.capabilities,
         priority: index + 1,
         skippedReason: skippedReasons.length > 0 ? skippedReasons.join('; ') : undefined,
       };

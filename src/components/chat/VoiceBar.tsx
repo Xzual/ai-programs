@@ -152,7 +152,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
 
     if (!sttSupported || !recognitionRef.current) {
       // Desteklenmiyorsa textarea'ya odaklan
-      document.getElementById('aura-text-input')?.focus();
+      document.getElementById('edith-text-input')?.focus();
       return;
     }
 
@@ -197,11 +197,11 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
   const canSend = !!(inputText.trim() || liveTranscript.trim());
 
   return (
-    <div className="p-3 sm:p-4 bg-slate-950/80 backdrop-blur-xl border-t border-slate-800/80 z-20">
+    <div className="p-3 sm:p-4 bg-slate-950/38 backdrop-blur-xl border-t border-cyan-300/10 z-20">
 
       {/* ── Canlı transkript veya hata bandı ─────────────────────────── */}
       {(liveTranscript || micError || isListening) && (
-        <div className="mb-2 px-3 py-2 rounded-xl bg-slate-900/90 border border-[var(--edith-primary)]/30 flex items-center justify-between text-xs">
+        <div className="mb-2 px-3 py-2 rounded-xl bg-slate-950/74 border border-[var(--edith-primary)]/30 flex items-center justify-between text-xs shadow-[0_0_24px_rgba(14,165,233,0.1)]">
           <div className="flex items-center gap-2 truncate pr-2">
             {isListening && (
               <span className="flex h-2 w-2 relative shrink-0">
@@ -216,7 +216,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
               </span>
             ) : (
           <span className="text-slate-200 font-mono italic">
-                {liveTranscript || (handsFree ? 'Jarvis modu açık. Konuşmanız bekleniyor...' : 'Dinleniyor... Konuşabilirsiniz.')}
+                {liveTranscript || (handsFree ? 'Hands-free mod açık. Konuşmanız bekleniyor...' : 'Dinleniyor... Konuşabilirsiniz.')}
               </span>
             )}
           </div>
@@ -233,7 +233,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
       )}
 
       {/* ── Ana giriş satırı ──────────────────────────────────────────── */}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 max-w-5xl mx-auto">
 
         {/* Mikrofon butonu */}
         <button
@@ -245,12 +245,12 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
               ? 'Mikrofonu Kapat'
               : 'Mikrofonu Aç'
           }
-          className={`p-3 rounded-2xl border transition-all duration-300 shrink-0 relative ${
+          className={`p-3 rounded-2xl border transition-all duration-300 shrink-0 relative backdrop-blur-xl ${
             !sttSupported
-              ? 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed opacity-50'
+              ? 'bg-slate-950/80 border-cyan-300/10 text-slate-600 cursor-not-allowed opacity-50'
               : isListening
-              ? 'bg-[var(--edith-primary)] border-[var(--edith-accent)] text-slate-950 shadow-lg scale-105'
-              : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300 hover:text-white'
+              ? 'bg-[var(--edith-primary)] border-[var(--edith-accent)] text-slate-950 shadow-[0_0_30px_rgba(34,211,238,0.32)] scale-105'
+              : 'bg-slate-950/76 hover:bg-slate-900/86 border-cyan-300/10 text-slate-300 hover:text-white'
           }`}
         >
           {isListening ? (
@@ -265,7 +265,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
         {handsFree && (
           <div
             title="Jarvis modu açık"
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-[var(--edith-primary)]/30 bg-[var(--edith-primary)]/10 text-[var(--edith-text)] text-[11px] font-mono"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-3 rounded-2xl border border-[var(--edith-primary)]/30 bg-[var(--edith-primary)]/14 text-[var(--edith-text)] text-[11px] font-mono shadow-[0_0_24px_rgba(34,211,238,0.12)]"
           >
             <Radio className="w-3.5 h-3.5 animate-pulse" />
             Auto Listen
@@ -273,16 +273,16 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
         )}
 
         {/* Metin girişi */}
-        <div className="flex-1 relative bg-slate-900/90 rounded-2xl border border-slate-800 focus-within:border-[var(--edith-primary)]/60 focus-within:ring-1 focus-within:ring-[var(--edith-primary)]/30 transition-all">
+        <div className="flex-1 relative bg-slate-950/70 rounded-2xl border border-cyan-300/12 focus-within:border-[var(--edith-primary)]/60 focus-within:ring-1 focus-within:ring-[var(--edith-primary)]/30 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_34px_rgba(14,165,233,0.08)]">
           <textarea
-            id="aura-text-input"
+            id="edith-text-input"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={
               sttSupported
-                ? 'AURA\'ya yazın veya mikrofona basın...'
-                : 'AURA\'ya bir şeyler sorun veya emredin...'
+                ? 'EDITH asistanınıza yazın veya mikrofona basın...'
+                : 'EDITH asistanınıza bir şeyler sorun veya görev verin...'
             }
             rows={1}
             disabled={isStreaming && aiState !== 'speaking'}
@@ -294,7 +294,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
         {(aiState === 'speaking' || isStreaming) ? (
           <button
             onClick={onStopSpeech}
-            className="p-3 rounded-2xl bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-300 transition-all shrink-0"
+            className="p-3 rounded-2xl bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-300 transition-all shrink-0 shadow-[0_0_24px_rgba(245,158,11,0.16)]"
             title="Yanıtı Durdur"
           >
             <Square className="w-5 h-5 fill-current" />

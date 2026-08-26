@@ -1,7 +1,16 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import type { EdithAuditEvent, EdithTask, EdithTaskStatus } from '../core';
+import type {
+  EdithAuditEvent,
+  EdithTask,
+  EdithTaskStatus,
+  KnowledgeChunk,
+  KnowledgeGraphNode,
+  KnowledgeGraphRelationship,
+  KnowledgeSyncEvent,
+  ObsidianNoteIndexRecord,
+} from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 import type { EdithPersistencePaths, EdithPersistenceStore, PersistenceMigrationResult } from './types';
 
@@ -134,10 +143,73 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
         json TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS knowledge_nodes (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        source TEXT NOT NULL,
+        importance REAL NOT NULL,
+        recent_activity_at TEXT NOT NULL,
+        path TEXT,
+        deleted_at TEXT,
+        json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_relationships (
+        id TEXT PRIMARY KEY,
+        from_id TEXT NOT NULL,
+        to_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        strength REAL NOT NULL,
+        source TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT,
+        json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS obsidian_note_index (
+        path TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL,
+        folder TEXT NOT NULL,
+        extension TEXT NOT NULL,
+        mtime_ms REAL NOT NULL,
+        size INTEGER NOT NULL,
+        hash TEXT NOT NULL,
+        deleted_at TEXT,
+        json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_chunks (
+        id TEXT PRIMARY KEY,
+        node_id TEXT NOT NULL,
+        note_path TEXT NOT NULL,
+        ordinal INTEGER NOT NULL,
+        hash TEXT NOT NULL,
+        embedding_status TEXT NOT NULL,
+        indexed_at TEXT NOT NULL,
+        json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS knowledge_sync_events (
+        id TEXT PRIMARY KEY,
+        action TEXT NOT NULL,
+        path TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        json TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
       CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_events(timestamp);
       CREATE INDEX IF NOT EXISTS idx_tool_runs_timestamp ON tool_runs(timestamp);
       CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_type ON knowledge_nodes(type);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_nodes_path ON knowledge_nodes(path);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_relationships_from ON knowledge_relationships(from_id);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_relationships_to ON knowledge_relationships(to_id);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_note_path ON knowledge_chunks(note_path);
+      CREATE INDEX IF NOT EXISTS idx_knowledge_sync_events_created ON knowledge_sync_events(created_at);
     `);
   }
 
@@ -311,6 +383,156 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
     const existing = this.getDb().prepare('SELECT id FROM memories WHERE id = ?').get(id);
     this.getDb().prepare('DELETE FROM memories WHERE id = ?').run(id);
     return Boolean(existing);
+  }
+
+  upsertKnowledgeNode(node: KnowledgeGraphNode): void {
+    this.getDb()
+      .prepare(`
+        INSERT OR REPLACE INTO knowledge_nodes
+          (id, type, title, source, importance, recent_activity_at, path, deleted_at, json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        node.id,
+        node.type,
+        node.title,
+        node.source,
+        node.importance,
+        node.recentActivityAt,
+        node.path ?? null,
+        node.deletedAt ?? null,
+        JSON.stringify(node)
+      );
+  }
+
+  listKnowledgeNodes(): KnowledgeGraphNode[] {
+    return this.getDb()
+      .prepare('SELECT json FROM knowledge_nodes ORDER BY recent_activity_at DESC')
+      .all()
+      .flatMap((row) => {
+        const node = parseJsonColumn<KnowledgeGraphNode>(row);
+        return node ? [node] : [];
+      });
+  }
+
+  upsertKnowledgeRelationship(relationship: KnowledgeGraphRelationship): void {
+    this.getDb()
+      .prepare(`
+        INSERT OR REPLACE INTO knowledge_relationships
+          (id, from_id, to_id, type, strength, source, updated_at, deleted_at, json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        relationship.id,
+        relationship.from,
+        relationship.to,
+        relationship.type,
+        relationship.strength,
+        relationship.source,
+        relationship.updatedAt,
+        relationship.deletedAt ?? null,
+        JSON.stringify(relationship)
+      );
+  }
+
+  listKnowledgeRelationships(): KnowledgeGraphRelationship[] {
+    return this.getDb()
+      .prepare('SELECT json FROM knowledge_relationships ORDER BY updated_at DESC')
+      .all()
+      .flatMap((row) => {
+        const relationship = parseJsonColumn<KnowledgeGraphRelationship>(row);
+        return relationship ? [relationship] : [];
+      });
+  }
+
+  upsertObsidianNoteIndex(record: ObsidianNoteIndexRecord): void {
+    this.getDb()
+      .prepare(`
+        INSERT OR REPLACE INTO obsidian_note_index
+          (path, entity_id, folder, extension, mtime_ms, size, hash, deleted_at, json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        record.path,
+        record.entityId,
+        record.folder,
+        record.extension,
+        record.mtimeMs,
+        record.size,
+        record.hash,
+        record.deletedAt ?? null,
+        JSON.stringify(record)
+      );
+  }
+
+  listObsidianNoteIndex(): ObsidianNoteIndexRecord[] {
+    return this.getDb()
+      .prepare('SELECT json FROM obsidian_note_index ORDER BY mtime_ms DESC')
+      .all()
+      .flatMap((row) => {
+        const record = parseJsonColumn<ObsidianNoteIndexRecord>(row);
+        return record ? [record] : [];
+      });
+  }
+
+  deleteObsidianNoteIndex(notePath: string, deletedAt: string): void {
+    const row = this.getDb().prepare('SELECT json FROM obsidian_note_index WHERE path = ?').get(notePath);
+    const record = parseJsonColumn<ObsidianNoteIndexRecord>(row);
+    if (!record) return;
+    const updated = { ...record, deletedAt, indexedAt: deletedAt };
+    this.upsertObsidianNoteIndex(updated);
+  }
+
+  replaceKnowledgeChunksForNote(notePath: string, chunks: KnowledgeChunk[]): void {
+    const db = this.getDb();
+    db.prepare('DELETE FROM knowledge_chunks WHERE note_path = ?').run(notePath);
+    const insert = db.prepare(`
+      INSERT OR REPLACE INTO knowledge_chunks
+        (id, node_id, note_path, ordinal, hash, embedding_status, indexed_at, json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const chunk of chunks) {
+      insert.run(
+        chunk.id,
+        chunk.nodeId,
+        chunk.notePath,
+        chunk.ordinal,
+        chunk.hash,
+        chunk.embeddingStatus,
+        chunk.indexedAt,
+        JSON.stringify(chunk)
+      );
+    }
+  }
+
+  listKnowledgeChunks(limit = 100): KnowledgeChunk[] {
+    return this.getDb()
+      .prepare('SELECT json FROM knowledge_chunks ORDER BY indexed_at DESC LIMIT ?')
+      .all(limit)
+      .flatMap((row) => {
+        const chunk = parseJsonColumn<KnowledgeChunk>(row);
+        return chunk ? [chunk] : [];
+      });
+  }
+
+  appendKnowledgeSyncEvent(event: KnowledgeSyncEvent): void {
+    this.getDb()
+      .prepare(`
+        INSERT OR REPLACE INTO knowledge_sync_events
+          (id, action, path, source, status, created_at, json)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(event.id, event.action, event.path, event.source, event.status, event.createdAt, JSON.stringify(event));
+  }
+
+  listKnowledgeSyncEvents(limit = 100): KnowledgeSyncEvent[] {
+    return this.getDb()
+      .prepare('SELECT json FROM knowledge_sync_events ORDER BY created_at DESC LIMIT ?')
+      .all(limit)
+      .flatMap((row) => {
+        const event = parseJsonColumn<KnowledgeSyncEvent>(row);
+        return event ? [event] : [];
+      });
   }
 
   close(): void {

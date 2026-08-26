@@ -28,7 +28,7 @@ Input:
 ```json
 {
   "objective": "Create a local system health report",
-  "actor": "aura-dashboard",
+  "actor": "edith-dashboard",
   "toolsRequired": ["system_monitor"],
   "permissionsRequired": [],
   "riskLevel": 1

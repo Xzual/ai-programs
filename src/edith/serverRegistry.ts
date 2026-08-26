@@ -15,6 +15,11 @@ import { getEdithPersistenceStore } from './persistence';
 import { markLAdapterService } from './markLAdapter';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from './permissionService';
+import { visionObservationService } from './visionService';
+import { computerActionService } from './computerActionService';
+import { browserWorkflowService } from './browserWorkflowService';
+import { sensitiveIntegrationService } from './sensitiveIntegrationService';
+import { registerAwesomeAgentSkillTools } from './awesomeAgentSkills';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
@@ -250,6 +255,254 @@ edithToolRegistry.register({
 });
 
 edithToolRegistry.register({
+  id: 'vision_observe',
+  metadata: {
+    name: 'Read-only Vision Observation',
+    version: '0.1.0',
+    description: 'Creates a structured read-only screen/window/browser/PDF observation without mouse, keyboard, or autonomous action.',
+    category: 'vision',
+    inputSchema: {
+      source: { type: 'string', required: false, description: 'screen, window, application, dialog, notification, browser_page, pdf, or screenshot_diff.' },
+      question: { type: 'string', required: false, description: 'Question to answer from the observation.' },
+      text: { type: 'string', required: false, description: 'Optional text already extracted by an adapter.' },
+      application: { type: 'string', required: false },
+      windowTitle: { type: 'string', required: false },
+      monitorIndex: { type: 'number', required: false },
+    },
+    outputSchema: {
+      observation: { type: 'object' },
+    },
+    requiredPermissions: ['system:read'],
+    riskLevel: 0,
+    timeoutMs: 2000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['optional screenshot/OCR/window-detection adapter'],
+  },
+  handler: (args): EdithToolResult => {
+    const observation = visionObservationService.createObservation({
+      source: typeof args.source === 'string' ? args.source as any : undefined,
+      question: getStringArg(args, 'question'),
+      text: getStringArg(args, 'text'),
+      application: getStringArg(args, 'application'),
+      windowTitle: getStringArg(args, 'windowTitle'),
+      monitorIndex: typeof args.monitorIndex === 'number' ? args.monitorIndex : undefined,
+    });
+    return {
+      success: true,
+      toolId: 'vision_observe',
+      result: observation.summary,
+      structuredOutput: { observation },
+    };
+  },
+});
+
+edithToolRegistry.register({
+  id: 'computer_action',
+  metadata: {
+    name: 'Safe Computer Action',
+    version: '0.1.0',
+    description: 'Policy-gated desktop action adapter. It validates permissions, kill switch, forbidden intents, and audit before any runtime action.',
+    category: 'computer',
+    inputSchema: {
+      action: { type: 'string', required: true, description: 'mouse_move, click, double_click, right_click, type_text, hotkey, focus_window, switch_window, launch_app, close_app.' },
+      target: { type: 'string', required: false },
+      text: { type: 'string', required: false },
+      x: { type: 'number', required: false },
+      y: { type: 'number', required: false },
+      keys: { type: 'array', required: false },
+      reason: { type: 'string', required: true },
+      dryRun: { type: 'boolean', required: false },
+    },
+    outputSchema: {
+      request: { type: 'object' },
+      verification: { type: 'string' },
+    },
+    requiredPermissions: ['computer:control'],
+    riskLevel: 4,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['computer-use runtime adapter'],
+  },
+  handler: (args, context): EdithToolResult => {
+    const action = getStringArg(args, 'action') as any;
+    return computerActionService.execute({
+      action,
+      target: getStringArg(args, 'target'),
+      text: getStringArg(args, 'text'),
+      x: typeof args.x === 'number' ? args.x : undefined,
+      y: typeof args.y === 'number' ? args.y : undefined,
+      keys: Array.isArray(args.keys) ? args.keys.map(String) : undefined,
+      reason: getStringArg(args, 'reason') ?? 'No reason supplied.',
+      dryRun: Boolean(args.dryRun),
+    }, context.actor);
+  },
+});
+
+edithToolRegistry.register({
+  id: 'browser_workflow',
+  metadata: {
+    name: 'Browser Workflow',
+    version: '0.1.0',
+    description: 'Structured browser workflow adapter using safe search or permission-gated Playwright automation.',
+    category: 'browser',
+    inputSchema: {
+      action: { type: 'string', required: true, description: 'search, navigate, extract, screenshot, download_pdf, read_pdf, upload_file, fill_form.' },
+      query: { type: 'string', required: false },
+      url: { type: 'string', required: false },
+      selectors: { type: 'object', required: false },
+      filePath: { type: 'string', required: false },
+      verificationGoal: { type: 'string', required: true },
+      dryRun: { type: 'boolean', required: false },
+    },
+    outputSchema: {
+      request: { type: 'object' },
+      verification: { type: 'string' },
+    },
+    requiredPermissions: ['network:read'],
+    riskLevel: 2,
+    timeoutMs: 30000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['playwright for browser-control actions'],
+  },
+  handler: (args, context): Promise<EdithToolResult> => browserWorkflowService.run({
+    action: getStringArg(args, 'action') as any,
+    query: getStringArg(args, 'query'),
+    url: getStringArg(args, 'url'),
+    selectors: typeof args.selectors === 'object' && args.selectors !== null && !Array.isArray(args.selectors) ? args.selectors as Record<string, string> : undefined,
+    filePath: getStringArg(args, 'filePath'),
+    verificationGoal: getStringArg(args, 'verificationGoal') ?? 'Verify workflow completion.',
+    dryRun: Boolean(args.dryRun),
+  }, context.actor),
+});
+
+edithToolRegistry.register({
+  id: 'iot_feedback_stub',
+  metadata: {
+    name: 'IoT Feedback Stub',
+    version: '0.1.0',
+    description: 'Permission-gated smart-home/IoT feedback architecture stub. No device action is executed without a real configured integration.',
+    category: 'iot',
+    inputSchema: {
+      action: { type: 'string', required: true, description: 'status, notify, light_feedback, or device_feedback.' },
+      target: { type: 'string', required: false },
+      payload: { type: 'object', required: false },
+      reason: { type: 'string', required: false },
+      dryRun: { type: 'boolean', required: false },
+    },
+    outputSchema: {
+      capability: { type: 'object' },
+      honestStatus: { type: 'string' },
+    },
+    requiredPermissions: ['iot:control'],
+    riskLevel: 4,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['smart-home provider adapter'],
+  },
+  handler: (args, context): EdithToolResult => sensitiveIntegrationService.run('iot', {
+    action: getStringArg(args, 'action') ?? '',
+    target: getStringArg(args, 'target'),
+    payload: typeof args.payload === 'object' && args.payload !== null && !Array.isArray(args.payload) ? args.payload as Record<string, unknown> : undefined,
+    reason: getStringArg(args, 'reason'),
+    dryRun: Boolean(args.dryRun),
+  }, context.actor),
+});
+
+edithToolRegistry.register({
+  id: 'finance_trading_guard',
+  metadata: {
+    name: 'Finance Trading Guard',
+    version: '0.1.0',
+    description: 'Permission-gated finance/trading guard. No broker, exchange, bank, or live order action is executed without a real configured adapter.',
+    category: 'finance',
+    inputSchema: {
+      action: { type: 'string', required: true, description: 'quote, portfolio_read, paper_order, or live_order.' },
+      target: { type: 'string', required: false },
+      payload: { type: 'object', required: false },
+      reason: { type: 'string', required: false },
+      dryRun: { type: 'boolean', required: false },
+    },
+    outputSchema: {
+      capability: { type: 'object' },
+      honestStatus: { type: 'string' },
+    },
+    requiredPermissions: ['trading:execute'],
+    riskLevel: 5,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['broker/exchange adapter'],
+  },
+  handler: (args, context): EdithToolResult => sensitiveIntegrationService.run('finance', {
+    action: getStringArg(args, 'action') ?? '',
+    target: getStringArg(args, 'target'),
+    payload: typeof args.payload === 'object' && args.payload !== null && !Array.isArray(args.payload) ? args.payload as Record<string, unknown> : undefined,
+    reason: getStringArg(args, 'reason'),
+    dryRun: Boolean(args.dryRun),
+  }, context.actor),
+});
+
+edithToolRegistry.register({
+  id: 'obsidian_save_note',
+  metadata: {
+    name: 'Obsidian Save Note',
+    version: '0.1.0',
+    description: 'Saves research, coding, meeting, or trading agent notes into the configured Obsidian vault and reindexes them into the knowledge graph.',
+    category: 'knowledge',
+    inputSchema: {
+      agentId: { type: 'string', required: true, description: 'Agent identifier that produced the note.' },
+      kind: { type: 'string', required: true, description: 'research, coding, meeting, or trading.' },
+      title: { type: 'string', required: true },
+      body: { type: 'string', required: true },
+    },
+    outputSchema: {
+      path: { type: 'string' },
+    },
+    requiredPermissions: ['memory:write'],
+    riskLevel: 2,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32'],
+    dependencies: [],
+  },
+  handler: async (args): Promise<EdithToolResult> => {
+    const kind = getStringArg(args, 'kind');
+    if (kind !== 'research' && kind !== 'coding' && kind !== 'meeting' && kind !== 'trading') {
+      return { success: false, toolId: 'obsidian_save_note', error: 'kind must be research, coding, meeting, or trading.', errorCode: 'VALIDATION_ERROR' };
+    }
+    const { obsidianVaultService } = await import('./obsidianVaultService');
+    const path = obsidianVaultService.writeAgentNote({
+      agentId: getStringArg(args, 'agentId') ?? 'agent',
+      kind,
+      title: getStringArg(args, 'title') ?? 'Untitled Agent Note',
+      body: getStringArg(args, 'body') ?? '',
+    });
+    return {
+      success: true,
+      toolId: 'obsidian_save_note',
+      result: `Saved Obsidian note: ${path}`,
+      structuredOutput: { path },
+    };
+  },
+});
+
+edithToolRegistry.register({
   id: 'open_interpreter_agent',
   metadata: {
     name: 'Open Interpreter Agent',
@@ -282,6 +535,113 @@ edithToolRegistry.register({
     const result = await runPythonModule('interpreter', ['--message', prompt]);
     return { ...result, toolId: 'open_interpreter_agent' };
   },
+});
+
+function configurationRequired3dTool(toolId: string, engine: string, capability: string): EdithToolResult {
+  return {
+    success: false,
+    toolId,
+    error: `CONFIGURATION_REQUIRED: ${engine} is not bound to EDITH yet. ${capability} is registered as a safe foundation only.`,
+    errorCode: 'TOOL_ERROR',
+    structuredOutput: {
+      capability: 'CONFIGURATION_REQUIRED',
+      engine,
+      honestStatus: 'No CAD/render/simulation operation was executed.',
+    },
+  };
+}
+
+edithToolRegistry.register({
+  id: 'design3d_cad_foundation',
+  metadata: {
+    name: '3D CAD Foundation',
+    version: '0.1.0',
+    description: 'Registers the EDITH 3D CAD foundation for future FreeCAD/CadQuery/OpenCascade parametric generation.',
+    category: 'design3d',
+    inputSchema: {
+      prompt: { type: 'string', required: true },
+      engine: { type: 'string', required: false, description: 'cadquery, freecad, or opencascade.' },
+    },
+    outputSchema: {
+      capability: { type: 'string' },
+      engine: { type: 'string' },
+    },
+    requiredPermissions: ['system:read'],
+    riskLevel: 1,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['FreeCAD or CadQuery/OCP'],
+  },
+  handler: (args): EdithToolResult => configurationRequired3dTool(
+    'design3d_cad_foundation',
+    getStringArg(args, 'engine') ?? 'CadQuery/OpenCascade',
+    'Parametric CAD generation'
+  ),
+});
+
+edithToolRegistry.register({
+  id: 'design3d_render_foundation',
+  metadata: {
+    name: '3D Render Foundation',
+    version: '0.1.0',
+    description: 'Registers the EDITH 3D render foundation for future Blender Python/background rendering.',
+    category: 'design3d',
+    inputSchema: {
+      scenePath: { type: 'string', required: false },
+      prompt: { type: 'string', required: true },
+    },
+    outputSchema: {
+      capability: { type: 'string' },
+      engine: { type: 'string' },
+    },
+    requiredPermissions: ['system:read'],
+    riskLevel: 1,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['Blender'],
+  },
+  handler: (): EdithToolResult => configurationRequired3dTool(
+    'design3d_render_foundation',
+    'Blender Python/background mode',
+    'Rendering and animation'
+  ),
+});
+
+edithToolRegistry.register({
+  id: 'design3d_simulation_foundation',
+  metadata: {
+    name: '3D Simulation Foundation',
+    version: '0.1.0',
+    description: 'Registers the EDITH simulation foundation for future physics, FEA/FEM, CFD, robotics, and manufacturing checks.',
+    category: 'design3d',
+    inputSchema: {
+      prompt: { type: 'string', required: true },
+      simulationType: { type: 'string', required: false, description: 'physics, fea, cfd, robotics, manufacturing, or printing.' },
+    },
+    outputSchema: {
+      capability: { type: 'string' },
+      engine: { type: 'string' },
+    },
+    requiredPermissions: ['system:read'],
+    riskLevel: 1,
+    timeoutMs: 5000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['selected simulation/manufacturing engine'],
+  },
+  handler: (args): EdithToolResult => configurationRequired3dTool(
+    'design3d_simulation_foundation',
+    getStringArg(args, 'simulationType') ?? 'Simulation engine',
+    'Engineering simulation'
+  ),
 });
 
 edithToolRegistry.register({
@@ -614,6 +974,8 @@ edithToolRegistry.register({
     };
   },
 });
+
+registerAwesomeAgentSkillTools(edithToolRegistry);
 
 export async function executeEdithTool(
   toolId: string,

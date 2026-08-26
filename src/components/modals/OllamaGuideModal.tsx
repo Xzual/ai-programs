@@ -30,13 +30,13 @@ export const OllamaGuideModal: React.FC<OllamaGuideModalProps> = ({
     },
     {
       title: '2. Yerel LLM Modelini İndirin',
-      desc: 'Terminalde AURA için önerilen hafif Llama 3.2 veya Qwen 2.5 modelini çalıştırın.',
+      desc: 'Terminalde EDITH için önerilen hafif Llama 3.2 veya Qwen 2.5 modelini çalıştırın.',
       cmd: 'ollama run llama3.2',
     },
     {
-      title: '3. Yerel Sunucuyu Başlatın',
-      desc: 'Ollama servisinizin varsayılan portta (11434) çalıştığından emin olun.',
-      cmd: 'OLLAMA_ORIGINS="*" ollama serve',
+      title: '3. Durumu EDITH İçinden Kontrol Edin',
+      desc: 'EDITH Ollama servisini başlatmaz; yalnızca zaten çalışan yerel servisi algılar.',
+      cmd: 'GET /api/health?ollamaUrl=http://localhost:11434',
     },
   ];
 
@@ -59,7 +59,7 @@ export const OllamaGuideModal: React.FC<OllamaGuideModalProps> = ({
           <div>
             <h2 className="text-lg font-bold text-slate-100">Ollama Yerel Kurulum Yönergesi</h2>
             <p className="text-xs text-slate-400">
-              AURA'yı tamamen çevrimdışı ve %100 yerel çalıştırmak için 3 kolay adım.
+              EDITH'i tamamen çevrimdışı ve %100 yerel çalıştırmak için 3 kolay adım.
             </p>
           </div>
         </div>

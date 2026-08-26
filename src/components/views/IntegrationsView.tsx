@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Boxes,
   Slack,
@@ -7,15 +7,29 @@ import {
   Webhook,
   CheckCircle2,
   XCircle,
+  AlertTriangle,
   Key,
   Globe,
   Info,
+  RadioTower,
+  Landmark,
 } from 'lucide-react';
 import { IntegrationConfig } from '../../types';
 
 interface IntegrationsViewProps {
   integrations: IntegrationConfig[];
   onSaveIntegration: (id: string, updates: Partial<IntegrationConfig>) => void;
+}
+
+interface SensitiveCapabilityStatus {
+  id: string;
+  domain: 'iot' | 'finance';
+  name: string;
+  status: 'configuration_required';
+  riskLevel: number;
+  requiredPermissions: string[];
+  supportedActions: string[];
+  safetyBoundary: string;
 }
 
 export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
@@ -25,6 +39,18 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [tempKey, setTempKey] = useState('');
   const [tempUrl, setTempUrl] = useState('');
+  const [sensitiveCapabilities, setSensitiveCapabilities] = useState<SensitiveCapabilityStatus[]>([]);
+
+  useEffect(() => {
+    fetch('/api/edith/integrations/capabilities')
+      .then((response) => response.json())
+      .then((data) => {
+        if (data?.success && Array.isArray(data.capabilities)) {
+          setSensitiveCapabilities(data.capabilities);
+        }
+      })
+      .catch(() => setSensitiveCapabilities([]));
+  }, []);
 
   const getIntegrationIcon = (iconName: string) => {
     switch (iconName) {
@@ -34,6 +60,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return <Github className="w-6 h-6 text-slate-200" />;
       case 'BarChart3':
         return <BarChart3 className="w-6 h-6 text-yellow-400" />;
+      case 'RadioTower':
+        return <RadioTower className="w-6 h-6 text-cyan-300" />;
+      case 'Landmark':
+        return <Landmark className="w-6 h-6 text-amber-300" />;
       case 'Webhook':
       default:
         return <Webhook className="w-6 h-6 text-cyan-400" />;
@@ -54,6 +84,12 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       enabled: !!(tempKey || tempUrl),
     });
     setEditingId(null);
+  };
+
+  const getCapabilityStatus = (item: IntegrationConfig): SensitiveCapabilityStatus | undefined => {
+    if (item.id === 'iot_feedback') return sensitiveCapabilities.find((capability) => capability.domain === 'iot');
+    if (item.id === 'finance_trading_guard') return sensitiveCapabilities.find((capability) => capability.domain === 'finance');
+    return undefined;
   };
 
   return (
@@ -77,7 +113,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         <div className="space-y-1 leading-relaxed">
           <p className="font-semibold text-slate-100">Güvenlik ve Yapılandırma Uyarısı</p>
           <p className="text-slate-400">
-            AURA ön uç kodunda hassas API anahtarı barındırmaz. Aşağıdaki entegrasyonlar kullanıcı tarafından girilen webhook ve token bilgilerini sadece yerel makinenizdeki IndexedDB/LocalStorage hafızasında tutar.
+            EDITH ön uç kodunda hassas API anahtarı barındırmaz. Aşağıdaki entegrasyonlar kullanıcı tarafından girilen webhook ve token bilgilerini sadece yerel makinenizdeki IndexedDB/LocalStorage hafızasında tutar.
           </p>
         </div>
       </div>
@@ -87,8 +123,11 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         {integrations.map((item) => (
           <div
             key={item.id}
-            className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 hover:border-purple-500/30 transition-all flex flex-col justify-between space-y-4 shadow-xl"
+            className="p-5 rounded-lg bg-slate-900/80 border border-slate-800 hover:border-purple-500/30 transition-all flex flex-col justify-between space-y-4 shadow-xl"
           >
+            {(() => {
+              const capability = getCapabilityStatus(item);
+              return (
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
@@ -115,6 +154,19 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
 
               <h3 className="text-sm font-semibold text-slate-100 mb-1">{item.name}</h3>
               <p className="text-xs text-slate-400 leading-relaxed mb-4">{item.description}</p>
+
+              {capability && (
+                <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-100">
+                  <div className="flex items-center gap-2 font-semibold">
+                    <AlertTriangle className="h-4 w-4 text-amber-300" />
+                    Yapılandırma Gerekli
+                  </div>
+                  <p className="mt-2 leading-relaxed text-amber-100/80">{capability.safetyBoundary}</p>
+                  <p className="mt-2 font-mono text-[10px] uppercase tracking-wide text-amber-200/70">
+                    İzinler: {capability.requiredPermissions.join(', ')}
+                  </p>
+                </div>
+              )}
 
               {/* Edit Mode vs Display Mode */}
               {editingId === item.id ? (
@@ -174,6 +226,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 </div>
               )}
             </div>
+              );
+            })()}
           </div>
         ))}
       </div>

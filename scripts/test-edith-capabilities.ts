@@ -62,6 +62,11 @@ try {
     toolsRequired: ['computer_control_agent'],
     riskLevel: 5,
   });
+  const sensitiveAssessment = capabilityService.assess({
+    objective: 'IoT akıllı ev ışık feedback ve finance trading order guard planla',
+    actor: 'capability-test',
+    riskLevel: 5,
+  });
 
   const task = taskService.createTask({
     title: 'Capability-backed plan',
@@ -83,6 +88,12 @@ try {
   assert.equal(grantedAssessment.status, 'DEGRADED');
   assert.equal(grantedAssessment.runnableTools.includes('computer_control_agent'), true);
   assert.equal(grantedAssessment.toolDecisions[0].activeGrantIds.length, 1);
+  assert.equal(sensitiveAssessment.status, 'WAITING_PERMISSION');
+  assert.equal(sensitiveAssessment.requestedTools.includes('iot_feedback_stub'), true);
+  assert.equal(sensitiveAssessment.requestedTools.includes('finance_trading_guard'), true);
+  assert.equal(sensitiveAssessment.missingPermissions.includes('iot:control'), true);
+  assert.equal(sensitiveAssessment.missingPermissions.includes('trading:execute'), true);
+  assert.equal(sensitiveAssessment.highRiskBlockedTools.includes('finance_trading_guard'), true);
   assert.equal(planResult.success, true);
   assert.equal(planResult.plan?.validationCriteria.some((rule) => rule.includes('Capability assessment')), true);
   assert.equal(auditEvents.some((event) => event.action === 'capability.assess'), true);
@@ -95,8 +106,9 @@ try {
       health: healthAssessment.status,
       blocked: blockedAssessment.status,
       granted: grantedAssessment.status,
+      sensitive: sensitiveAssessment.status,
     },
-    scenarios: ['low_risk_ready', 'high_risk_waiting_permission', 'scoped_grant_allows_tool', 'planner_uses_capability_assessment', 'audit'],
+    scenarios: ['low_risk_ready', 'high_risk_waiting_permission', 'scoped_grant_allows_tool', 'sensitive_integrations_waiting_permission', 'planner_uses_capability_assessment', 'audit'],
   }, null, 2));
 } finally {
   process.chdir(originalCwd);

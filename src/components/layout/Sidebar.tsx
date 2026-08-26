@@ -1,27 +1,47 @@
 import React from 'react';
 import {
+  Archive,
+  Bot,
+  BotMessageSquare,
+  CalendarClock,
+  Chrome,
+  CircleStop,
+  Code2,
+  Cpu,
+  Files,
+  Globe2,
   LayoutDashboard,
   MessageSquare,
-  Code2,
   Brain,
   Zap,
   Boxes,
   Settings,
   Activity,
   Network,
-  Cpu,
   ShieldCheck,
   ShieldAlert,
+  SlidersHorizontal,
+  TrendingUp,
+  Wrench,
 } from 'lucide-react';
 
 export type ActiveTab =
   | 'dashboard'
   | 'chat'
+  | 'agents'
+  | 'tasks'
+  | 'computer'
+  | 'browser'
   | 'code'
   | 'memory'
   | 'knowledge'
   | 'automations'
-  | 'ops'
+  | 'files'
+  | 'tools'
+  | 'voice'
+  | 'crypto'
+  | 'security'
+  | 'system'
   | 'integrations'
   | 'settings';
 
@@ -39,39 +59,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedModel,
 }) => {
   const menuItems = [
-    { id: 'dashboard' as ActiveTab, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'chat' as ActiveTab, label: 'Sohbet', icon: MessageSquare },
-    { id: 'code' as ActiveTab, label: 'Kod Chat', icon: Code2 },
-    { id: 'memory' as ActiveTab, label: 'Bellek', icon: Brain },
-    { id: 'knowledge' as ActiveTab, label: 'Knowledge Map', icon: Network },
-    { id: 'automations' as ActiveTab, label: 'Otomasyonlar', icon: Zap },
-    { id: 'ops' as ActiveTab, label: 'EDITH Ops', icon: Activity },
-    { id: 'integrations' as ActiveTab, label: 'Entegrasyonlar', icon: Boxes },
-    { id: 'settings' as ActiveTab, label: 'Ayarlar', icon: Settings },
+    { id: 'dashboard' as ActiveTab, label: 'Command Center', icon: LayoutDashboard },
+    { id: 'chat' as ActiveTab, label: 'Chat', icon: MessageSquare },
+    { id: 'agents' as ActiveTab, label: 'Agents', icon: Bot },
+    { id: 'tasks' as ActiveTab, label: 'Tasks', icon: CalendarClock },
+    { id: 'computer' as ActiveTab, label: 'Computer Use', icon: Cpu },
+    { id: 'browser' as ActiveTab, label: 'Browser', icon: Chrome },
+    { id: 'memory' as ActiveTab, label: 'Memory', icon: Brain },
+    { id: 'knowledge' as ActiveTab, label: 'Knowledge Graph', icon: Network },
+    { id: 'automations' as ActiveTab, label: 'Automations', icon: Zap },
+    { id: 'files' as ActiveTab, label: 'Files', icon: Files },
+    { id: 'code' as ActiveTab, label: 'Coding', icon: Code2 },
+    { id: 'crypto' as ActiveTab, label: 'Trading', icon: TrendingUp },
+    { id: 'tools' as ActiveTab, label: 'Tools / MCP', icon: Wrench },
+    { id: 'voice' as ActiveTab, label: 'Voice', icon: BotMessageSquare },
+    { id: 'integrations' as ActiveTab, label: 'Integrations', icon: Boxes },
+    { id: 'security' as ActiveTab, label: 'Security', icon: ShieldCheck },
+    { id: 'system' as ActiveTab, label: 'System', icon: Activity },
+    { id: 'settings' as ActiveTab, label: 'Settings', icon: Settings },
   ];
 
   return (
-    <aside className="w-16 sm:w-64 bg-slate-950/80 backdrop-blur-xl border-r border-slate-800/60 flex flex-col justify-between py-4 px-2 sm:px-3 z-30 transition-all duration-300">
+    <aside className="relative top-0 z-30 flex h-full w-16 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-4 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 sm:w-64 sm:px-3">
       {/* Top Brand Logo */}
-      <div>
+      <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-1">
         <div className="flex items-center gap-3 px-2 py-3 mb-6">
           <div
             className="relative flex items-center justify-center w-10 h-10 rounded-xl p-[1px] shadow-lg"
-            style={{
-              background: 'linear-gradient(135deg, var(--edith-primary), var(--edith-accent), var(--edith-secondary))',
-              boxShadow: '0 0 24px color-mix(in srgb, var(--edith-primary) 26%, transparent)',
-            }}
+            style={{ background: 'linear-gradient(135deg, var(--assistant-primary), var(--assistant-secondary), var(--assistant-accent))', boxShadow: '0 0 26px var(--assistant-glow)' }}
           >
-            <div className="w-full h-full bg-slate-950 rounded-[11px] flex items-center justify-center">
-              <Cpu className="w-5 h-5 text-[var(--edith-accent)] animate-pulse" />
+            <div className="w-full h-full bg-black rounded-[11px] flex items-center justify-center">
+              <Cpu className="w-5 h-5 text-[var(--assistant-accent)] animate-pulse" />
             </div>
           </div>
           <div className="hidden sm:block">
-            <h1 className="text-lg font-extrabold tracking-widest text-[var(--edith-primary)] font-mono">
-              E.D.I.T.H
+            <h1 className="text-lg font-extrabold tracking-widest text-[var(--assistant-primary)] font-mono">
+              E.D.I.T.H.
             </h1>
-            <p className="text-[10px] text-slate-400 font-mono tracking-tight">
-              LOCAL AI OS
+            <p className="text-[10px] text-slate-500 font-mono tracking-[0.22em]">
+              PERSONAL AI OS
             </p>
           </div>
         </div>
@@ -85,20 +111,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-all duration-200 group ${
+                title={item.label}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 group relative overflow-hidden ${
                   isActive
-                    ? 'bg-[var(--edith-primary)]/15 text-[var(--edith-text)] border border-[var(--edith-primary)]/40 shadow-lg'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                    ? 'bg-[var(--assistant-primary)]/14 text-slate-100 border border-[var(--assistant-primary)]/34 shadow-[0_0_28px_var(--assistant-glow),inset_0_1px_0_rgba(255,255,255,0.06)]'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                 }`}
               >
-                <Icon
-                  className={`w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${
-                    isActive ? 'text-[var(--edith-primary)]' : 'text-slate-400 group-hover:text-[var(--edith-accent)]'
+                <span
+                  className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-all duration-300 ${
+                    isActive
+                      ? 'bg-[var(--assistant-primary)]/12 shadow-[0_0_22px_var(--assistant-glow),inset_0_0_12px_rgba(255,255,255,0.08)]'
+                      : 'bg-white/[0.025] group-hover:bg-[var(--assistant-primary)]/10'
                   }`}
-                />
+                >
+                  <span className={`absolute inset-0 rounded-md blur-md transition-opacity ${isActive ? 'bg-[var(--assistant-primary)]/26 opacity-100' : 'bg-[var(--assistant-primary)]/16 opacity-0 group-hover:opacity-100'}`} />
+                  <Icon
+                    className={`relative z-10 w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${
+                      isActive ? 'text-[var(--assistant-accent)]' : 'text-slate-300/86 group-hover:text-[var(--assistant-primary)]'
+                    }`}
+                  />
+                </span>
                 <span className="hidden sm:inline font-sans">{item.label}</span>
                 {isActive && (
-                  <span className="hidden sm:block ml-auto w-1.5 h-1.5 rounded-full bg-[var(--edith-primary)] shadow-glow" />
+                  <span className="hidden sm:block ml-auto w-1.5 h-1.5 rounded-full bg-[var(--assistant-primary)] shadow-[0_0_10px_var(--assistant-glow)]" />
                 )}
               </button>
             );
@@ -107,24 +143,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Status Card */}
-      <div className="p-2 sm:p-3 rounded-xl bg-slate-900/50 border border-slate-800/80 text-xs">
+      <div className="mt-3 p-2 sm:p-3 rounded-lg bg-black/45 border border-white/10 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <div className="flex items-center gap-2">
           {ollamaConnected ? (
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
           ) : (
-            <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
           )}
           <div className="hidden sm:block truncate">
             <div className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
-              <span>Ollama</span>
+              <span>Provider</span>
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
-                  ollamaConnected ? 'bg-emerald-400' : 'bg-amber-400'
+                ollamaConnected ? 'bg-emerald-400' : 'bg-amber-400'
                 }`}
               />
             </div>
             <p className="text-[10px] text-slate-400 truncate font-mono">
-              {ollamaConnected ? selectedModel : 'Ayrık / Yedek Mod'}
+              {ollamaConnected ? selectedModel : 'Degraded Mode'}
             </p>
           </div>
         </div>

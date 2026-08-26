@@ -1,4 +1,13 @@
-import type { EdithAuditEvent, EdithTask, EdithTaskStatus } from '../core';
+import type {
+  EdithAuditEvent,
+  EdithTask,
+  EdithTaskStatus,
+  KnowledgeChunk,
+  KnowledgeGraphNode,
+  KnowledgeGraphRelationship,
+  KnowledgeSyncEvent,
+  ObsidianNoteIndexRecord,
+} from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 
 export interface EdithPersistencePaths {
@@ -28,6 +37,17 @@ export interface EdithPersistenceStore {
   upsertMemory?(memory: MemoryItem): void;
   listMemories?(): MemoryItem[];
   deleteMemory?(id: string): boolean;
+  upsertKnowledgeNode?(node: KnowledgeGraphNode): void;
+  listKnowledgeNodes?(): KnowledgeGraphNode[];
+  upsertKnowledgeRelationship?(relationship: KnowledgeGraphRelationship): void;
+  listKnowledgeRelationships?(): KnowledgeGraphRelationship[];
+  upsertObsidianNoteIndex?(record: ObsidianNoteIndexRecord): void;
+  listObsidianNoteIndex?(): ObsidianNoteIndexRecord[];
+  deleteObsidianNoteIndex?(path: string, deletedAt: string): void;
+  replaceKnowledgeChunksForNote?(notePath: string, chunks: KnowledgeChunk[]): void;
+  listKnowledgeChunks?(limit?: number): KnowledgeChunk[];
+  appendKnowledgeSyncEvent?(event: KnowledgeSyncEvent): void;
+  listKnowledgeSyncEvents?(limit?: number): KnowledgeSyncEvent[];
   close?(): void;
   getPaths(): EdithPersistencePaths;
 }

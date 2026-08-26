@@ -3,6 +3,7 @@ import { capabilityService } from './capabilityService';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { executeEdithTool } from './serverRegistry';
 import { taskService } from './taskService';
+import { interruptService } from './interruptService';
 
 export interface ExecutionStepReport {
   stepId: string;
@@ -25,6 +26,21 @@ export interface ExecuteTaskResult {
 
 function toolArgsForStep(task: EdithTask, toolId: string): Record<string, unknown> {
   if (toolId === 'browser_search') return { query: task.objective };
+  if (toolId === 'brave_news_search' || toolId === 'brave_web_search') return { query: task.objective, count: 5 };
+  if (toolId === 'binance_market_price' || toolId === 'binance_market_24hr') {
+    const pair = /\b([A-Z]{2,10}USDT)\b/i.exec(task.objective)?.[1]?.toUpperCase() ?? 'BTCUSDT';
+    return { symbol: pair };
+  }
+  if (toolId === 'coinbase_ticker_lookup') {
+    const product = /\b([A-Z]{2,10}-USD)\b/i.exec(task.objective)?.[1]?.toUpperCase() ?? 'BTC-USD';
+    return { product };
+  }
+  if (toolId === 'binance_trade_signal_guard') return { symbol: 'BTCUSDT', timeframe: '1d' };
+  if (toolId === 'binance_spot_trade_guard') return { intent: task.objective, symbol: 'BTCUSDT' };
+  if (toolId === 'whatsapp_integrate_guard') return { action: 'health_check' };
+  if (toolId === 'whatsapp_automation_guard') return { workflow: task.objective };
+  if (toolId === 'whatsapp_observe_health') return { messageId: 'dry-run' };
+  if (toolId === 'computer_use_guard') return { instruction: task.objective };
   return {};
 }
 
@@ -72,6 +88,20 @@ export class ExecutorService {
 
     while (iterations < task.plan.maxIterations && toolCalls < task.plan.maxToolCalls) {
       iterations += 1;
+      const interrupt = interruptService.current(taskId);
+      if (interrupt) {
+        const cancelled = taskService.updateStatus(taskId, 'CANCELLED', interrupt.reason);
+        return {
+          success: false,
+          taskId,
+          status: 'PAUSED',
+          iterations,
+          toolCalls,
+          reports,
+          task: cancelled ?? task,
+          error: interrupt.reason,
+        };
+      }
       if (Date.now() - startedAt > task.plan.taskTimeoutMs) {
         const failed = taskService.updateStatus(taskId, 'FAILED', 'Execution timed out before verification.');
         return { success: false, taskId, status: 'FAILED', iterations, toolCalls, reports, task: failed, error: 'Execution timed out.' };
@@ -187,6 +217,17 @@ export class ExecutorService {
     const toolResults: EdithToolResult[] = [];
     let toolCalls = 0;
     for (const toolId of step.suggestedTools.slice(0, remainingToolBudget)) {
+      const interrupt = interruptService.current(task.id);
+      if (interrupt) {
+        taskService.updatePlanStepStatus(task.id, step.id, 'FAILED', `Step ${step.id} interrupted: ${interrupt.reason}`);
+        return {
+          stepId: step.id,
+          status: 'FAILED',
+          toolResults,
+          toolCalls,
+          message: interrupt.reason,
+        };
+      }
       const result = await executeEdithTool(toolId, toolArgsForStep(task, toolId), {
         actor: 'edith-executor',
         taskId: task.id,

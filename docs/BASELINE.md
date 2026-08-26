@@ -6,7 +6,7 @@ Date: 2026-08-14
 
 This document records the current repository safety and verification baseline before deeper E.D.I.T.H core, persistence, task-engine, planner, executor, verifier, and adapter work begins.
 
-The guiding rule is preservation: existing working AURA / E.D.I.T.H UI, chat, voice, 3D core, tools, tasks, audit records, Mark-L functionality, crypto functionality, settings, memory, and integrations must not be destroyed or broadly rewritten.
+The guiding rule is preservation: existing working EDITH UI, chat, voice, 3D core, tools, tasks, audit records, Mark-L functionality, crypto functionality, settings, memory, and integrations must not be destroyed or broadly rewritten.
 
 ## Repository State
 
@@ -21,7 +21,7 @@ The guiding rule is preservation: existing working AURA / E.D.I.T.H UI, chat, vo
 
 | Root | Role | Status |
 |---|---|---|
-| `src/` | React + TypeScript frontend for AURA / E.D.I.T.H | Active |
+| `src/` | React + TypeScript frontend for EDITH | Active |
 | `server.ts` | Express backend and API/tool execution layer | Active |
 | `src-tauri/` | Tauri desktop packaging | Active / packaging layer |
 | `Mark-L-main/` | Python Gemini Live voice assistant and OS/browser/file/screen actions | Legacy capability provider |
@@ -53,7 +53,7 @@ The guiding rule is preservation: existing working AURA / E.D.I.T.H UI, chat, vo
 `.gitignore` was expanded to ignore:
 
 - Node generated output: `node_modules/`, `dist/`, `coverage/`
-- Runtime data: `data/`, `logs/`, `.edith/`, `.aura_monitors.json`
+- Runtime data: `data/`, `logs/`, `.edith/`, legacy monitor state files
 - Local DBs: `*.db`, `*.sqlite`, `*.sqlite3`
 - Python generated/local env: `__pycache__/`, `*.pyc`, `.venv/`, `venv/`, `crypto/.venv/`, pytest/mypy/ruff caches
 - Secrets and generated credentials: `.env*` except `.env.example`, `Mark-L-main/config/api_keys.json`, `Mark-L-main/memory/api_keys.json`, `Mark-L-main/config/certs/*.key`, `Mark-L-main/config/certs/*.crt`
@@ -189,7 +189,7 @@ Known current environment/config surfaces:
 
 - `.env.example` exists and is allowed.
 - `.env*` files are ignored except `.env.example`.
-- `GEMINI_API_KEY` is read by AURA backend when present.
+- `GEMINI_API_KEY` is read by the EDITH backend when present.
 - Mark-L uses `config/api_keys.json`; this is ignored.
 - TTS endpoint accepts API keys from request body and does not persist them server-side in `server.ts`.
 - Integration settings in frontend mention local IndexedDB/LocalStorage token storage; this should be moved to safer storage later.

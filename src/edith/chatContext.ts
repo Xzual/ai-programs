@@ -52,7 +52,7 @@ export function buildChatSystemPrompt(input: BuildChatSystemPromptInput): BuildC
     try {
       contextSnapshot = contextService.build({
         query: lastUserMessage,
-        actor: 'aura-chat-context',
+        actor: 'edith-chat-context',
         memoryLimit: 5,
         taskLimit: 3,
         toolLimit: 5,

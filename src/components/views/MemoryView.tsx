@@ -75,7 +75,7 @@ export const MemoryView: React.FC<MemoryViewProps> = ({
             <h1 className="text-xl font-bold text-slate-100">Kişisel Bellek Paneli</h1>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            AURA'nın sizinle ilgili hatırladığı tüm bilgiler ve kişiselleştirilmiş ayarlar.
+            EDITH'in sizinle ilgili hatırladığı tüm bilgiler ve kişiselleştirilmiş ayarlar.
           </p>
         </div>
 
@@ -238,7 +238,7 @@ export const MemoryView: React.FC<MemoryViewProps> = ({
               <h3 className="text-base font-bold text-slate-100">Belleği Temizle</h3>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Tüm kişisel bellek verileri silinecektir. AURA artık terchilerinizi hatırlamayacaktır. Emin misiniz?
+              Tüm kişisel bellek verileri silinecektir. EDITH artık terchilerinizi hatırlamayacaktır. Emin misiniz?
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button

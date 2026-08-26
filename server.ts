@@ -5,11 +5,12 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { edithToolRegistry, executeEdithTool, getEdithToolHealth } from "./src/edith/serverRegistry";
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
-import { readRecentAuditEvents } from "./src/edith/audit";
+import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from "./src/edith/audit";
 import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
 import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
 import { taskService } from "./src/edith/taskService";
+import { taskQueueService } from "./src/edith/taskQueueService";
 import { plannerService } from "./src/edith/planner";
 import { executorService } from "./src/edith/executor";
 import { verificationService } from "./src/edith/verifier";
@@ -20,8 +21,24 @@ import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { buildChatSystemPrompt } from "./src/edith/chatContext";
 import { knowledgeMapService } from "./src/edith/knowledgeMapService";
+import { knowledgeGraphService } from "./src/edith/knowledgeGraphService";
+import { obsidianVaultService } from "./src/edith/obsidianVaultService";
+import { cryptoService } from "./src/edith/cryptoService";
+import { ragService } from "./src/edith/ragService";
 import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch";
 import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from "./src/edith/permissionService";
+import { visionObservationService } from "./src/edith/visionService";
+import { computerActionService } from "./src/edith/computerActionService";
+import { browserWorkflowService } from "./src/edith/browserWorkflowService";
+import { interruptService } from "./src/edith/interruptService";
+import { confidenceService, patternMemoryService, presenceContextService, sentimentContextService } from "./src/edith/contextSignals";
+import { proactiveService } from "./src/edith/proactiveService";
+import { design3dService } from "./src/edith/design3dService";
+import { modelCapabilityRegistry } from "./src/edith/modelCapabilities";
+import { legacyToolForPermission } from "./src/edith/legacyToolPolicy";
+import { localToolProbeService } from "./src/edith/localToolProbes";
+import { sensitiveIntegrationService } from "./src/edith/sensitiveIntegrationService";
+import assistantProfiles from "./src/config/assistantProfiles.json";
 import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
 import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
 
@@ -133,6 +150,56 @@ app.get("/api/edith/tools/health", (_req, res) => {
   });
 });
 
+app.get("/api/edith/runtime/probes", (_req, res) => {
+  res.json({
+    success: true,
+    probes: localToolProbeService.list(),
+    note: "Read-only probe. EDITH does not start Ollama, Blender, FreeCAD, solvers, or browser runtimes here.",
+  });
+});
+
+app.get("/api/edith/crypto/status", async (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      status: await cryptoService.status(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.post("/api/edith/crypto/start", async (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      status: await cryptoService.start("Manual start from EDITH Crypto view"),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+app.post("/api/edith/crypto/stop", (_req, res) => {
+  try {
+    res.json({
+      success: true,
+      status: cryptoService.stop("Manual stop from EDITH Crypto view"),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 app.get("/api/edith/agents", (_req, res) => {
   res.json({
     success: true,
@@ -162,7 +229,7 @@ app.post("/api/edith/capabilities/assess", (req, res) => {
   try {
     const assessment = capabilityService.assess({
       objective,
-      actor: typeof req.body?.actor === 'string' ? req.body.actor : 'aura-dashboard',
+      actor: typeof req.body?.actor === 'string' ? req.body.actor : 'edith-dashboard',
       toolsRequired: Array.isArray(req.body?.toolsRequired) ? req.body.toolsRequired : [],
       permissionsRequired: Array.isArray(req.body?.permissionsRequired) ? req.body.permissionsRequired : [],
       riskLevel,
@@ -178,7 +245,15 @@ const MODEL_MODALITIES = new Set<EdithModelModality>(['text', 'image', 'audio', 
 const MODEL_PRIVACY_PREFERENCES = new Set<EdithPrivacyPreference>(['local_first', 'cloud_allowed', 'offline_only']);
 
 function parseAiProvider(value: unknown): AiProvider | undefined {
-  return value === 'ollama' || value === 'gemini' || value === 'mock' ? value : undefined;
+  return value === 'ollama' ||
+    value === 'gemini' ||
+    value === 'openai' ||
+    value === 'anthropic' ||
+    value === 'openrouter' ||
+    value === 'local' ||
+    value === 'mock'
+    ? value
+    : undefined;
 }
 
 function parseModelTaskType(value: unknown): EdithModelTaskType | undefined {
@@ -194,18 +269,39 @@ function parsePrivacyPreference(value: unknown): EdithPrivacyPreference | undefi
 }
 
 app.get("/api/edith/models/route", (req, res) => {
+  const providerHealth = {
+    ollama: req.query.ollamaAvailable === 'true' ? 'available' as const : 'unknown' as const,
+    gemini: getGeminiClient() ? 'available' as const : 'unavailable' as const,
+    openai: process.env.OPENAI_API_KEY ? 'unknown' as const : 'unavailable' as const,
+    anthropic: process.env.ANTHROPIC_API_KEY ? 'unknown' as const : 'unavailable' as const,
+    openrouter: process.env.OPENROUTER_API_KEY ? 'unknown' as const : 'unavailable' as const,
+    local: 'unknown' as const,
+    mock: 'available' as const,
+  };
   const route = modelRouterService.route({
     requestedProvider: parseAiProvider(req.query.provider),
     model: typeof req.query.model === 'string' ? req.query.model : undefined,
     taskType: parseModelTaskType(req.query.taskType),
     modality: parseModelModality(req.query.modality),
     privacyPreference: parsePrivacyPreference(req.query.privacy),
-    providerHealth: {
-      gemini: getGeminiClient() ? 'available' : 'unavailable',
-      mock: 'available',
-    },
+    providerHealth,
   });
   res.json({ success: true, route });
+});
+
+app.get("/api/edith/models/capabilities", (req, res) => {
+  res.json({
+    success: true,
+    providers: modelCapabilityRegistry.list({
+      ollama: req.query.ollamaAvailable === 'true' ? 'available' : 'unknown',
+      gemini: getGeminiClient() ? 'available' : 'unavailable',
+      openai: process.env.OPENAI_API_KEY ? 'unknown' : 'unavailable',
+      anthropic: process.env.ANTHROPIC_API_KEY ? 'unknown' : 'unavailable',
+      openrouter: process.env.OPENROUTER_API_KEY ? 'unknown' : 'unavailable',
+      local: 'unknown',
+      mock: 'available',
+    }),
+  });
 });
 
 app.get("/api/edith/skill-catalog", (_req, res) => {
@@ -239,6 +335,80 @@ app.get("/api/edith/knowledge-map", (_req, res) => {
   });
 });
 
+app.get("/api/edith/knowledge/graph", (req, res) => {
+  res.json({
+    success: true,
+    graph: knowledgeGraphService.snapshot({
+      query: typeof req.query.query === 'string' ? req.query.query : undefined,
+      nodeType: typeof req.query.nodeType === 'string' ? req.query.nodeType as any : undefined,
+      relationshipType: typeof req.query.relationshipType === 'string' ? req.query.relationshipType as any : undefined,
+      folder: typeof req.query.folder === 'string' ? req.query.folder : undefined,
+      tag: typeof req.query.tag === 'string' ? req.query.tag : undefined,
+      source: typeof req.query.source === 'string' ? req.query.source : undefined,
+      limit: Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : undefined,
+    }),
+  });
+});
+
+app.get("/api/edith/knowledge/nodes/:id", (req, res) => {
+  const node = knowledgeGraphService.findNode(req.params.id);
+  if (!node) return res.status(404).json({ success: false, error: "Knowledge node not found." });
+  res.json({ success: true, node });
+});
+
+app.get("/api/edith/knowledge/search", (req, res) => {
+  const query = String(req.query.query ?? "").trim();
+  if (!query) return res.status(400).json({ success: false, error: "query is required." });
+  res.json({
+    success: true,
+    nodes: knowledgeGraphService.search(query, parseMemoryLimit(req.query.limit, 25)),
+    retrieval: ragService.retrieve(query, parseMemoryLimit(req.query.limit, 8)),
+  });
+});
+
+app.post("/api/edith/knowledge/reindex", (_req, res) => {
+  res.json({ success: true, reindex: obsidianVaultService.reindex() });
+});
+
+app.get("/api/edith/knowledge/rag/status", (_req, res) => {
+  res.json({ success: true, status: ragService.status() });
+});
+
+app.get("/api/edith/knowledge/rag/retrieve", (req, res) => {
+  const query = String(req.query.query ?? "").trim();
+  if (!query) return res.status(400).json({ success: false, error: "query is required." });
+  res.json({ success: true, retrieval: ragService.retrieve(query, parseMemoryLimit(req.query.limit, 8)) });
+});
+
+app.get("/api/edith/obsidian/status", (_req, res) => {
+  res.json({ success: true, status: obsidianVaultService.status() });
+});
+
+app.patch("/api/edith/obsidian/settings", (req, res) => {
+  res.json({ success: true, settings: obsidianVaultService.updateSettings(req.body ?? {}), status: obsidianVaultService.status() });
+});
+
+app.post("/api/edith/obsidian/sync-now", (_req, res) => {
+  res.json({ success: true, reindex: obsidianVaultService.reindex() });
+});
+
+app.post("/api/edith/obsidian/agent-notes", (req, res) => {
+  const kind = String(req.body?.kind ?? "");
+  if (kind !== "research" && kind !== "coding" && kind !== "meeting" && kind !== "trading") {
+    return res.status(400).json({ success: false, error: "kind must be research, coding, meeting, or trading." });
+  }
+  const title = String(req.body?.title ?? "").trim();
+  const body = String(req.body?.body ?? "").trim();
+  if (!title || !body) return res.status(400).json({ success: false, error: "title and body are required." });
+  const notePath = obsidianVaultService.writeAgentNote({
+    agentId: String(req.body?.agentId ?? "agent"),
+    kind,
+    title,
+    body,
+  });
+  res.json({ success: true, path: notePath });
+});
+
 app.get("/api/edith/kill-switch", (_req, res) => {
   res.json({
     success: true,
@@ -250,6 +420,8 @@ app.get("/api/edith/permissions/policy", (_req, res) => {
   res.json({
     success: true,
     policy: {
+      mode: permissionService.getPolicy().mode,
+      policy: permissionService.getPolicy(),
       highRiskEnabled: permissionService.highRiskEnabled(),
       defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
       highRiskPermissions: HIGH_RISK_PERMISSIONS,
@@ -257,6 +429,29 @@ app.get("/api/edith/permissions/policy", (_req, res) => {
       activeGrants: permissionService.listGrants().length,
     },
   });
+});
+
+app.patch("/api/edith/permissions/policy", (req, res) => {
+  try {
+    const policy = permissionService.updatePolicy({
+      mode: req.body?.mode,
+      updatedBy: 'edith-dashboard',
+    });
+    res.json({
+      success: true,
+      policy: {
+        mode: policy.mode,
+        policy,
+        highRiskEnabled: permissionService.highRiskEnabled(),
+        defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
+        highRiskPermissions: HIGH_RISK_PERMISSIONS,
+        authorizedPermissions: permissionService.defaultAuthorizedPermissions(),
+        activeGrants: permissionService.listGrants().length,
+      },
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 app.get("/api/edith/permissions/grants", (req, res) => {
@@ -276,7 +471,7 @@ app.post("/api/edith/permissions/grants", (req, res) => {
       permissions: Array.isArray(req.body?.permissions) ? req.body.permissions.map(String) : [],
       toolIds: Array.isArray(req.body?.toolIds) ? req.body.toolIds.map(String) : undefined,
       reason: String(req.body?.reason ?? ''),
-      grantedBy: 'aura-dashboard',
+      grantedBy: 'edith-dashboard',
       ttlMs: Number(req.body?.ttlMs ?? undefined),
     });
     res.json({ success: true, grant });
@@ -286,7 +481,7 @@ app.post("/api/edith/permissions/grants", (req, res) => {
 });
 
 app.delete("/api/edith/permissions/grants/:id", (req, res) => {
-  const grant = permissionService.revokeGrant(req.params.id, 'aura-dashboard');
+  const grant = permissionService.revokeGrant(req.params.id, 'edith-dashboard');
   res.status(grant ? 200 : 404).json({ success: Boolean(grant), grant });
 });
 
@@ -294,14 +489,14 @@ app.post("/api/edith/kill-switch/activate", (req, res) => {
   const reason = String(req.body?.reason ?? "").trim();
   res.json({
     success: true,
-    state: killSwitchService.activate(reason || "Manual emergency stop from EDITH API.", "aura-dashboard"),
+    state: killSwitchService.activate(reason || "Manual emergency stop from EDITH API.", "edith-dashboard"),
   });
 });
 
 app.post("/api/edith/kill-switch/deactivate", (_req, res) => {
   res.json({
     success: true,
-    state: killSwitchService.deactivate("aura-dashboard"),
+    state: killSwitchService.deactivate("edith-dashboard"),
   });
 });
 
@@ -314,11 +509,150 @@ app.get("/api/edith/persistence", (_req, res) => {
   });
 });
 
+app.post("/api/edith/vision/observe", (req, res) => {
+  const observation = visionObservationService.createObservation(req.body ?? {});
+  res.json({ success: true, observation });
+});
+
+app.post("/api/edith/vision/compare", (req, res) => {
+  if (!req.body?.previous || !req.body?.current) {
+    return res.status(400).json({ success: false, error: "previous and current observations are required." });
+  }
+  const observation = visionObservationService.compare(req.body.previous, req.body.current);
+  res.json({ success: true, observation });
+});
+
+app.post("/api/edith/computer/actions", (req, res) => {
+  const result = computerActionService.execute(req.body ?? {}, "edith-api");
+  res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
+});
+
+app.get("/api/edith/browser/workflows/capabilities", (_req, res) => {
+  res.json({ success: true, capabilities: browserWorkflowService.capabilities() });
+});
+
+app.post("/api/edith/browser/workflows", async (req, res) => {
+  const result = await browserWorkflowService.run(req.body ?? {}, "edith-api");
+  res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
+});
+
+app.get("/api/edith/integrations/capabilities", (_req, res) => {
+  res.json({ success: true, capabilities: sensitiveIntegrationService.capabilities() });
+});
+
+app.post("/api/edith/iot/feedback", (req, res) => {
+  const result = sensitiveIntegrationService.run("iot", req.body ?? {}, "edith-api");
+  res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
+});
+
+app.post("/api/edith/finance/trading/actions", (req, res) => {
+  const result = sensitiveIntegrationService.run("finance", req.body ?? {}, "edith-api");
+  res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
+});
+
+app.get("/api/edith/proactive/settings", (_req, res) => {
+  res.json({ success: true, settings: proactiveService.getSettings() });
+});
+
+app.patch("/api/edith/proactive/settings", (req, res) => {
+  res.json({ success: true, settings: proactiveService.updateSettings(req.body ?? {}) });
+});
+
+app.get("/api/edith/proactive/signals", (req, res) => {
+  res.json({
+    success: true,
+    signals: proactiveService.listSignals({ includeDismissed: req.query.includeDismissed === "true" }),
+  });
+});
+
+app.post("/api/edith/proactive/signals/:id/dismiss", (req, res) => {
+  const signal = proactiveService.dismissSignal(req.params.id, "edith-api");
+  res.status(signal ? 200 : 404).json({ success: Boolean(signal), signal });
+});
+
+app.post("/api/edith/proactive/check", (req, res) => {
+  const signals = proactiveService.checkOnce({
+    presence: req.body?.presence,
+    sentiment: req.body?.sentiment,
+  }, "edith-api");
+  res.json({ success: true, signals, activeSignals: proactiveService.listSignals() });
+});
+
+app.post("/api/edith/context/sentiment", (req, res) => {
+  res.json({ success: true, context: sentimentContextService.analyzeText(String(req.body?.text ?? "")) });
+});
+
+app.post("/api/edith/context/presence", (req, res) => {
+  res.json({ success: true, context: presenceContextService.snapshot(req.body ?? {}) });
+});
+
+app.post("/api/edith/context/patterns/observe", (req, res) => {
+  res.json({ success: true, pattern: patternMemoryService.observeCommand(String(req.body?.command ?? "")) });
+});
+
+app.post("/api/edith/confidence/check", (req, res) => {
+  res.json({ success: true, check: confidenceService.check(req.body ?? {}) });
+});
+
+app.get("/api/edith/design3d/projects", (_req, res) => {
+  res.json({
+    success: true,
+    projects: design3dService.listProjects(),
+    engineReport: design3dService.engineReport(),
+    architectureReport: design3dService.architectureReport(),
+  });
+});
+
+app.post("/api/edith/design3d/projects", (req, res) => {
+  const prompt = String(req.body?.prompt ?? "").trim();
+  if (!prompt) return res.status(400).json({ success: false, error: "prompt is required." });
+  const project = design3dService.createProject({
+    name: typeof req.body?.name === "string" ? req.body.name : undefined,
+    prompt,
+  });
+  res.json({
+    success: true,
+    project,
+    engineReport: design3dService.engineReport(),
+    architectureReport: design3dService.architectureReport(),
+  });
+});
+
+app.get("/api/edith/design3d/architecture-report", (_req, res) => {
+  res.json({ success: true, report: design3dService.architectureReport() });
+});
+
+app.post("/api/edith/design3d/projects/:id/snapshot", (req, res) => {
+  const project = design3dService.snapshot(req.params.id, String(req.body?.reason ?? "Manual snapshot."));
+  if (!project) return res.status(404).json({ success: false, error: "Project not found." });
+  res.json({ success: true, project });
+});
+
+app.post("/api/edith/interrupt", (req, res) => {
+  res.json({
+    success: true,
+    interrupt: interruptService.request({
+      taskId: typeof req.body?.taskId === "string" ? req.body.taskId : undefined,
+      reason: typeof req.body?.reason === "string" ? req.body.reason : undefined,
+      requestedBy: "edith-api",
+    }),
+  });
+});
+
+app.delete("/api/edith/interrupt/:id", (req, res) => {
+  const cleared = interruptService.clear(req.params.id, "edith-api");
+  res.status(cleared ? 200 : 404).json({ success: cleared });
+});
+
 app.get("/api/edith/tasks", (_req, res) => {
   res.json({
     success: true,
     tasks: listTasks(),
   });
+});
+
+app.get("/api/edith/tasks/queue", (_req, res) => {
+  res.json({ success: true, queue: taskQueueService.snapshot(), next: taskQueueService.next() });
 });
 
 app.post("/api/edith/tasks", (req, res) => {
@@ -342,6 +676,7 @@ app.post("/api/edith/tasks", (req, res) => {
       permissionsRequired,
       riskLevel,
     });
+    obsidianVaultService.writeTaskNote(task);
     res.json({ success: true, task });
   } catch (error) {
     if (error instanceof KillSwitchActiveError) {
@@ -353,6 +688,31 @@ app.post("/api/edith/tasks", (req, res) => {
 
 app.patch("/api/edith/tasks/:id/status", (req, res) => {
   const task = updateTaskStatus(req.params.id, req.body?.status, req.body?.result);
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  obsidianVaultService.writeTaskNote(task);
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/queue", (req, res) => {
+  const queued = taskQueueService.enqueue(req.params.id);
+  if (!queued) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task: queued });
+});
+
+app.post("/api/edith/tasks/:id/pause", (req, res) => {
+  const task = taskQueueService.pause(req.params.id, String(req.body?.reason ?? "Task paused."));
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/resume", (req, res) => {
+  const task = taskQueueService.resume(req.params.id);
+  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
+  res.json({ success: true, task });
+});
+
+app.post("/api/edith/tasks/:id/cancel", (req, res) => {
+  const task = taskQueueService.cancel(req.params.id, String(req.body?.reason ?? "Task cancelled by user."), "edith-api");
   if (!task) return res.status(404).json({ success: false, error: "Task not found." });
   res.json({ success: true, task });
 });
@@ -438,6 +798,7 @@ app.post("/api/edith/memory-v2", (req, res) => {
   try {
     const conflicts = memoryService.conflicts(req.body ?? {});
     const memory = memoryService.upsert(req.body ?? {});
+    obsidianVaultService.writeMemoryNote(memory);
     res.json({ success: true, memory, conflicts });
   } catch (error) {
     res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -518,7 +879,7 @@ app.get("/api/ollama/models", async (req, res) => {
     res.status(502).json({ error: "Ollama sunucusuna ulaşılamadı", models: [] });
   } catch (err) {
     res.json({
-      error: "Ollama sunucusuna ulaşılamadı. Lütfen 'ollama serve' çalıştığından emin olun.",
+      error: "Ollama sunucusuna ulaşılamadı. EDITH yerel sunucuyu başlatmadı; yalnızca mevcut durumu algılıyor.",
       models: [
         { name: "llama3.2:latest", details: { family: "llama" } },
         { name: "qwen2.5:latest", details: { family: "qwen" } },
@@ -530,6 +891,48 @@ app.get("/api/ollama/models", async (req, res) => {
   }
 });
 
+function extractExplicitMemory(text: string): { key: string; content: string } | undefined {
+  const normalized = String(text ?? '').trim();
+  if (!normalized) return undefined;
+  const patterns = [
+    /(?:şunu\s+)?hatırla(?:\s+ki)?\s*[:：-]?\s*(.+)$/i,
+    /unutma(?:\s+ki)?\s*[:：-]?\s*(.+)$/i,
+    /bunu\s+(?:hafızaya|belleğe)\s+(?:al|kaydet)\s*[:：-]?\s*(.+)$/i,
+    /(?:remember that|remember|save this|save to memory)\s*[:：-]?\s*(.+)$/i,
+  ];
+  const content = patterns
+    .map((pattern) => normalized.match(pattern)?.[1]?.trim())
+    .find((candidate): candidate is string => Boolean(candidate && candidate.length >= 4));
+  if (!content) return undefined;
+  const cleaned = content.replace(/^["'“”]+|["'“”]+$/g, '').trim();
+  if (cleaned.length < 4) return undefined;
+  const key = cleaned
+    .split(/[.!?\n]/)[0]
+    .replace(/\s+/g, ' ')
+    .slice(0, 80)
+    .trim() || 'Kullanıcı hafıza notu';
+  return { key, content: cleaned };
+}
+
+function captureExplicitMemory(text: string, userName: string) {
+  const extracted = extractExplicitMemory(text);
+  if (!extracted) return undefined;
+  const memory = memoryService.upsert({
+    type: 'semantic',
+    scope: 'user',
+    category: 'fact',
+    key: extracted.key,
+    content: extracted.content,
+    source: 'chat-explicit-memory',
+    provenance: `Explicit memory command from ${userName}.`,
+    confidence: 0.92,
+    importance: 0.72,
+    sensitivity: 'internal',
+  });
+  obsidianVaultService.writeMemoryNote(memory);
+  return memory;
+}
+
 // 3. Streaming Chat Endpoint
 app.post("/api/chat", async (req, res) => {
   const {
@@ -538,10 +941,11 @@ app.post("/api/chat", async (req, res) => {
     model = "llama3.2",
     ollamaUrl = "http://localhost:11434",
     temperature = 0.7,
-    systemPrompt = "Sen AURA adında yerel çalışan futuristik bir AI asistanısın. Türkçe konuş ve yardımsever ol.",
+    systemPrompt = "Sen EDITH içinde çalışan seçili AI asistan personasısın. Türkçe konuş ve yardımsever ol.",
     memories = [],
     memoryEnabled = true,
     userName = "Kullanıcı",
+    assistantPersona = "jarvis",
   } = req.body;
 
   // Set SSE Headers
@@ -554,11 +958,30 @@ app.post("/api/chat", async (req, res) => {
   };
 
   const lastUserMessage = [...messages].reverse().find((m: any) => m.sender === "user")?.text ?? "";
+  const capturedMemory = memoryEnabled ? captureExplicitMemory(lastUserMessage, userName) : undefined;
+  const activeAssistant = (assistantProfiles as Array<{ id: string; name: string; systemPrompt?: string; greetingStyle?: string }>).find(
+    (profile) => profile.id === assistantPersona
+  ) ?? (assistantProfiles as Array<{ id: string; name: string; systemPrompt?: string; greetingStyle?: string }>)[0];
+
+  const interrupt = interruptService.detectCommand(lastUserMessage);
+  if (interrupt) {
+    sendEvent({ text: `İptal sinyali alındı. Aktif görev döngüsü bir sonraki güvenli noktada durdurulacak.\nInterrupt ID: ${interrupt.id}`, done: true });
+    return res.end();
+  }
+
+  const personaSystemPrompt = activeAssistant.systemPrompt || systemPrompt;
+  if (capturedMemory) {
+    sendEvent({
+      text: `Belleğe kaydettim: ${capturedMemory.key}\n`,
+      done: false,
+      memoryId: capturedMemory.id,
+    });
+  }
 
   const { fullSystem } = buildChatSystemPrompt({
-    systemPrompt,
+    systemPrompt: personaSystemPrompt,
     userName,
-    memories,
+    memories: capturedMemory ? [capturedMemory, ...memories] : memories,
     memoryEnabled,
     lastUserMessage,
   });
@@ -570,7 +993,12 @@ app.post("/api/chat", async (req, res) => {
     modality: "text",
     privacyPreference: provider === "mock" ? "offline_only" : "local_first",
     providerHealth: {
+      ollama: "unknown",
       gemini: getGeminiClient() ? "available" : "unavailable",
+      openai: process.env.OPENAI_API_KEY ? "unknown" : "unavailable",
+      anthropic: process.env.ANTHROPIC_API_KEY ? "unknown" : "unavailable",
+      openrouter: process.env.OPENROUTER_API_KEY ? "unknown" : "unavailable",
+      local: "unknown",
       mock: "available",
     },
   });
@@ -580,7 +1008,7 @@ app.post("/api/chat", async (req, res) => {
   if (intent.kind !== "conversation" && toolRoute) {
     sendEvent({ text: `${toolRoute.summary}\n`, done: false });
     const result = await executeEdithTool(toolRoute.toolId, toolRoute.args, {
-      actor: "aura-chat-router",
+      actor: "edith-chat-router",
     });
     if (result.success) {
       sendEvent({
@@ -676,10 +1104,10 @@ app.post("/api/chat", async (req, res) => {
   if (gemini) {
     try {
       const historyStr = messages
-        .map((m: any) => `${m.sender === "user" ? "Kullanıcı" : "AURA"}: ${m.text}`)
+        .map((m: any) => `${m.sender === "user" ? "Kullanıcı" : activeAssistant.name}: ${m.text}`)
         .join("\n");
 
-      const fullPrompt = `${fullSystem}\n\nKonuşma Geçmişi:\n${historyStr}\n\nAURA (Türkçe yanıt ver):`;
+      const fullPrompt = `${fullSystem}\n\nKonuşma Geçmişi:\n${historyStr}\n\n${activeAssistant.name} (Türkçe yanıt ver):`;
 
       const resultStream = await gemini.models.generateContentStream({
         model: "gemini-2.5-flash",
@@ -700,7 +1128,7 @@ app.post("/api/chat", async (req, res) => {
 
   // Fallback 2: Intelligent Local AI Assistant Mock Engine
   const lastUserMsg = messages[messages.length - 1]?.text || "Merhaba";
-  const mockResponses = generateMockResponse(lastUserMsg, userName, memories);
+  const mockResponses = generateMockResponse(lastUserMsg, userName, memories, activeAssistant.name);
 
   for (let i = 0; i < mockResponses.length; i++) {
     await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 40));
@@ -712,18 +1140,18 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Helper for realistic fallback assistant response generator
-function generateMockResponse(prompt: string, userName: string, memories: any[]): string[] {
+function generateMockResponse(prompt: string, userName: string, memories: any[], assistantName = "JARVIS"): string[] {
   const lower = prompt.toLowerCase();
   let fullText = "";
 
   if (lower.includes("merhaba") || lower.includes("selam")) {
-    fullText = `Merhaba ${userName}! Ben AURA, yerel makinenizde çalışan futuristik AI asistanınızım. Size nasıl yardımcı olabilirim?`;
+    fullText = `Merhaba ${userName}. Ben ${assistantName}; EDITH içindeki aktif kişisel asistanınızım. Size nasıl yardımcı olabilirim?`;
   } else if (lower.includes("dosya") || lower.includes("klasör")) {
     fullText = `Yerel dosya sisteminizdeki güvenli çalışma alanında kayıtlı dosyaları 'Automations' ekranından görüntüleyebilir veya analiz etmemi isteyebilirsiniz.`;
   } else if (lower.includes("hatırla") || lower.includes("bellek")) {
     fullText = `Anlaşıldı! Bu bilgiyi kişisel bellek sistemime ekliyorum. Memory ekranından tüm kayıtlı tercihlerinizi kontrol edebilirsiniz.`;
-  } else if (lower.includes("kimsin") || lower.includes("aura")) {
-    fullText = `Ben AURA (Automated Universal Responsive Assistant). Yerel makinenizde gizlilik odaklı çalışan, sesli ve metinsel etkileşim yeteneğine sahip kişisel yapay zekâ dashboard'uyum.`;
+  } else if (lower.includes("kimsin") || lower.includes("edith") || lower.includes(assistantName.toLocaleLowerCase("tr-TR"))) {
+    fullText = `Ben ${assistantName}. EDITH kişisel AI sistemi içinde çalışan, seçili persona ve model katmanından bağımsız bir asistan profilindeyim.`;
   } else {
     fullText = `Anladım "${prompt}". Bu isteğinizi yerel işleme yeteneklerimle değerlendiriyorum. Ollama veya Gemini servisleriniz bağlandığında daha kapsamlı model yanıtları alabilirsiniz.`;
   }
@@ -802,14 +1230,14 @@ app.post("/api/tools/execute", async (req, res) => {
   const edithTool = edithToolRegistry.get(toolId);
   if (edithTool) {
     const result = await executeEdithTool(toolId, args as Record<string, unknown>, {
-      actor: "aura-dashboard",
+      actor: "edith-dashboard",
     });
     const blockedByKillSwitch = result.structuredOutput?.disabledCapability === 'tool_execution';
     return res.status(result.success ? 200 : blockedByKillSwitch ? 423 : 403).json(result);
   }
 
   try {
-    killSwitchService.assertAllowed('tool_execution', 'aura-dashboard');
+    killSwitchService.assertAllowed('tool_execution', 'edith-dashboard');
   } catch (error) {
     if (error instanceof KillSwitchActiveError) {
       return res.status(423).json({
@@ -820,6 +1248,35 @@ app.post("/api/tools/execute", async (req, res) => {
       });
     }
     throw error;
+  }
+
+  const legacyTool = legacyToolForPermission(String(toolId), args as Record<string, any>);
+  if (legacyTool) {
+    const decision = permissionService.decideToolExecution({
+      tool: legacyTool,
+      actor: 'edith-dashboard',
+      authorizedPermissions: Array.isArray(req.body?.authorizedPermissions)
+        ? req.body.authorizedPermissions.map(String)
+        : undefined,
+    });
+    if (decision.status === 'DENY') {
+      appendAuditEvent(createAuditEvent({
+        actor: 'edith-dashboard',
+        action: 'legacy_tool.permission_denied',
+        toolId: legacyTool.id,
+        authorization: 'denied',
+        riskLevel: decision.riskLevel,
+        result: 'denied',
+        message: decision.rationale,
+      }));
+      return res.status(403).json({
+        success: false,
+        toolId,
+        error: decision.rationale,
+        errorCode: 'PERMISSION_DENIED',
+        structuredOutput: { permissionDecision: decision },
+      });
+    }
   }
 
   switch (toolId) {
@@ -849,19 +1306,19 @@ app.post("/api/tools/execute", async (req, res) => {
       const fileName = args.fileName || "notlar.txt";
       return res.json({
         success: true, toolId,
-        result: `[OKUNDU: ${fileName}]\n\nAURA Sistem Notları:\n- Yerel Ollama LLM yapılandırması tamamlandı.\n- Bellek ve ses modülleri aktif.\n- Güvenli araç izinleri kullanıcı onayına bağlıdır.`,
+        result: `[OKUNDU: ${fileName}]\n\nEDITH Sistem Notları:\n- Yerel Ollama LLM yapılandırması tamamlandı.\n- Bellek ve ses modülleri aktif.\n- Güvenli araç izinleri kullanıcı onayına bağlıdır.`,
       });
     }
 
     case "export_markdown": {
       return res.json({
         success: true, toolId,
-        result: `# AURA Sohbet Özeti\n\nTarih: ${new Date().toLocaleString("tr-TR")}\n\n## Özet\nSohbet oturumu başarıyla Markdown formatında dışa aktarıldı.`,
+        result: `# EDITH Sohbet Özeti\n\nTarih: ${new Date().toLocaleString("tr-TR")}\n\n## Özet\nSohbet oturumu başarıyla Markdown formatında dışa aktarıldı.`,
       });
     }
 
     case "schedule_reminder": {
-      const text = args.reminderText || "AURA Görev Takibi";
+      const text = args.reminderText || "EDITH Görev Takibi";
       const time = args.time || "10 dakika sonra";
       return res.json({
         success: true, toolId,
@@ -1173,7 +1630,7 @@ app.post("/api/tools/execute", async (req, res) => {
     case "dev_agent": {
       const description = (args.description || "").trim();
       const language    = args.language || "python";
-      const projectName = (args.project_name || "aura_project").trim().replace(/[^\w-]/g, "_");
+      const projectName = (args.project_name || "edith_project").trim().replace(/[^\w-]/g, "_");
 
       if (!description) return res.json({ success: false, error: "Proje açıklaması gereklidir." });
 
@@ -1207,7 +1664,7 @@ Return ONLY valid JSON:
         const os     = require("os") as typeof import("os");
         const fsNode = require("fs") as typeof import("fs");
         const pathNode = require("path") as typeof import("path");
-        const projectDir = pathNode.join(os.homedir(), "Desktop", "AURAProjects", projName);
+        const projectDir = pathNode.join(os.homedir(), "Desktop", "EDITHProjects", projName);
         fsNode.mkdirSync(projectDir, { recursive: true });
 
         const writtenFiles: string[] = [];
@@ -1280,10 +1737,10 @@ ${deps.length ? `💡 Kurulum için: pip install ${deps.join(" ")}` : ""}`;
       const action = (args.action || "list").toLowerCase();
       const topic  = (args.topic || "").trim();
 
-      // Basit bellek dosyası: proje kökünde .aura_monitors.json
+      // Basit bellek dosyası: proje kökünde .edith_monitors.json
       const fsNode = require("fs") as typeof import("fs");
       const pathNode = require("path") as typeof import("path");
-      const monitorsPath = pathNode.join(process.cwd(), ".aura_monitors.json");
+      const monitorsPath = pathNode.join(process.cwd(), ".edith_monitors.json");
 
       const loadMonitors = (): string[] => {
         try { return JSON.parse(fsNode.readFileSync(monitorsPath, "utf-8")); } catch { return []; }
@@ -1519,8 +1976,18 @@ async function startServer() {
     });
   }
 
+  obsidianVaultService.startWatcher();
+  if (process.env.EDITH_CRYPTO_AUTOSTART !== "false") {
+    cryptoService.start("EDITH server startup").then((status) => {
+      const state = status.healthy || status.managedProcessRunning ? "online/starting" : "not started";
+      console.log(`[EDITH Crypto] ${state}: ${status.dashboardUrl}${status.error ? ` (${status.error})` : ""}`);
+    }).catch((error) => {
+      console.warn("[EDITH Crypto] Autostart failed:", error);
+    });
+  }
+
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[AURA Server] Running on http://0.0.0.0:${PORT}`);
+    console.log(`[EDITH Server] Running on http://0.0.0.0:${PORT}`);
   });
 }
 

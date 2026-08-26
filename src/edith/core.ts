@@ -2,6 +2,242 @@ import { permissionService } from './permissionService';
 
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
 
+export type StructuredObservationSource =
+  | 'screen'
+  | 'window'
+  | 'application'
+  | 'dialog'
+  | 'notification'
+  | 'browser_page'
+  | 'pdf'
+  | 'screenshot_diff';
+
+export interface StructuredObservation {
+  id: string;
+  source: StructuredObservationSource;
+  capturedAt: string;
+  summary: string;
+  text?: string;
+  application?: string;
+  windowTitle?: string;
+  monitorIndex?: number;
+  confidence: number;
+  readOnly: true;
+  artifacts: string[];
+  metadata: Record<string, unknown>;
+}
+
+export type ComputerActionKind =
+  | 'mouse_move'
+  | 'click'
+  | 'double_click'
+  | 'right_click'
+  | 'type_text'
+  | 'hotkey'
+  | 'focus_window'
+  | 'switch_window'
+  | 'launch_app'
+  | 'close_app';
+
+export interface ComputerActionRequest {
+  action: ComputerActionKind;
+  target?: string;
+  text?: string;
+  x?: number;
+  y?: number;
+  keys?: string[];
+  reason: string;
+  dryRun?: boolean;
+}
+
+export type BrowserWorkflowAction =
+  | 'search'
+  | 'navigate'
+  | 'extract'
+  | 'screenshot'
+  | 'download_pdf'
+  | 'read_pdf'
+  | 'upload_file'
+  | 'fill_form';
+
+export interface BrowserWorkflowRequest {
+  action: BrowserWorkflowAction;
+  query?: string;
+  url?: string;
+  selectors?: Record<string, string>;
+  filePath?: string;
+  verificationGoal: string;
+  dryRun?: boolean;
+}
+
+export interface InterruptSignal {
+  id: string;
+  taskId?: string;
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  active: boolean;
+}
+
+export interface ConfidenceCheck {
+  id: string;
+  createdAt: string;
+  subject: string;
+  confidence: number;
+  requiresApproval: boolean;
+  rationale: string;
+  riskLevel: EdithRiskLevel;
+}
+
+export interface PresenceContext {
+  id: string;
+  capturedAt: string;
+  device: 'desktop' | 'browser' | 'unknown';
+  activeApplication?: string;
+  activeWindowTitle?: string;
+  microphoneInUse?: boolean;
+  cameraInUse?: boolean;
+  inferredState: 'available' | 'busy' | 'meeting' | 'gaming' | 'unknown';
+  confidence: number;
+}
+
+export interface SentimentContext {
+  id: string;
+  capturedAt: string;
+  source: 'text' | 'voice' | 'unknown';
+  tone: 'calm' | 'urgent' | 'frustrated' | 'positive' | 'neutral';
+  responseStyle: 'brief' | 'standard' | 'supportive';
+  confidence: number;
+  notes: string[];
+}
+
+export interface PatternMemoryEntry {
+  id: string;
+  patternType: 'working_hours' | 'frequent_command' | 'application_usage' | 'routine';
+  label: string;
+  evidenceCount: number;
+  lastObservedAt: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
+}
+
+export type KnowledgeGraphNodeType =
+  | 'Person'
+  | 'Organization'
+  | 'Project'
+  | 'Task'
+  | 'Note'
+  | 'Conversation'
+  | 'Website'
+  | 'File'
+  | 'Agent'
+  | 'Memory'
+  | 'Tool'
+  | 'Event'
+  | 'Trade';
+
+export type KnowledgeGraphRelationshipType =
+  | 'worksWith'
+  | 'created'
+  | 'belongsTo'
+  | 'relatedTo'
+  | 'dependsOn'
+  | 'mentionedIn'
+  | 'owns'
+  | 'participatesIn'
+  | 'references'
+  | 'generatedBy';
+
+export interface KnowledgeGraphNode {
+  id: string;
+  title: string;
+  type: KnowledgeGraphNodeType;
+  aliases: string[];
+  tags: string[];
+  path?: string;
+  folder?: string;
+  source: 'edith' | 'obsidian' | 'memory' | 'task' | 'agent' | 'tool' | 'rag';
+  importance: number;
+  recentActivityAt: string;
+  properties: Record<string, unknown>;
+  deletedAt?: string;
+}
+
+export interface KnowledgeGraphRelationship {
+  id: string;
+  from: string;
+  to: string;
+  type: KnowledgeGraphRelationshipType;
+  strength: number;
+  source: 'edith' | 'obsidian' | 'memory' | 'task' | 'agent' | 'tool' | 'rag';
+  evidence: string;
+  updatedAt: string;
+  deletedAt?: string;
+}
+
+export interface ObsidianNoteIndexRecord {
+  path: string;
+  absolutePath: string;
+  entityId: string;
+  title: string;
+  folder: string;
+  extension: '.md' | '.canvas' | 'attachment';
+  mtimeMs: number;
+  size: number;
+  hash: string;
+  tags: string[];
+  links: string[];
+  attachments: string[];
+  properties: Record<string, unknown>;
+  indexedAt: string;
+  deletedAt?: string;
+}
+
+export interface KnowledgeChunk {
+  id: string;
+  nodeId: string;
+  notePath: string;
+  content: string;
+  ordinal: number;
+  tokensApprox: number;
+  hash: string;
+  embeddingStatus: 'ready' | 'embedding_provider_required';
+  embeddingProvider?: string;
+  embeddingModel?: string;
+  vector?: number[];
+  indexedAt: string;
+}
+
+export interface KnowledgeSyncEvent {
+  id: string;
+  action: 'create' | 'edit' | 'delete' | 'rename' | 'move' | 'reindex' | 'write';
+  path: string;
+  previousPath?: string;
+  source: 'edith' | 'obsidian' | 'watcher' | 'manual';
+  status: 'success' | 'error' | 'ignored';
+  message: string;
+  createdAt: string;
+}
+
+export interface KnowledgeGraphSnapshot {
+  generatedAt: string;
+  nodes: KnowledgeGraphNode[];
+  relationships: KnowledgeGraphRelationship[];
+  metrics: Array<{ label: string; value: number; type?: KnowledgeGraphNodeType | 'Relationship' | 'Chunk' }>;
+  sources: Record<string, number>;
+  recommendations: KnowledgeRecommendation[];
+}
+
+export interface KnowledgeRecommendation {
+  id: string;
+  type: 'auto_link' | 'duplicate' | 'cluster' | 'missing_relationship';
+  title: string;
+  rationale: string;
+  nodeIds: string[];
+  confidence: number;
+  actionRequired: true;
+}
+
 export type EdithPlanStepStatus = 'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
 
 export interface EdithPlanStep {
@@ -190,6 +426,13 @@ export interface EdithTask {
   failureReason?: string;
   memoryReferences: string[];
   auditEvents: string[];
+  queue?: {
+    state: 'queued' | 'running' | 'interrupted' | 'resumable' | 'done';
+    queuedAt?: string;
+    startedAt?: string;
+    interruptedAt?: string;
+    resumeFromStepId?: string;
+  };
 }
 
 export interface EdithToolSchemaField {
@@ -202,7 +445,7 @@ export interface EdithToolMetadata {
   name: string;
   version: string;
   description: string;
-  category: 'file' | 'system' | 'reminder' | 'analytics' | 'web' | 'media' | 'code' | 'monitor';
+  category: 'file' | 'system' | 'reminder' | 'analytics' | 'web' | 'media' | 'code' | 'monitor' | 'vision' | 'computer' | 'browser' | 'design3d' | 'iot' | 'finance' | 'knowledge';
   inputSchema: Record<string, EdithToolSchemaField>;
   outputSchema: Record<string, EdithToolSchemaField>;
   requiredPermissions: string[];

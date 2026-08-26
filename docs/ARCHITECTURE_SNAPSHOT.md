@@ -19,7 +19,7 @@ This document satisfies the required pre-implementation deliverables from the Ph
 
 The workspace contains three assistant-related systems:
 
-1. Main AURA / E.D.I.T.H application
+1. Main EDITH application
    - React 19 + TypeScript + Vite frontend
    - Express + Node.js backend
    - Ollama / Gemini / mock AI provider flow
@@ -57,12 +57,12 @@ The workspace contains three assistant-related systems:
 
 ### Architectural Assessment
 
-The current AURA app is a strong local AI dashboard foundation, but it is not yet a durable AI operating layer. The core gaps are persistence, unified tool metadata, orchestration, verification, memory architecture, permission enforcement depth, and adapter boundaries for legacy systems.
+The current EDITH app is a strong local AI dashboard foundation, but it is not yet a durable AI operating layer. The core gaps are persistence, unified tool metadata, orchestration, verification, memory architecture, permission enforcement depth, and adapter boundaries for legacy systems.
 
 The correct evolution path is incremental migration:
 
 ```text
-Existing AURA UI
+Existing EDITH UI
   -> backend-authoritative registry
   -> persistence interfaces
   -> SQLite-backed operational state
@@ -156,10 +156,10 @@ First migration should cover:
 - `.edith/tasks.json`
 - existing audit JSONL file
 - localStorage keys:
-  - `aura_memories_v1`
-  - `aura_tool_logs_v1`
-  - `aura_chat_sessions_v1`
-  - `aura_code_chat_session_v1`
+  - legacy memory key
+  - legacy tool-log key
+  - legacy chat-session key
+  - legacy code-chat-session key
 
 ### Compatibility Strategy
 
@@ -250,7 +250,7 @@ Mark-L action module
 | browser control | 3-5 | Prefer Playwright where possible. |
 | file read/write | 2-4 | Needs path allowlists and size limits. |
 | reminders | 1-2 | Safer first adapter candidate. |
-| voice-related actions | 2 | Preserve current AURA voice first. |
+| voice-related actions | 2 | Preserve current EDITH voice first. |
 
 ### First Safe Adapter Candidate
 

@@ -94,6 +94,24 @@ try {
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('system:exec'), true);
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.highRiskToolIds.includes('computer_control_agent'), true);
 
+  const sensitivePermissionTask = taskService.createTask({
+    title: 'Sensitive permission recovery regression',
+    objective: 'IoT ışık feedback ve finance trading live order',
+    originalUserRequest: 'Akıllı ev ve trading işlemlerini güvenlik kapısından geçir.',
+    toolsRequired: ['iot_feedback_stub', 'finance_trading_guard'],
+    riskLevel: 5,
+  });
+  taskService.updateStatus(sensitivePermissionTask.id, 'WAITING_PERMISSION', 'Sensitive permission denied.');
+  const sensitiveRecovery = recoveryService.recoverTask(sensitivePermissionTask.id);
+  const sensitiveReloaded = taskService.getTask(sensitivePermissionTask.id);
+
+  assert.equal(sensitiveRecovery.action, 'WAIT_PERMISSION');
+  assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.toolIds.includes('iot_feedback_stub'), true);
+  assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.toolIds.includes('finance_trading_guard'), true);
+  assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('iot:control'), true);
+  assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('trading:execute'), true);
+  assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.highRiskToolIds.includes('finance_trading_guard'), true);
+
   getEdithPersistenceStore().close?.();
 
   console.log(JSON.stringify({
@@ -105,7 +123,8 @@ try {
     recoveryEvents: reloaded?.recoveryEvents?.length,
     permissionAction: permissionRecovery.action,
     permissionRequest: permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions,
-    scenarios: ['retryable_verification', 'replan', 'persist_recovery', 'audit', 'permission_wait', 'permission_request_details'],
+    sensitivePermissionRequest: sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions,
+    scenarios: ['retryable_verification', 'replan', 'persist_recovery', 'audit', 'permission_wait', 'permission_request_details', 'sensitive_permission_request_details'],
   }, null, 2));
 } finally {
   process.chdir(originalCwd);

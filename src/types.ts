@@ -1,6 +1,19 @@
-export type AiState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+export type AiState =
+  | 'idle'
+  | 'listening'
+  | 'thinking'
+  | 'speaking'
+  | 'searching'
+  | 'tool_execution'
+  | 'computer_use'
+  | 'browser_use'
+  | 'coding'
+  | 'trading_analysis'
+  | 'warning'
+  | 'error'
+  | 'success';
 
-export type AiProvider = 'ollama' | 'gemini' | 'mock';
+export type AiProvider = 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'local' | 'mock';
 export type AssistantPersona = 'jarvis' | 'friday' | 'ultron' | 'karen' | 'alfred' | 'homer';
 
 export type MemoryCategory = 'user_pref' | 'fact' | 'summary' | 'custom';
@@ -67,7 +80,7 @@ export interface AutomationTool {
   lastRun?: number;
   status: 'idle' | 'running' | 'success' | 'error';
   requiresConfirmation: boolean;
-  category: 'file' | 'system' | 'reminder' | 'analytics' | 'web' | 'media' | 'code' | 'monitor';
+  category: 'file' | 'system' | 'reminder' | 'analytics' | 'web' | 'media' | 'code' | 'monitor' | 'vision' | 'computer' | 'browser' | 'design3d' | 'iot' | 'finance' | 'knowledge';
   /** Input fields shown in the run dialog */
   inputFields?: ToolInputField[];
 }
@@ -102,6 +115,31 @@ export interface IntegrationConfig {
   apiKey?: string;
   enabled: boolean;
   lastSync?: number;
+}
+
+export interface EdithUserAccount {
+  id: string;
+  name: 'CAN İPKİN' | 'ARDA YORULMAZEL';
+  role: 'admin';
+  permissions: string[];
+  voiceProfile: {
+    enrolled: boolean;
+    label: string;
+  };
+  preferences: Record<string, unknown>;
+  lastLogin?: number;
+  securitySettings: {
+    authenticationMode: 'typed_name' | 'spoken_name';
+    biometricVerified: false;
+  };
+}
+
+export interface EdithAuthSession {
+  authenticated: boolean;
+  user: EdithUserAccount;
+  authenticatedAt: number;
+  method: 'typed_name' | 'spoken_name';
+  assurance: 'admin_name_match';
 }
 
 export interface UserSettings {

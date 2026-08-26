@@ -1,4 +1,5 @@
 import type { EdithRiskLevel } from '../core';
+import { EDITH_AWESOME_AGENT_SKILLS, loadDownloadedAwesomeAgentSkillCatalog } from '../awesomeAgentSkills';
 
 export interface EdithExternalSkillProject {
   id: string;
@@ -11,7 +12,11 @@ export interface EdithExternalSkillProject {
     | 'agent-framework'
     | 'web-data'
     | 'memory'
-    | 'observability';
+    | 'observability'
+    | 'crypto-finance'
+    | 'news-search'
+    | 'messaging'
+    | 'computer-use';
   status: 'cataloged' | 'adapter-ready' | 'requires-install' | 'deferred-high-risk';
   recommendedUse: string;
   integrationPlan: string;
@@ -144,5 +149,63 @@ export const EDITH_EXTERNAL_SKILL_CATALOG: EdithExternalSkillProject[] = [
 ];
 
 export function listExternalSkillProjects(): EdithExternalSkillProject[] {
-  return EDITH_EXTERNAL_SKILL_CATALOG;
+  const awesomeAgentSkills: EdithExternalSkillProject[] = EDITH_AWESOME_AGENT_SKILLS.map((skill) => ({
+    id: skill.toolId,
+    name: skill.name,
+    sourceUrl: skill.sourceUrl,
+    category: skill.domain === 'crypto' || skill.domain === 'finance'
+      ? 'crypto-finance'
+      : skill.domain === 'news' || skill.domain === 'search'
+      ? 'news-search'
+      : skill.domain === 'messaging'
+      ? 'messaging'
+      : 'computer-use',
+    status: skill.status === 'adapter-ready'
+      ? 'adapter-ready'
+      : skill.status === 'deferred-high-risk'
+      ? 'deferred-high-risk'
+      : 'requires-install',
+    recommendedUse: skill.summary,
+    integrationPlan: skill.status === 'adapter-ready'
+      ? 'Installed as a read-only EDITH registry adapter with audit and permission checks.'
+      : 'Installed as an honest EDITH guard until provider credentials/runtime bindings are configured.',
+    permissions: skill.permissions,
+    maxRiskLevel: skill.riskLevel,
+    notes: `Imported from VoltAgent awesome-agent-skills source ${skill.sourceName}.`,
+  }));
+  const downloadedCatalog = loadDownloadedAwesomeAgentSkillCatalog();
+  const downloadedSkills: EdithExternalSkillProject[] = downloadedCatalog.skills
+    .filter((skill) => !awesomeAgentSkills.some((existing) => existing.name === skill.name || existing.sourceUrl === skill.sourceUrl))
+    .map((skill) => ({
+      id: skill.id,
+      name: skill.name,
+      sourceUrl: skill.sourceUrl,
+      category: skill.category === 'finance'
+        ? 'crypto-finance'
+        : skill.category === 'news-search'
+        ? 'news-search'
+        : skill.category === 'messaging'
+        ? 'messaging'
+        : skill.category === 'browser-computer'
+        ? 'computer-use'
+        : skill.category === 'productivity-memory'
+        ? 'memory'
+        : skill.category === 'security'
+        ? 'observability'
+        : skill.category === 'coding-devops'
+        ? 'coding-agent'
+        : 'web-data',
+      status: skill.status === 'adapter-ready'
+        ? 'adapter-ready'
+        : skill.status === 'deferred-high-risk'
+        ? 'deferred-high-risk'
+        : 'requires-install',
+      recommendedUse: skill.description,
+      integrationPlan: 'Downloaded into EDITH local awesome-agent-skills catalog. Execution requires a specific adapter unless already registered as an EDITH tool.',
+      permissions: skill.permissions,
+      maxRiskLevel: skill.riskLevel,
+      notes: `Downloaded from ${downloadedCatalog.source} at ${downloadedCatalog.importedAt}.`,
+    }));
+
+  return [...awesomeAgentSkills, ...downloadedSkills, ...EDITH_EXTERNAL_SKILL_CATALOG];
 }

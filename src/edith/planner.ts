@@ -29,8 +29,17 @@ function inferTools(objective: string): string[] {
   if (/\b(sistem|cpu|ram|bellek|performans|health|durum|rapor)\b/i.test(lower)) {
     tools.push('system_monitor');
   }
-  if (/\b(web|internet|araştır|haber|site|url|tarayıcı|browser)\b/i.test(lower)) {
+  if (/\b(web|internet|araştır|site|url|tarayıcı|browser)\b/i.test(lower)) {
     tools.push('browser_search');
+  }
+  if (/(haber|news|gündem|daily news|son dakika)/i.test(lower)) {
+    tools.push('brave_news_search');
+  }
+  if (/\b(ekran|screen|screenshot|görüntü|ocr|pdf|pencere|uygulama|bildirim)\b/i.test(lower)) {
+    tools.push('vision_observe');
+  }
+  if (/\b(tarayıcı görevi|browser workflow|form|upload|download|pdf indir|siteyi aç)\b/i.test(lower)) {
+    tools.push('browser_workflow');
   }
   if (/\b(skill|araç|tool|katalog|yetenek)\b/i.test(lower)) {
     tools.push('ai_skill_catalog');
@@ -38,8 +47,29 @@ function inferTools(objective: string): string[] {
   if (/\b(mark-l|mark l|markl|adapter|capability|yetenek sağlayıcı)\b/i.test(lower)) {
     tools.push('mark_l_capabilities');
   }
-  if (/\b(kontrol|control|masaüstü|desktop|ekranı yönet|bilgisayarı yönet)\b/i.test(lower)) {
-    tools.push('computer_control_agent');
+  if (/\b(kontrol|control|masaüstü|desktop|ekranı yönet|bilgisayarı yönet|computer use)\b/i.test(lower)) {
+    tools.push('computer_control_agent', 'computer_use_guard');
+  }
+  if (/\b(tıkla|click|yaz|hotkey|uygulama aç|notepad|masaüstü kontrol)\b/i.test(lower)) {
+    tools.push('computer_action');
+  }
+  if (/\b(3d|cad|blender|freecad|step|stl|render|simulation|fea|fem|cfd|assembly)\b/i.test(lower)) {
+    tools.push('design3d_cad_foundation', 'design3d_render_foundation', 'design3d_simulation_foundation');
+  }
+  if (/\b(iot|akıllı ev|smart home|ışık|lamba|cihaz|device feedback)\b/i.test(lower)) {
+    tools.push('iot_feedback_stub');
+  }
+  if (/(binance|btc|eth|usdt|crypto|kripto)/i.test(lower)) {
+    tools.push('binance_market_price', 'binance_market_24hr');
+  }
+  if (/(coinbase)/i.test(lower)) {
+    tools.push('coinbase_ticker_lookup');
+  }
+  if (/\b(finans|finance|trading|trade|borsa|hisse|forex|order|broker|alpaca|ibkr)\b/i.test(lower)) {
+    tools.push('finance_trading_guard', 'binance_trade_signal_guard');
+  }
+  if (/(whatsapp|wp|mesaj|message|webhook)/i.test(lower)) {
+    tools.push('whatsapp_observe_health', 'whatsapp_integrate_guard');
   }
 
   return unique(tools);

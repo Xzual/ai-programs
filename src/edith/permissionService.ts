@@ -5,6 +5,13 @@ import { appendAuditEvent, createAuditEvent } from './audit';
 import { getEdithPersistenceStore } from './persistence';
 
 export type EdithPermissionDecisionStatus = 'ALLOW' | 'DENY';
+export type EdithPermissionMode = 'deny' | 'ask' | 'full_access';
+
+export interface EdithPermissionPolicy {
+  mode: EdithPermissionMode;
+  updatedAt: string;
+  updatedBy: string;
+}
 
 export interface EdithPermissionDecision {
   status: EdithPermissionDecisionStatus;
@@ -45,6 +52,8 @@ export const DEFAULT_LOCAL_PERMISSIONS = [
   'system:read',
   'network:read',
   'file:read',
+  'memory:read',
+  'memory:write',
   'system:notify',
 ];
 
@@ -53,10 +62,24 @@ export const HIGH_RISK_PERMISSIONS = [
   'file:write',
   'browser:control',
   'computer:control',
+  'iot:control',
+  'trading:execute',
 ];
 
 const DEFAULT_GRANT_TTL_MS = 15 * 60 * 1000;
 const MAX_GRANT_TTL_MS = 60 * 60 * 1000;
+const READ_ONLY_PERMISSIONS = [
+  'system:read',
+  'network:read',
+  'file:read',
+  'memory:read',
+  'system:notify',
+];
+const DEFAULT_POLICY: EdithPermissionPolicy = {
+  mode: 'ask',
+  updatedAt: new Date(0).toISOString(),
+  updatedBy: 'system',
+};
 
 function grantId(): string {
   return `permgrant-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -67,12 +90,51 @@ function unique(values: string[]): string[] {
 }
 
 export class PermissionService {
+  getPolicy(): EdithPermissionPolicy {
+    const file = this.policyFile();
+    if (!fs.existsSync(file)) return { ...DEFAULT_POLICY };
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<EdithPermissionPolicy>;
+      const mode = this.normalizeMode(parsed.mode);
+      return {
+        mode,
+        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : DEFAULT_POLICY.updatedAt,
+        updatedBy: typeof parsed.updatedBy === 'string' ? parsed.updatedBy : DEFAULT_POLICY.updatedBy,
+      };
+    } catch {
+      return { ...DEFAULT_POLICY };
+    }
+  }
+
+  updatePolicy(input: { mode?: unknown; updatedBy?: string }): EdithPermissionPolicy {
+    const policy: EdithPermissionPolicy = {
+      mode: this.normalizeMode(input.mode),
+      updatedAt: new Date().toISOString(),
+      updatedBy: input.updatedBy?.trim() || 'local-user',
+    };
+    fs.mkdirSync(path.dirname(this.policyFile()), { recursive: true });
+    fs.writeFileSync(this.policyFile(), JSON.stringify(policy, null, 2), 'utf8');
+    appendAuditEvent(createAuditEvent({
+      actor: policy.updatedBy,
+      action: 'permission.policy.update',
+      toolId: 'permission_service',
+      authorization: 'allowed',
+      riskLevel: policy.mode === 'full_access' ? 4 : policy.mode === 'deny' ? 2 : 1,
+      result: 'success',
+      message: `Permission policy mode changed to ${policy.mode}.`,
+    }));
+    return policy;
+  }
+
   highRiskEnabled(): boolean {
-    return process.env.EDITH_ENABLE_HIGH_RISK_TOOLS === 'true';
+    return process.env.EDITH_ENABLE_HIGH_RISK_TOOLS === 'true' || this.getPolicy().mode === 'full_access';
   }
 
   defaultAuthorizedPermissions(): string[] {
-    return this.highRiskEnabled()
+    const mode = this.getPolicy().mode;
+    if (mode === 'deny') return [...READ_ONLY_PERMISSIONS];
+    if (mode === 'full_access') return [...DEFAULT_LOCAL_PERMISSIONS, ...HIGH_RISK_PERMISSIONS];
+    return process.env.EDITH_ENABLE_HIGH_RISK_TOOLS === 'true'
       ? [...DEFAULT_LOCAL_PERMISSIONS, ...HIGH_RISK_PERMISSIONS]
       : [...DEFAULT_LOCAL_PERMISSIONS];
   }
@@ -132,7 +194,8 @@ export class PermissionService {
     actor: string;
     authorizedPermissions?: string[];
   }): EdithPermissionDecision {
-    const grantMatches = this.activeGrantsFor(params.actor, params.tool.id);
+    const policy = this.getPolicy();
+    const grantMatches = policy.mode === 'deny' ? [] : this.activeGrantsFor(params.actor, params.tool.id);
     const authorizedPermissions = unique([
       ...(params.authorizedPermissions ?? this.defaultAuthorizedPermissions()),
       ...grantMatches.flatMap((grant) => grant.permissions),
@@ -154,8 +217,10 @@ export class PermissionService {
       activeGrantIds: grantMatches.map((grant) => grant.id),
       highRisk,
       rationale: status === 'ALLOW'
-        ? `Actor ${params.actor} has required permissions for ${params.tool.id}.`
-        : `Actor ${params.actor} is missing permissions for ${params.tool.id}: ${missingPermissions.join(', ')}.`,
+        ? `Actor ${params.actor} has required permissions for ${params.tool.id} under ${policy.mode} mode.`
+        : policy.mode === 'deny'
+          ? `Permission policy is set to deny mode; missing permissions for ${params.tool.id}: ${missingPermissions.join(', ')}.`
+          : `Actor ${params.actor} is missing permissions for ${params.tool.id}: ${missingPermissions.join(', ')}.`,
     };
   }
 
@@ -171,6 +236,14 @@ export class PermissionService {
 
   private grantsFile(): string {
     return path.join(getEdithPersistenceStore().getPaths().dataDir, 'permission-grants.json');
+  }
+
+  private policyFile(): string {
+    return path.join(getEdithPersistenceStore().getPaths().dataDir, 'permission-policy.json');
+  }
+
+  private normalizeMode(value: unknown): EdithPermissionMode {
+    return value === 'deny' || value === 'full_access' || value === 'ask' ? value : 'ask';
   }
 
   private readGrants(): PermissionGrant[] {

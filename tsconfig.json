@@ -23,5 +23,18 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "server.ts",
+    "src",
+    "scripts",
+    "vite.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "knowledge map",
+    "crypto",
+    "Mark-L-main"
+  ]
 }

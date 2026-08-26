@@ -41,9 +41,9 @@ export const EDITH_AGENTS: EdithAgentMetadata[] = [
     name: 'Research Agent',
     version: '0.1.0',
     responsibility: 'Gathers web and external knowledge using read-only research tools.',
-    capabilities: ['web-research', 'source-review', 'summarization'],
-    allowedTools: ['browser_search', 'browser_open', 'ai_skill_catalog'],
-    requiredPermissions: ['network:read', 'system:read'],
+    capabilities: ['web-research', 'source-review', 'summarization', 'obsidian-note-output'],
+    allowedTools: ['browser_search', 'browser_open', 'brave_news_search', 'brave_web_search', 'ai_skill_catalog', 'obsidian_save_note'],
+    requiredPermissions: ['network:read', 'system:read', 'memory:write'],
     inputSchema: { query: { type: 'string', required: true } },
     outputSchema: { findings: { type: 'array' } },
     timeoutMs: 60000,
@@ -56,7 +56,7 @@ export const EDITH_AGENTS: EdithAgentMetadata[] = [
     version: '0.1.0',
     responsibility: 'Controls high-risk browser or desktop adapters only after explicit backend permission.',
     capabilities: ['browser-control', 'desktop-control', 'screen-operation'],
-    allowedTools: ['browser_use_agent', 'playwright_browser_agent', 'computer_control_agent', 'open_interpreter_agent'],
+    allowedTools: ['browser_use_agent', 'playwright_browser_agent', 'computer_control_agent', 'computer_use_guard', 'open_interpreter_agent'],
     requiredPermissions: ['network:read', 'browser:control', 'computer:control', 'system:exec'],
     inputSchema: { instruction: { type: 'string', required: true } },
     outputSchema: { artifact: { type: 'object' }, status: { type: 'string' } },
@@ -65,12 +65,26 @@ export const EDITH_AGENTS: EdithAgentMetadata[] = [
     metrics: { ...DEFAULT_AGENT_METRICS },
   },
   {
+    id: 'browser-workflow',
+    name: 'Browser Workflow Agent',
+    version: '0.1.0',
+    responsibility: 'Runs deterministic browser workflows through EDITH browser adapters and verification evidence.',
+    capabilities: ['browser-workflow', 'web-navigation', 'pdf-reading', 'form-workflow'],
+    allowedTools: ['browser_workflow', 'browser_search', 'browser_open', 'playwright_browser_agent'],
+    requiredPermissions: ['network:read'],
+    inputSchema: { request: { type: 'object', required: true } },
+    outputSchema: { result: { type: 'object' }, verification: { type: 'string' } },
+    timeoutMs: 120000,
+    health: 'DEGRADED',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
     id: 'coding',
     name: 'Coding Agent',
     version: '0.1.0',
     responsibility: 'Handles code-oriented planning, local code assistance, and controlled interpreter handoffs.',
-    capabilities: ['code-review', 'code-edit-planning', 'local-dev'],
-    allowedTools: ['open_interpreter_agent', 'ai_skill_catalog'],
+    capabilities: ['code-review', 'code-edit-planning', 'local-dev', 'obsidian-technical-notes'],
+    allowedTools: ['open_interpreter_agent', 'ai_skill_catalog', 'obsidian_save_note'],
     requiredPermissions: ['system:read', 'system:exec', 'file:read', 'file:write'],
     inputSchema: { request: { type: 'string', required: true } },
     outputSchema: { patchPlan: { type: 'object' } },
@@ -84,11 +98,98 @@ export const EDITH_AGENTS: EdithAgentMetadata[] = [
     version: '0.1.0',
     responsibility: 'Owns future screen/image understanding and visual verification handoffs.',
     capabilities: ['image-analysis', 'screen-analysis', 'visual-verification'],
-    allowedTools: [],
+    allowedTools: ['vision_observe'],
     requiredPermissions: ['system:read'],
     inputSchema: { image: { type: 'object' } },
     outputSchema: { observations: { type: 'array' } },
     timeoutMs: 60000,
+    health: 'DEGRADED',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
+    id: 'proactive-monitoring',
+    name: 'Proactive Monitoring Agent',
+    version: '0.1.0',
+    responsibility: 'Evaluates permissioned background signals and emits non-invasive notifications or suggestions.',
+    capabilities: ['proactive-monitoring', 'notification-triage', 'presence-aware-delivery'],
+    allowedTools: ['system_monitor', 'obsidian_save_note'],
+    requiredPermissions: ['system:read', 'system:notify', 'memory:write'],
+    inputSchema: { settings: { type: 'object', required: true } },
+    outputSchema: { signals: { type: 'array' } },
+    timeoutMs: 30000,
+    health: 'HEALTHY',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
+    id: 'design3d-orchestrator',
+    name: '3D Design Orchestrator',
+    version: '0.1.0',
+    responsibility: 'Plans natural-language 3D design work and routes CAD, render, simulation, manufacturing, and validation tools honestly.',
+    capabilities: ['3d-planning', 'cad-routing', 'render-routing', 'simulation-routing', 'manufacturing-routing'],
+    allowedTools: ['design3d_cad_foundation', 'design3d_render_foundation', 'design3d_simulation_foundation'],
+    requiredPermissions: ['system:read'],
+    inputSchema: { prompt: { type: 'string', required: true } },
+    outputSchema: { plan: { type: 'object' }, requiredEngines: { type: 'array' } },
+    timeoutMs: 60000,
+    health: 'DEGRADED',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
+    id: 'meeting',
+    name: 'Meeting Agent',
+    version: '0.1.0',
+    responsibility: 'Turns meeting notes and summaries into Obsidian-linked knowledge records.',
+    capabilities: ['meeting-summary', 'action-item-extraction', 'obsidian-meeting-notes'],
+    allowedTools: ['obsidian_save_note'],
+    requiredPermissions: ['system:read', 'memory:write'],
+    inputSchema: { transcript: { type: 'string', required: true } },
+    outputSchema: { summary: { type: 'string' }, tasks: { type: 'array' } },
+    timeoutMs: 60000,
+    health: 'HEALTHY',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
+    id: 'trading',
+    name: 'Trading Agent',
+    version: '0.1.0',
+    responsibility: 'Writes trading journals and routes any trading action through the finance guard.',
+    capabilities: ['trading-journal', 'market-note-capture', 'crypto-market-read', 'finance-guard-routing'],
+    allowedTools: [
+      'obsidian_save_note',
+      'finance_trading_guard',
+      'binance_market_price',
+      'binance_market_24hr',
+      'coinbase_ticker_lookup',
+      'binance_spot_trade_guard',
+      'binance_trade_signal_guard',
+    ],
+    requiredPermissions: ['system:read', 'memory:write', 'trading:execute'],
+    inputSchema: { journal: { type: 'string', required: true } },
+    outputSchema: { notePath: { type: 'string' }, guardDecision: { type: 'object' } },
+    timeoutMs: 60000,
+    health: 'DEGRADED',
+    metrics: { ...DEFAULT_AGENT_METRICS },
+  },
+  {
+    id: 'sensitive-integration-guard',
+    name: 'Sensitive Integration Guard',
+    version: '0.1.0',
+    responsibility: 'Keeps IoT, finance, trading, broker, and device actions permission-gated and honest until real adapters are configured.',
+    capabilities: ['iot-guard', 'finance-guard', 'trading-safety', 'configuration-required-reporting'],
+    allowedTools: [
+      'iot_feedback_stub',
+      'finance_trading_guard',
+      'binance_spot_trade_guard',
+      'binance_trade_signal_guard',
+      'whatsapp_integrate_guard',
+      'whatsapp_automation_guard',
+      'computer_use_guard',
+      'obsidian_save_note',
+    ],
+    requiredPermissions: ['system:read', 'iot:control', 'trading:execute', 'memory:write'],
+    inputSchema: { request: { type: 'object', required: true } },
+    outputSchema: { decision: { type: 'object' }, honestStatus: { type: 'string' } },
+    timeoutMs: 30000,
     health: 'DEGRADED',
     metrics: { ...DEFAULT_AGENT_METRICS },
   },
@@ -169,7 +270,7 @@ export class AgentRegistryService {
       }
     }
 
-    if (/\b(web|internet|araştır|haber|site|url|browser|tarayıcı)\b/i.test(objective)) {
+    if (/\b(web|internet|araştır|haber|news|site|url|browser|tarayıcı|brave|arama)\b/i.test(objective)) {
       addRoute('research', 'Objective requires web or research capability.');
     }
     if (/\b(kod|code|script|typescript|python|bug|build|test)\b/i.test(objective)) {
@@ -178,7 +279,25 @@ export class AgentRegistryService {
     if (/\b(görüntü|image|screen|ekran|vision|screenshot)\b/i.test(objective)) {
       addRoute('vision', 'Objective includes visual or screen-analysis signals.');
     }
-    if (task.riskLevel >= 3 || task.permissionsRequired.some((permission) => permission.includes(':control') || permission === 'system:exec')) {
+    if (/\b(browser workflow|form|pdf|download|upload|tarayıcı görevi)\b/i.test(objective)) {
+      addRoute('browser-workflow', 'Objective requires a structured browser workflow.');
+    }
+    if (/\b(proaktif|monitor|izle|bildirim|notification|presence)\b/i.test(objective)) {
+      addRoute('proactive-monitoring', 'Objective involves proactive monitoring or notification behavior.');
+    }
+    if (/\b(3d|cad|blender|freecad|step|stl|render|simulation|fea|fem|cfd|robot|assembly)\b/i.test(objective)) {
+      addRoute('design3d-orchestrator', 'Objective requires 3D design orchestration.');
+    }
+    if (/\b(meeting|toplantı|özet|summary|transcript|minutes)\b/i.test(objective)) {
+      addRoute('meeting', 'Objective involves meeting summary or action-item knowledge capture.');
+    }
+    if (/\b(trading|trade|borsa|hisse|crypto|kripto|binance|coinbase|journal|günlük)\b/i.test(objective)) {
+      addRoute('trading', 'Objective involves trading journal or finance guard routing.');
+    }
+    if (/\b(iot|akıllı ev|smart home|ışık|lamba|cihaz|finance|finans|trading|trade|borsa|hisse|crypto|kripto|forex|broker|order|whatsapp|wp|mesaj|bilgisayar|computer use)\b/i.test(objective)) {
+      addRoute('sensitive-integration-guard', 'Objective touches IoT, finance, or trading sensitive integrations.');
+    }
+    if (task.riskLevel >= 3 || task.permissionsRequired.some((permission) => permission.includes(':control') || permission === 'system:exec' || permission === 'trading:execute')) {
       addRoute('security', 'High-risk permissions require security review.');
     }
 

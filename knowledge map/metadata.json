@@ -1,0 +1,6 @@
+{
+  "name": "Knowledge Map Studio",
+  "description": "Etkileşimli düğümler, akıcı animasyonlar, sürükle-bırak not çalışma alanı, karanlık mod ve otomatik veri yedekleme sistemine sahip bilgi haritası.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

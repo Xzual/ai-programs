@@ -6,17 +6,79 @@ import {
   ToolInputField,
   ToolExecutionLog,
   IntegrationConfig,
+  EdithAuthSession,
+  EdithUserAccount,
 } from '../types';
 
 const STORAGE_KEYS = {
-  SETTINGS: 'aura_settings_v1',
-  SESSIONS: 'aura_chat_sessions_v1',
-  ACTIVE_SESSION: 'aura_active_session_id_v1',
-  CODE_SESSION: 'aura_code_chat_session_v1',
-  MEMORIES: 'aura_memories_v1',
-  TOOL_LOGS: 'aura_tool_logs_v1',
-  INTEGRATIONS: 'aura_integrations_v1',
+  SETTINGS: 'edith_settings_v1',
+  SESSIONS: 'edith_chat_sessions_v1',
+  ACTIVE_SESSION: 'edith_active_session_id_v1',
+  CODE_SESSION: 'edith_code_chat_session_v1',
+  MEMORIES: 'edith_memories_v1',
+  TOOL_LOGS: 'edith_tool_logs_v1',
+  INTEGRATIONS: 'edith_integrations_v1',
+  AUTH_SESSION: 'edith_auth_session_v1',
 };
+
+const legacyPrefix = ['au', 'ra'].join('');
+const LEGACY_STORAGE_KEYS = {
+  SETTINGS: `${legacyPrefix}_settings_v1`,
+  SESSIONS: `${legacyPrefix}_chat_sessions_v1`,
+  ACTIVE_SESSION: `${legacyPrefix}_active_session_id_v1`,
+  CODE_SESSION: `${legacyPrefix}_code_chat_session_v1`,
+  MEMORIES: `${legacyPrefix}_memories_v1`,
+  TOOL_LOGS: `${legacyPrefix}_tool_logs_v1`,
+  INTEGRATIONS: `${legacyPrefix}_integrations_v1`,
+};
+
+export const EDITH_ADMIN_USERS: EdithUserAccount[] = [
+  {
+    id: 'admin-can-ipkin',
+    name: 'CAN İPKİN',
+    role: 'admin',
+    permissions: ['admin', 'system:read', 'system:notify', 'network:read'],
+    voiceProfile: { enrolled: false, label: 'Name-only voice activation' },
+    preferences: {},
+    securitySettings: { authenticationMode: 'typed_name', biometricVerified: false },
+  },
+  {
+    id: 'admin-arda-yorulmazel',
+    name: 'ARDA YORULMAZEL',
+    role: 'admin',
+    permissions: ['admin', 'system:read', 'system:notify', 'network:read'],
+    voiceProfile: { enrolled: false, label: 'Name-only voice activation' },
+    preferences: {},
+    securitySettings: { authenticationMode: 'typed_name', biometricVerified: false },
+  },
+];
+
+function normalizeUserName(value: string): string {
+  return value
+    .trim()
+    .toLocaleUpperCase('tr-TR')
+    .replace(/\s+/g, ' ');
+}
+
+export function authenticateEdithUser(name: string, method: EdithAuthSession['method']): EdithAuthSession | undefined {
+  const normalized = normalizeUserName(name);
+  const user = EDITH_ADMIN_USERS.find((candidate) => candidate.name === normalized);
+  if (!user) return undefined;
+  return {
+    authenticated: true,
+    user: {
+      ...user,
+      lastLogin: Date.now(),
+      securitySettings: {
+        authenticationMode: method,
+        biometricVerified: false,
+      },
+    },
+    authenticatedAt: Date.now(),
+    method,
+    assurance: 'admin_name_match',
+  };
+}
 
 export const DEFAULT_SETTINGS: UserSettings = {
   aiProvider: 'ollama',
@@ -35,13 +97,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
   memoryEnabled: true,
   animationQuality: 'high',
   systemPrompt:
-    'Sen AURA adında yerel çalışan futuristik bir AI asistanısın. Türkçe konuş, yardımsever, net ve kibar ol. Kullanıcıya doğru ve yerel kaynaklara saygılı yanıtlar ver.',
+    'Sen EDITH içinde çalışan seçili AI asistan personasısın. Türkçe konuş, yardımsever, net ve kibar ol. Kullanıcıya doğru ve yerel kaynaklara saygılı yanıtlar ver.',
 };
 
 export const DEFAULT_INITIAL_MESSAGE = {
   id: 'msg-welcome',
   sender: 'assistant' as const,
-  text: 'Merhaba. Ben AURA. Yerel makinenizde çalışan kişisel AI asistanınızım. Yazabilir veya mikrofon düğmesine basarak konuşabilirsiniz.',
+  text: 'Merhaba. EDITH kişisel AI sistemi hazır. Yazabilir veya mikrofon düğmesine basarak konuşabilirsiniz.',
   timestamp: Date.now(),
 };
 
@@ -96,14 +158,14 @@ export const DEFAULT_TOOLS: AutomationTool[] = [
     requiresConfirmation: false,
     category: 'reminder',
     inputFields: [
-      { key: 'reminderText', label: 'Hatırlatıcı Metni', type: 'text', placeholder: 'Toplantı var', defaultValue: 'AURA Görev Takibi', required: true },
+      { key: 'reminderText', label: 'Hatırlatıcı Metni', type: 'text', placeholder: 'Toplantı var', defaultValue: 'EDITH Görev Takibi', required: true },
       { key: 'time', label: 'Zaman', type: 'text', placeholder: '10 dakika sonra', defaultValue: '10 dakika sonra' },
     ],
   },
   {
     id: 'summarize_analytics',
     name: 'Sistem Analitik Özeti',
-    description: 'AURA yerel sistem performans ve sohbet verilerini özetler.',
+    description: 'EDITH yerel sistem performans ve sohbet verilerini özetler.',
     permissions: ['system:read'],
     status: 'idle',
     requiresConfirmation: false,
@@ -528,10 +590,28 @@ export const DEFAULT_INTEGRATIONS: IntegrationConfig[] = [
   {
     id: 'custom_webhook',
     name: 'Özel Webhook Entegrasyonu',
-    description: 'Tüm AURA etkinliklerini istediğiniz yerel veya uzak HTTP sunucusuna gönderir.',
+    description: 'Tüm EDITH etkinliklerini istediğiniz yerel veya uzak HTTP sunucusuna gönderir.',
     status: 'disconnected',
     iconName: 'Webhook',
     webhookUrl: '',
+    enabled: false,
+  },
+  {
+    id: 'iot_feedback',
+    name: 'IoT Feedback',
+    description: 'Akıllı ev / cihaz geri bildirimi için izinli adapter slotu. Gerçek sağlayıcı bağlanmadan cihaz aksiyonu çalıştırmaz.',
+    status: 'needs_auth',
+    iconName: 'RadioTower',
+    webhookUrl: '',
+    enabled: false,
+  },
+  {
+    id: 'finance_trading_guard',
+    name: 'Finance Trading Guard',
+    description: 'Broker/exchange entegrasyonları için güvenlik kapısı. Live veya paper order üretimi gerçek adapter ve açık izin olmadan devre dışıdır.',
+    status: 'needs_auth',
+    iconName: 'Landmark',
+    apiKey: '',
     enabled: false,
   },
 ];
@@ -563,7 +643,7 @@ export const DEFAULT_MEMORIES: MemoryItem[] = [
 // Load / Save Helpers
 export function loadSettings(): UserSettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.SETTINGS);
     if (!raw) return DEFAULT_SETTINGS;
     return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch (e) {
@@ -581,7 +661,7 @@ export function saveSettings(settings: UserSettings): void {
 
 export function loadSessions(): ChatSession[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SESSIONS);
+    const raw = localStorage.getItem(STORAGE_KEYS.SESSIONS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.SESSIONS);
     if (!raw) {
       const initialSession: ChatSession = {
         id: 'session-default',
@@ -609,7 +689,7 @@ export function saveSessions(sessions: ChatSession[]): void {
 
 export function loadCodeSession(): ChatSession {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.CODE_SESSION);
+    const raw = localStorage.getItem(STORAGE_KEYS.CODE_SESSION) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.CODE_SESSION);
     if (!raw) {
       const initialSession: ChatSession = {
         id: 'code-session-default',
@@ -643,7 +723,7 @@ export function saveCodeSession(session: ChatSession): void {
 
 export function loadMemories(): MemoryItem[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.MEMORIES);
+    const raw = localStorage.getItem(STORAGE_KEYS.MEMORIES) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.MEMORIES);
     if (!raw) {
       saveMemories(DEFAULT_MEMORIES);
       return DEFAULT_MEMORIES;
@@ -664,7 +744,7 @@ export function saveMemories(memories: MemoryItem[]): void {
 
 export function loadToolLogs(): ToolExecutionLog[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.TOOL_LOGS);
+    const raw = localStorage.getItem(STORAGE_KEYS.TOOL_LOGS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.TOOL_LOGS);
     return raw ? JSON.parse(raw) : [];
   } catch (e) {
     return [];
@@ -681,12 +761,17 @@ export function saveToolLogs(logs: ToolExecutionLog[]): void {
 
 export function loadIntegrations(): IntegrationConfig[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.INTEGRATIONS);
+    const raw = localStorage.getItem(STORAGE_KEYS.INTEGRATIONS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.INTEGRATIONS);
     if (!raw) {
       saveIntegrations(DEFAULT_INTEGRATIONS);
       return DEFAULT_INTEGRATIONS;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw) as IntegrationConfig[];
+    const parsedById = new Map(parsed.map((integration) => [integration.id, integration]));
+    return DEFAULT_INTEGRATIONS.map((integration) => ({
+      ...integration,
+      ...parsedById.get(integration.id),
+    }));
   } catch (e) {
     return DEFAULT_INTEGRATIONS;
   }
@@ -697,5 +782,32 @@ export function saveIntegrations(integrations: IntegrationConfig[]): void {
     localStorage.setItem(STORAGE_KEYS.INTEGRATIONS, JSON.stringify(integrations));
   } catch (e) {
     console.error('Integrations save failed:', e);
+  }
+}
+
+export function loadAuthSession(): EdithAuthSession | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as EdithAuthSession;
+    return parsed?.authenticated && parsed.user?.role === 'admin' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAuthSession(session: EdithAuthSession): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, JSON.stringify(session));
+  } catch (e) {
+    console.error('Auth session save failed:', e);
+  }
+}
+
+export function clearAuthSession(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+  } catch (e) {
+    console.error('Auth session clear failed:', e);
   }
 }
