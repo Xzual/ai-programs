@@ -197,6 +197,15 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
   };
 
   const canSend = !!(inputText.trim() || liveTranscript.trim());
+  const voiceMode = !sttSupported
+    ? 'DISABLED'
+    : isListening
+    ? 'LISTENING'
+    : aiState === 'speaking'
+    ? 'SPEAKING'
+    : handsFree
+    ? 'HANDS_FREE'
+    : 'PUSH_TO_TALK';
 
   return (
     <div className="p-3 sm:p-4 bg-slate-950/38 backdrop-blur-xl border-t border-cyan-300/10 z-20">
@@ -273,6 +282,14 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
             {assistantName} Listen
           </div>
         )}
+
+        <div
+          title="Current voice mode"
+          className="hidden md:flex items-center gap-1.5 px-3 py-3 rounded-2xl border border-cyan-300/10 bg-slate-950/70 text-slate-400 text-[11px] font-mono"
+        >
+          <Radio className="w-3.5 h-3.5" />
+          {voiceMode}
+        </div>
 
         {/* Metin girişi */}
         <div className="flex-1 relative bg-slate-950/70 rounded-2xl border border-cyan-300/12 focus-within:border-[var(--edith-primary)]/60 focus-within:ring-1 focus-within:ring-[var(--edith-primary)]/30 transition-all shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_34px_rgba(14,165,233,0.08)]">

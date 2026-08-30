@@ -4,6 +4,8 @@ import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { executeEdithTool } from './serverRegistry';
 import { taskService } from './taskService';
 import { interruptService } from './interruptService';
+import { verificationService } from './verifier';
+import { recoveryService } from './recovery';
 
 export interface ExecutionStepReport {
   stepId: string;
@@ -16,7 +18,7 @@ export interface ExecutionStepReport {
 export interface ExecuteTaskResult {
   success: boolean;
   taskId: string;
-  status: 'VERIFYING' | 'WAITING_PERMISSION' | 'FAILED' | 'PAUSED' | 'NOOP';
+  status: 'COMPLETED' | 'WAITING_FOR_APPROVAL' | 'BLOCKED' | 'FAILED' | 'CANCELLED' | 'NOOP';
   iterations: number;
   toolCalls: number;
   reports: ExecutionStepReport[];
@@ -65,11 +67,11 @@ export class ExecutorService {
       killSwitchService.assertAllowed('tool_execution', 'edith-executor');
     } catch (error) {
       if (!(error instanceof KillSwitchActiveError)) throw error;
-      const paused = taskService.updateStatus(taskId, 'PAUSED', error.message);
+      const paused = taskService.updateStatus(taskId, 'BLOCKED', error.message);
       return {
         success: false,
         taskId,
-        status: 'PAUSED',
+        status: 'BLOCKED',
         iterations: 0,
         toolCalls: 0,
         reports: [],
@@ -79,6 +81,14 @@ export class ExecutorService {
     }
 
     taskService.updateStatus(taskId, 'RUNNING');
+    taskService.recordActivity({
+      taskId,
+      agentId: 'executor',
+      role: 'executor',
+      status: 'RUNNING',
+      message: 'Executor started planned task execution.',
+      tools: task.toolsRequired,
+    });
     task = taskService.getTask(taskId) ?? task;
 
     const reports: ExecutionStepReport[] = [];
@@ -94,7 +104,7 @@ export class ExecutorService {
         return {
           success: false,
           taskId,
-          status: 'PAUSED',
+          status: 'CANCELLED',
           iterations,
           toolCalls,
           reports,
@@ -103,8 +113,9 @@ export class ExecutorService {
         };
       }
       if (Date.now() - startedAt > task.plan.taskTimeoutMs) {
-        const failed = taskService.updateStatus(taskId, 'FAILED', 'Execution timed out before verification.');
-        return { success: false, taskId, status: 'FAILED', iterations, toolCalls, reports, task: failed, error: 'Execution timed out.' };
+        const failed = taskService.updateStatus(taskId, 'BLOCKED', 'Execution timed out before verification.');
+        recoveryService.recoverTask(taskId);
+        return { success: false, taskId, status: 'BLOCKED', iterations, toolCalls, reports, task: taskService.getTask(taskId) ?? failed, error: 'Execution timed out.' };
       }
 
       const nextStep = task.plan.steps.find((step) =>
@@ -119,8 +130,17 @@ export class ExecutorService {
       task = taskService.getTask(taskId) ?? task;
       if (report.status === 'FAILED') {
         const denied = report.toolResults.some((result) => result.errorCode === 'PERMISSION_DENIED');
-        const status = denied ? 'WAITING_PERMISSION' : 'FAILED';
+        const status = denied ? 'WAITING_FOR_APPROVAL' : 'FAILED';
         const failed = taskService.updateStatus(taskId, status, report.message);
+        taskService.recordActivity({
+          taskId,
+          agentId: 'executor',
+          role: 'executor',
+          status: denied ? 'WAITING_FOR_APPROVAL' : 'FAILED',
+          message: report.message,
+          tools: stepToolIds(report),
+        });
+        if (!denied) recoveryService.recoverTask(taskId);
         return {
           success: false,
           taskId,
@@ -139,11 +159,12 @@ export class ExecutorService {
       step.status === 'COMPLETED' || step.status === 'SKIPPED'
     );
     if (!allStepsTerminal) {
-      const paused = taskService.updateStatus(taskId, 'PAUSED', 'Execution budget exhausted before all steps completed.');
+      const paused = taskService.updateStatus(taskId, 'BLOCKED', 'Execution budget exhausted before all steps completed.');
+      recoveryService.recoverTask(taskId);
       return {
         success: false,
         taskId,
-        status: 'PAUSED',
+        status: 'BLOCKED',
         iterations,
         toolCalls,
         reports,
@@ -152,16 +173,60 @@ export class ExecutorService {
       };
     }
 
-    const verifying = taskService.updateStatus(taskId, 'VERIFYING', 'Execution finished; verifier must validate completion.');
     taskService.addCheckpoint(taskId, `Executor reached verification boundary at ${new Date().toISOString()}`);
+    taskService.recordActivity({
+      taskId,
+      agentId: 'verifier',
+      role: 'verifier',
+      status: 'RUNNING',
+      message: 'Verifier started after executor completed planned steps.',
+      planningOnly: false,
+    });
+    const verified = verificationService.verifyTask(taskId);
+    const finalTask = taskService.getTask(taskId) ?? verified.task;
+    if (!verified.success) {
+      const recovered = recoveryService.recoverTask(taskId);
+      taskService.recordActivity({
+        taskId,
+        agentId: 'verifier',
+        role: 'verifier',
+        status: 'FAILED',
+        message: verified.error ?? 'Verification did not pass.',
+      });
+      return {
+        success: false,
+        taskId,
+        status: recovered.task?.status === 'WAITING_FOR_APPROVAL' ? 'WAITING_FOR_APPROVAL' : 'BLOCKED',
+        iterations,
+        toolCalls,
+        reports,
+        task: recovered.task ?? finalTask,
+        error: verified.error,
+      };
+    }
+    taskService.recordActivity({
+      taskId,
+      agentId: 'executor',
+      role: 'executor',
+      status: 'COMPLETED',
+      message: 'Executor completed and verifier passed.',
+      tools: task.toolsRequired,
+    });
+    taskService.recordActivity({
+      taskId,
+      agentId: 'verifier',
+      role: 'verifier',
+      status: 'COMPLETED',
+      message: verified.verification?.summary ?? 'Verification passed.',
+    });
     return {
       success: true,
       taskId,
-      status: 'VERIFYING',
+      status: 'COMPLETED',
       iterations,
       toolCalls,
       reports,
-      task: taskService.getTask(taskId) ?? verifying,
+      task: taskService.getTask(taskId) ?? finalTask,
     };
   }
 
@@ -238,6 +303,16 @@ export class ExecutorService {
         task.id,
         `Executor tool ${toolId} ${result.success ? 'succeeded' : 'failed'} for ${step.id}: ${(result.error ?? result.result ?? '').slice(0, 500)}`
       );
+      taskService.recordTimeline({
+        taskId: task.id,
+        type: 'tool',
+        actor: 'edith-executor',
+        toolId,
+        riskLevel: step.riskLevel,
+        message: `Tool ${toolId} ${result.success ? 'succeeded' : 'failed'} for ${step.id}.`,
+        auditEventId: result.auditEventId,
+        metadata: { errorCode: result.errorCode, durationMs: result.durationMs },
+      });
       if (!result.success) {
         taskService.updatePlanStepStatus(task.id, step.id, 'FAILED', `Step ${step.id} failed on tool ${toolId}.`);
         return {
@@ -262,3 +337,7 @@ export class ExecutorService {
 }
 
 export const executorService = new ExecutorService();
+
+function stepToolIds(report: ExecutionStepReport): string[] {
+  return Array.from(new Set(report.toolResults.map((result) => result.toolId)));
+}

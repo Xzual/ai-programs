@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "AURA default capability set",
+  "description": "E.D.I.T.H. default capability set",
   "windows": ["main"],
   "permissions": [
     "core:default",

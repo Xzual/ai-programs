@@ -149,7 +149,7 @@ export const EdithOpsView: React.FC = () => {
   }, []);
 
   const highRiskTools = tools.filter((tool) => tool.metadata.riskLevel >= 3);
-  const pausedTasks = tasks.filter((task) => task.status === 'PAUSED').length;
+  const pausedTasks = tasks.filter((task) => task.status === 'BLOCKED').length;
   const selectedGrantTool = highRiskTools.find((tool) => tool.id === grantToolId) ?? highRiskTools[0];
   const activeGrants = permissionGrants.filter((grant) => !grant.revokedAt && Date.parse(grant.expiresAt) > Date.now());
   const permissionRequests: PermissionRequestItem[] = tasks.flatMap((task) =>

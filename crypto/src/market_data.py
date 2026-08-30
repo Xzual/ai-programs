@@ -6,6 +6,7 @@ import ccxt
 import pandas as pd
 from typing import Optional, Dict, List
 import logging
+import os
 
 from config import CONFIG
 
@@ -15,11 +16,25 @@ logger = logging.getLogger("market_data")
 
 class MarketDataFetcher:
     def __init__(self):
+        api_key = os.getenv(CONFIG.EXCHANGE_API_KEY_ENV)
+        api_secret = os.getenv(CONFIG.EXCHANGE_API_SECRET_ENV)
+        if (api_key or api_secret) and not CONFIG.live_trading_active:
+            raise RuntimeError(
+                "Exchange API credentials are present, but live trading is not explicitly enabled. "
+                "Remove credentials for paper mode or set TRADING_MODE=LIVE and ENABLE_LIVE_TRADING=true."
+            )
+
         exchange_class = getattr(ccxt, CONFIG.EXCHANGE_ID)
-        self.exchange = exchange_class({
+        options = {
             "enableRateLimit": True,
             "options": {"defaultType": "spot"},
-        })
+        }
+        if CONFIG.live_trading_active:
+            raise RuntimeError(
+                "LIVE mode is recognized but no live execution client is implemented. "
+                "Refusing to initialize authenticated exchange access."
+            )
+        self.exchange = exchange_class(options)
         logger.info(f"Initialized exchange: {CONFIG.EXCHANGE_ID}")
 
     def fetch_ohlcv(

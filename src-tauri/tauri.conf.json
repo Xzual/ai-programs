@@ -1,7 +1,7 @@
 {
-  "productName": "AURA",
+  "productName": "E.D.I.T.H.",
   "version": "1.0.0",
-  "identifier": "com.aura.app",
+  "identifier": "com.edith.desktop",
   "build": {
     "beforeDevCommand": "npm run vite:dev",
     "beforeBuildCommand": "npm run vite:build",
@@ -12,7 +12,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "AURA — Personal AI Assistant",
+        "title": "E.D.I.T.H. - Personal AI System",
         "width": 1400,
         "height": 900,
         "minWidth": 1100,
@@ -20,7 +20,7 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "decorations": true,
+        "decorations": false,
         "transparent": false,
         "theme": "Dark"
       }

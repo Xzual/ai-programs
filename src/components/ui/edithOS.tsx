@@ -33,7 +33,9 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import { AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
+import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
+import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
+import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
 
 export interface AssistantTheme {
   primary: string;
@@ -64,6 +66,53 @@ export const statusCopy: Record<AiState, string> = {
   error: 'ERROR',
   success: 'SUCCESS',
 };
+
+type InteractionSafetySnapshot = {
+  computer?: {
+    mode: string;
+    runtimeBound: boolean;
+    approvalRequired: boolean;
+    phases?: Array<{ name: string; status: string; notes: string }>;
+  };
+  browser?: {
+    mode: string;
+    capabilities?: Array<{
+      action: string;
+      runtimeStatus: string;
+      requiresApproval: boolean;
+      sideEffects: string;
+    }>;
+  };
+  voice?: {
+    mode: string;
+    wakeWord: string;
+    stt: string;
+    tts: string;
+    handsFreeRequiresUserSetting: boolean;
+  };
+  requiredApprovals?: Array<{ action: string; permissions: string[]; reason: string }>;
+};
+
+function useInteractionSafetySnapshot(): InteractionSafetySnapshot | null {
+  const [snapshot, setSnapshot] = React.useState<InteractionSafetySnapshot | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/edith/interaction-safety')
+      .then((response) => response.ok ? response.json() : undefined)
+      .then((payload) => {
+        if (!cancelled && payload?.success) setSnapshot(payload.snapshot);
+      })
+      .catch(() => {
+        if (!cancelled) setSnapshot(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return snapshot;
+}
 
 export function OSPanel({
   title,
@@ -203,16 +252,29 @@ export function AgentCard({ name, role, status, tools }: { key?: React.Key; name
 export function TransmissionCard({
   message,
   settings,
+  providerProfiles = [],
   assistantName,
   onSpeak,
 }: {
   key?: React.Key;
   message: ChatMessage;
   settings: UserSettings;
+  providerProfiles?: ProviderProfile[];
   assistantName: string;
   onSpeak?: (text: string) => void;
 }) {
   const user = message.sender === 'user';
+  const providerUsed = message.providerUsed ?? message.requestedProvider ?? settings.aiProvider;
+  const modelUsed = message.modelUsed ?? message.requestedModel ?? settings.selectedModel ?? 'auto';
+  const providerStatus = message.providerStatus ?? providerProfiles.find((profile) => profile.provider === providerUsed)?.status ?? 'unknown';
+  const fallbackLabel = message.fallbackUsed
+    ? `${providerDisplayName(message.fallbackProvider ?? providerUsed)}${message.fallbackModel ? ` / ${message.fallbackModel}` : ''}`
+    : undefined;
+  const responseStatusLabel = message.error
+    ? 'FAILED'
+    : message.isStreaming
+    ? 'STREAMING'
+    : 'VERIFIED';
   return (
     <article className={`edith-transmission ${user ? 'edith-transmission-user' : ''}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -228,9 +290,10 @@ export function TransmissionCard({
       </div>
       {!user && (
         <div className="mb-3 flex flex-wrap gap-1.5">
-          <StatusPill label="Model" value={settings.selectedModel || 'AUTO'} tone="muted" />
-          <StatusPill label="Provider" value={settings.aiProvider.toUpperCase()} tone="info" />
-          <StatusPill label={message.error ? 'FAILED' : message.isStreaming ? 'STREAMING' : 'VERIFIED'} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : 'success'} />
+          <StatusPill label="Model" value={modelUsed === 'auto' ? 'AUTO' : modelUsed} tone={modelUsed === 'auto' ? 'info' : 'muted'} />
+          <StatusPill label="Provider" value={providerDisplayName(providerUsed as AiProvider)} tone={providerTone(providerStatus)} />
+          {fallbackLabel && <StatusPill label="Fallback" value={fallbackLabel} tone="warning" />}
+          <StatusPill label={responseStatusLabel} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : providerStatus === 'available' ? 'success' : providerTone(providerStatus)} />
         </div>
       )}
       <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200">
@@ -408,6 +471,7 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
 }
 
 export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const safety = useInteractionSafetySnapshot();
   const computerTools = tools.filter((tool) =>
     tool.category === 'computer' ||
     tool.permissions.some((permission) => permission.includes('computer') || permission.includes('control'))
@@ -426,12 +490,20 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
         <OSPanel title="Next Action" eyebrow="SAFETY LOOP" icon={<ShieldCheck className="h-4 w-4" />}>
           <LoopBar items={['OBSERVE', 'UNDERSTAND', 'PLAN', 'ACTION', 'VERIFY']} active={0} />
           <div className="mt-4 space-y-2">
-            <StatusPill label="READ ONLY" tone="success" />
-            <StatusPill label="Approval required for control" tone="warning" />
+            <StatusPill label={safety?.computer?.mode ?? 'READ ONLY'} tone="success" />
+            <StatusPill label={safety?.computer?.approvalRequired ? 'Approval required for control' : 'Approval state unknown'} tone="warning" />
             <ActionRow label="Control adapters" value={String(computerTools.length)} />
             <ActionRow label="Latest audit" value={latestComputerLog?.status ?? 'none'} />
+            <ActionRow label="Runtime bound" value={safety?.computer?.runtimeBound ? 'yes' : 'no'} />
             <ActionRow label="Risk" value="No action pending" />
           </div>
+          {safety?.computer?.phases && (
+            <div className="mt-4 space-y-1">
+              {safety.computer.phases.slice(0, 4).map((phase) => (
+                <ActionRow key={phase.name} label={phase.name} value={phase.status} />
+              ))}
+            </div>
+          )}
           <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-red-400/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100">
             <Square className="h-4 w-4" /> Stop Computer Agent
           </button>
@@ -442,11 +514,15 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
 }
 
 export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const safety = useInteractionSafetySnapshot();
   const browserTools = tools.filter((tool) =>
     tool.category === 'browser' ||
     tool.category === 'web' ||
     tool.permissions.some((permission) => permission.includes('browser') || permission.includes('network'))
   );
+  const blockedCapabilities = safety?.browser?.capabilities?.filter((capability) =>
+    capability.runtimeStatus === 'BLOCKED' || capability.requiresApproval
+  ) ?? [];
   return (
     <ScreenFrame title="Browser / Research" icon={<Globe2 className="h-5 w-5" />} subtitle="AI research cockpit for sources, claims, conflicts and synthesis">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
@@ -457,9 +533,18 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
           <div className="space-y-2">
             <ActionRow label="Browser-capable tools" value={String(browserTools.length)} />
             <ActionRow label="Research audit events" value={String(logs.filter((log) => browserTools.some((tool) => tool.id === log.toolId)).length)} />
+            <ActionRow label="Browser mode" value={safety?.browser?.mode ?? 'READ_ONLY'} />
+            <ActionRow label="Approval-gated actions" value={String(blockedCapabilities.length)} />
             <ActionRow label="Sources being evaluated" value="none active" />
             <ActionRow label="Final answer draft" value="not generated" />
           </div>
+          {safety?.browser?.capabilities && (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {safety.browser.capabilities.slice(0, 6).map((capability) => (
+                <StatusPill key={capability.action} label={capability.action} value={capability.runtimeStatus} tone={capability.runtimeStatus === 'BLOCKED' ? 'danger' : capability.requiresApproval ? 'warning' : 'muted'} />
+              ))}
+            </div>
+          )}
         </OSPanel>
       </div>
     </ScreenFrame>
@@ -478,7 +563,7 @@ export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assist
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            {['QUEUED', 'PLANNING', 'RUNNING', 'WAITING_APPROVAL', 'BLOCKED', 'RECOVERING', 'COMPLETED', 'FAILED', 'CANCELLED'].map((state) => (
+            {['QUEUED', 'PLANNING', 'RUNNING', 'WAITING_FOR_APPROVAL', 'BLOCKED', 'RECOVERING', 'COMPLETED', 'FAILED', 'CANCELLED'].map((state) => (
               <StatusPill key={state} label={state} tone={state.includes('FAILED') || state === 'BLOCKED' ? 'danger' : state.includes('WAITING') ? 'warning' : state === 'COMPLETED' ? 'success' : 'muted'} />
             ))}
           </div>
@@ -748,13 +833,17 @@ export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: Au
 }
 
 export function VoiceScreen() {
+  const safety = useInteractionSafetySnapshot();
   return (
     <ScreenFrame title="Voice" icon={<Mic2 className="h-5 w-5" />} subtitle="Wake word, STT, intent, assistant response and TTS pipeline">
       <OSPanel title="Voice Pipeline" eyebrow="AUDIO LOOP" icon={<Mic2 className="h-4 w-4" />}>
         <LoopBar items={['Wake Word', 'Speech Recognition', 'Intent', 'Assistant', 'Model', 'Response', 'TTS']} active={0} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <ActionRow label="Voice mode" value={safety?.voice?.mode ?? 'DISABLED'} />
           <ActionRow label="Microphone" value="permission required" />
-          <ActionRow label="Wake word" value="placeholder" />
+          <ActionRow label="Wake word" value={safety?.voice?.wakeWord ?? 'BLOCKED'} />
+          <ActionRow label="STT" value={safety?.voice?.stt ?? 'browser only'} />
+          <ActionRow label="TTS" value={safety?.voice?.tts ?? 'configuration dependent'} />
           <ActionRow label="Barge-in" value="not active" />
         </div>
       </OSPanel>
@@ -833,25 +922,300 @@ export function FilesScreen() {
 
 export function SystemHealthScreen({ ollamaConnected = false, settings, tools = [], logs = [] }: { ollamaConnected?: boolean; settings?: UserSettings; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
   const runningTools = tools.filter((tool) => tool.status === 'running').length;
-  return <ScreenFrame title="System Health" icon={<Activity className="h-5 w-5" />} subtitle="Provider, tools, automation, network and local runtime state"><OSPanel title="Runtime Status" eyebrow="SYSTEM" icon={<Activity className="h-4 w-4" />}><HealthRows rows={[['Provider', ollamaConnected ? 'connected' : `${settings?.aiProvider ?? 'provider'} degraded`, ollamaConnected], ['Registered tools', String(tools.length), true], ['Running tools', String(runningTools), runningTools === 0], ['Audit events', String(logs.length), true], ['Computer Use', 'read only shell', true]]} /></OSPanel></ScreenFrame>;
+  const safety = useInteractionSafetySnapshot();
+  const [shellStatus, setShellStatus] = React.useState<DesktopShellStatus | null>(null);
+  const [backendOnline, setBackendOnline] = React.useState<boolean | null>(null);
+  const [toolsHealth, setToolsHealth] = React.useState<Array<{ toolId: string; state: string; highRisk: boolean; enabled: boolean }>>([]);
+  const [permissionMode, setPermissionMode] = React.useState<string>('PENDING');
+  const [killSwitchActive, setKillSwitchActive] = React.useState<boolean | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadDiagnostics() {
+      try {
+        const shell = await getDesktopShellStatus();
+        if (!cancelled) setShellStatus(shell);
+      } catch {
+        if (!cancelled) setShellStatus({ tauri: false });
+      }
+      try {
+        const response = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(settings?.ollamaUrl ?? 'http://localhost:11434')}`);
+        if (!cancelled) setBackendOnline(response.ok);
+      } catch {
+        if (!cancelled) setBackendOnline(false);
+      }
+      try {
+        const response = await fetch('/api/edith/tools/health');
+        const payload = await response.json();
+        if (!cancelled) setToolsHealth(Array.isArray(payload.health) ? payload.health : []);
+      } catch {
+        if (!cancelled) setToolsHealth([]);
+      }
+      try {
+        const response = await fetch('/api/edith/permissions/policy');
+        const payload = await response.json();
+        if (!cancelled) setPermissionMode(payload?.policy?.mode ? String(payload.policy.mode).toUpperCase() : 'PENDING');
+      } catch {
+        if (!cancelled) setPermissionMode('PENDING');
+      }
+      try {
+        const response = await fetch('/api/edith/kill-switch');
+        const payload = await response.json();
+        if (!cancelled) setKillSwitchActive(Boolean(payload?.state?.active));
+      } catch {
+        if (!cancelled) setKillSwitchActive(null);
+      }
+    }
+    loadDiagnostics();
+    return () => {
+      cancelled = true;
+    };
+  }, [settings?.ollamaUrl]);
+
+  const diagnosticRows: Array<[string, string, 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'CONFIGURATION REQUIRED' | 'BLOCKED']> = [
+    ['Frontend', 'React/Vite UI mounted', 'ONLINE'],
+    ['Backend', backendOnline === null ? 'pending health check' : backendOnline ? 'Express API responded' : 'local API unavailable', backendOnline === null ? 'DEGRADED' : backendOnline ? 'ONLINE' : 'OFFLINE'],
+    ['Database', 'local persistence layer configured by backend', backendOnline ? 'ONLINE' : 'DEGRADED'],
+    ['Memory', settings?.memoryEnabled ? 'memory UI enabled' : 'disabled in settings', settings?.memoryEnabled ? 'DEGRADED' : 'OFFLINE'],
+    ['Ollama', ollamaConnected ? 'local provider reachable' : 'not reachable; local UI still usable', ollamaConnected ? 'ONLINE' : 'OFFLINE'],
+    ['Gemini', settings?.aiProvider === 'gemini' ? 'selected provider; key verified by backend health' : 'not selected or key not verified here', settings?.aiProvider === 'gemini' ? 'DEGRADED' : 'CONFIGURATION REQUIRED'],
+    ['Voice', safety?.voice?.stt ?? 'browser STT only after permission', 'CONFIGURATION REQUIRED'],
+    ['Tauri shell', shellStatus?.tauri ? `desktop shell v${shellStatus.version ?? 'unknown'}` : 'browser/dev mode', shellStatus?.tauri ? 'ONLINE' : 'DEGRADED'],
+    ['Tool registry', `${toolsHealth.length || tools.length} tools visible`, toolsHealth.length || tools.length ? 'ONLINE' : 'DEGRADED'],
+    ['Permissions', permissionMode, permissionMode === 'FULL_ACCESS' ? 'DEGRADED' : 'ONLINE'],
+    ['Kill switch', killSwitchActive === null ? 'pending' : killSwitchActive ? 'active' : 'inactive', killSwitchActive ? 'BLOCKED' : 'ONLINE'],
+    ['Browser Use mode', safety?.browser?.mode ?? 'READ_ONLY', safety?.browser?.mode === 'READ_ONLY' ? 'BLOCKED' : 'DEGRADED'],
+    ['Computer Use mode', safety?.computer?.mode ?? 'READ_ONLY', 'BLOCKED'],
+    ['Trading mode', 'live execution locked', 'BLOCKED'],
+  ];
+
+  const toneFor = (status: string): 'success' | 'warning' | 'danger' | 'muted' =>
+    status === 'ONLINE' ? 'success' : status === 'BLOCKED' || status === 'OFFLINE' ? 'danger' : status === 'DEGRADED' || status === 'CONFIGURATION REQUIRED' ? 'warning' : 'muted';
+
+  return (
+    <ScreenFrame title="System Diagnostics" icon={<Activity className="h-5 w-5" />} subtitle="Desktop shell, providers, permissions, tools and safe local runtime state">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
+        <OSPanel title="Self-Test Matrix" eyebrow="DIAGNOSTICS" icon={<Activity className="h-4 w-4" />}>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {diagnosticRows.map(([label, detail, status]) => (
+              <div key={label} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-slate-200">{label}</div>
+                  <StatusPill label={status} tone={toneFor(status)} />
+                </div>
+                <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{detail}</div>
+              </div>
+            ))}
+          </div>
+        </OSPanel>
+        <OSPanel title="Desktop Safety" eyebrow="LOCAL-FIRST" icon={<ShieldCheck className="h-4 w-4" />}>
+          <div className="space-y-2">
+            <ActionRow label="Registered tools" value={String(tools.length)} />
+            <ActionRow label="Running tools" value={String(runningTools)} />
+            <ActionRow label="Audit events" value={String(logs.length)} />
+            <ActionRow label="Tray" value={shellStatus?.trayConfigured ? 'configured' : 'planned'} />
+            <ActionRow label="Unsafe computer control" value={shellStatus?.unsafeComputerControl ? 'enabled' : 'blocked'} />
+            <ActionRow label="Downloads/forms" value="approval required" />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <StatusPill label="Ctrl Shift K" value="Command Center" tone="muted" />
+            <StatusPill label="Ctrl Shift S" value="Stop speech" tone="muted" />
+            <StatusPill label="Ctrl Shift M" value="Mute voice" tone="muted" />
+            <StatusPill label="Ctrl Shift F" value="Fullscreen" tone="muted" />
+            <StatusPill label="Ctrl Shift E" value="Emergency stop" tone="danger" />
+          </div>
+        </OSPanel>
+      </div>
+    </ScreenFrame>
+  );
 }
 
-export function SettingsArchitectureScreen({ settings, integrations = [], assistant }: { settings?: UserSettings; integrations?: IntegrationConfig[]; assistant?: AssistantProfile }) {
+export function SettingsArchitectureScreen({
+  settings,
+  integrations = [],
+  assistant,
+  providerProfiles = [],
+  providerHealth,
+  availableModels = [],
+  onUpdateSettings,
+  onTestConnection,
+  isTestingConnection = false,
+}: {
+  settings?: UserSettings;
+  integrations?: IntegrationConfig[];
+  assistant?: AssistantProfile;
+  providerProfiles?: ProviderProfile[];
+  providerHealth?: { source: 'backend' | 'placeholder'; geminiAvailable: boolean; ollamaConnected: boolean; checkedAt?: number };
+  availableModels?: string[];
+  onUpdateSettings?: (updates: Partial<UserSettings>) => void;
+  onTestConnection?: () => void;
+  isTestingConnection?: boolean;
+}) {
+  const activeProvider = providerProfiles.find((profile) => profile.provider === settings?.aiProvider);
+  const modelOptions = settings ? Array.from(new Set(['auto', ...(settings.aiProvider === 'ollama' && availableModels.length ? availableModels : activeProvider?.modelExamples ?? []), activeProvider?.defaultModel].filter(Boolean) as string[])) : ['auto'];
+  const canEdit = Boolean(settings && onUpdateSettings);
+
+  const handleProviderChange = (provider: AiProvider) => {
+    if (!settings || !onUpdateSettings) return;
+    const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
+    const nextModels = Array.from(new Set(['auto', ...(provider === 'ollama' && availableModels.length ? availableModels : nextProfile?.modelExamples ?? []), nextProfile?.defaultModel].filter(Boolean) as string[]));
+    onUpdateSettings({
+      aiProvider: provider,
+      selectedModel: nextModels.includes(settings.selectedModel) ? settings.selectedModel : nextProfile?.defaultModel ?? 'auto',
+    });
+  };
+
   return (
     <ScreenFrame title="Settings" icon={<SlidersHorizontal className="h-5 w-5" />} subtitle="Grouped settings architecture for E.D.I.T.H.">
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <ActionRow label="Assistant" value={assistant?.name ?? settings?.assistantPersona ?? 'unknown'} />
         <ActionRow label="Memory namespace" value={assistant?.memoryNamespace ?? 'not configured'} />
-        <ActionRow label="Provider" value={settings?.aiProvider ?? 'unknown'} />
-        <ActionRow label="Model" value={settings?.selectedModel ?? 'auto'} />
+        <ActionRow label="Provider" value={activeProvider?.displayName ?? settings?.aiProvider ?? 'unknown'} />
+        <ActionRow label="Model" value={settings?.selectedModel === 'auto' ? 'AUTO' : settings?.selectedModel ?? 'auto'} />
         <ActionRow label="Configured integrations" value={String(integrations.length)} />
+        <ActionRow label="Provider source" value={providerHealth?.source === 'backend' ? 'backend endpoint' : 'frontend placeholder'} />
       </div>
+
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[22rem_1fr]">
+        <OSPanel title="Active Model Route" eyebrow="MODELS / PROVIDERS" icon={<Cpu className="h-4 w-4" />}>
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1.5 block text-[10px] font-mono uppercase tracking-wide text-slate-500" htmlFor="settings-provider-selector">Provider</label>
+              <select
+                id="settings-provider-selector"
+                value={settings?.aiProvider ?? 'ollama'}
+                disabled={!canEdit}
+                onChange={(event) => handleProviderChange(event.target.value as AiProvider)}
+                className="w-full rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 text-xs text-slate-100 outline-none focus:border-[var(--assistant-primary)]"
+              >
+                {providerProfiles.map((profile) => (
+                  <option key={profile.provider} value={profile.provider} className="bg-slate-950 text-slate-100">
+                    {profile.displayName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-mono uppercase tracking-wide text-slate-500" htmlFor="settings-model-selector">Model</label>
+              <select
+                id="settings-model-selector"
+                value={settings?.selectedModel ?? 'auto'}
+                disabled={!canEdit}
+                onChange={(event) => onUpdateSettings?.({ selectedModel: event.target.value })}
+                className="w-full rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 text-xs text-slate-100 outline-none focus:border-[var(--assistant-primary)]"
+              >
+                {modelOptions.map((model) => (
+                  <option key={model} value={model} className="bg-slate-950 text-slate-100">
+                    {model === 'auto' ? 'AUTO' : model}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/8 p-3">
+              <div className="flex flex-wrap gap-1.5">
+                <StatusPill label="Assistant" value={assistant?.name ?? 'Persona'} tone="info" />
+                <StatusPill label="Provider" value={activeProvider?.displayName ?? 'Unknown'} tone={providerTone(activeProvider?.status ?? 'unknown')} />
+                <StatusPill label="Model" value={settings?.selectedModel === 'auto' ? 'AUTO ROUTED' : settings?.selectedModel ?? 'AUTO'} tone={settings?.selectedModel === 'auto' ? 'info' : 'muted'} />
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+                Assistant persona, model and provider are separate. Selecting Gemini or Ollama here does not change {assistant?.name ?? 'the active assistant'}.
+              </p>
+            </div>
+            {onTestConnection && (
+              <button
+                type="button"
+                onClick={onTestConnection}
+                disabled={isTestingConnection}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-[var(--assistant-primary)]/40 disabled:opacity-60"
+              >
+                <Activity className={`h-3.5 w-3.5 ${isTestingConnection ? 'animate-spin' : ''}`} />
+                Test provider status
+              </button>
+            )}
+          </div>
+        </OSPanel>
+
+        <OSPanel title="Provider Matrix" eyebrow="STATUS" icon={<Network className="h-4 w-4" />}>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {providerProfiles.map((profile) => (
+              <ProviderMatrixCard
+                key={profile.provider}
+                profile={profile}
+                active={profile.provider === settings?.aiProvider}
+                selectedModel={profile.provider === settings?.aiProvider ? settings?.selectedModel : undefined}
+                onSelect={canEdit ? handleProviderChange : undefined}
+              />
+            ))}
+          </div>
+        </OSPanel>
+      </div>
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {['General', 'Appearance', 'Assistants', 'Models', 'Providers', 'Voice', 'Memory', 'Agents', 'Tools', 'Computer Use', 'Browser', 'Automation', 'Security', 'Trading', 'Integrations', 'Notifications', 'System', 'Advanced'].map((group) => (
           <div key={group} className="rounded-lg border border-white/10 bg-white/[0.03] p-4 text-sm text-slate-200">{group}</div>
         ))}
       </div>
     </ScreenFrame>
+  );
+}
+
+function ProviderMatrixCard({
+  profile,
+  active,
+  selectedModel,
+  onSelect,
+}: {
+  key?: React.Key;
+  profile: ProviderProfile;
+  active: boolean;
+  selectedModel?: string;
+  onSelect?: (provider: AiProvider) => void;
+}) {
+  const status = providerStatusLabel(profile.status);
+  const setupInstruction = profile.provider === 'gemini'
+    ? 'Set GEMINI_API_KEY in environment configuration.'
+    : profile.requiredEnv.length
+    ? `Set ${profile.requiredEnv.join(', ')} in environment configuration.`
+    : '';
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(profile.provider)}
+      disabled={!onSelect}
+      className={`rounded-lg border p-3 text-left transition ${
+        active
+          ? 'border-[var(--assistant-primary)]/55 bg-[var(--assistant-primary)]/10 shadow-[0_0_22px_var(--assistant-glow)]'
+          : 'border-white/10 bg-white/[0.03] hover:border-white/20'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-100">{profile.displayName}</div>
+          <div className="mt-1 font-mono text-[10px] uppercase text-slate-500">
+            {profile.privacy} / default {profile.defaultModel}
+          </div>
+        </div>
+        <StatusPill label={status} tone={providerTone(profile.status)} />
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+        <ActionRow label="Configured" value={profile.status === 'available' ? 'yes' : profile.requiredEnv.length ? 'missing env' : 'unknown'} />
+        <ActionRow label="Selected model" value={selectedModel === 'auto' ? 'AUTO' : selectedModel ?? 'not selected'} />
+        <ActionRow label="Fallback model" value={profile.provider === 'gemini' ? 'Ollama / EDITH Mock' : profile.provider === 'ollama' ? 'Gemini / EDITH Mock' : 'EDITH Mock'} />
+        <ActionRow label="Backend" value={profile.pendingBackend ? 'pending integration' : 'endpoint reported'} />
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {profile.modelExamples.map((model) => (
+          <span key={model} className="rounded border border-white/10 bg-slate-950/55 px-2 py-0.5 font-mono text-[10px] text-slate-400">
+            {model === 'auto' ? 'AUTO' : model}
+          </span>
+        ))}
+      </div>
+      {setupInstruction && profile.status !== 'available' && (
+        <p className="mt-3 text-[11px] leading-relaxed text-amber-200/85">{setupInstruction}</p>
+      )}
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{profile.notes}</p>
+    </button>
   );
 }
 

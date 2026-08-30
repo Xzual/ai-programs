@@ -11,6 +11,10 @@ os.chdir(BASE_DIR)
 sys.path.insert(0, str(BASE_DIR / 'src'))
 os.makedirs(BASE_DIR / 'data', exist_ok=True)
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+TEST_DB = BASE_DIR / 'data' / 'test_agent_memory.db'
+if TEST_DB.exists():
+    TEST_DB.unlink()
+os.environ['CRYPTO_DB_PATH'] = str(TEST_DB)
 
 errors = []
 
@@ -91,6 +95,8 @@ try:
     print(f"  validate_trade BUY -> valid={is_valid}, reason={reason}  [OK]")
     is_valid2, reason2, params2 = rm.validate_trade("SELL", "BTC/USDT", 50000.0, 10000.0, [])
     print(f"  validate_trade SELL no-pos -> valid={is_valid2}, reason={reason2}  [OK]")
+    is_valid3, reason3, params3 = rm.validate_trade("NO TRADE", "BTC/USDT", 50000.0, 10000.0, [])
+    print(f"  validate_trade NO TRADE -> valid={is_valid3}, reason={reason3}  [OK]")
     # SL/TP check
     pos = {"symbol": "BTC/USDT", "amount": 0.1, "entry_price": 50000.0, "stop_loss": 48000.0, "take_profit": 53000.0}
     signal = rm.check_sl_tp("BTC/USDT", 47000.0, pos)
@@ -186,6 +192,8 @@ try:
         print(f"  /api/decision-timeline -> {r11.status_code}  [OK]")
         r12 = client.get('/api/strategy-comparison')
         print(f"  /api/strategy-comparison -> {r12.status_code}  [OK]")
+        r13 = client.get('/api/trading-status')
+        print(f"  /api/trading-status -> {r13.status_code}  [OK]")
 except Exception as e:
     errors.append(f"dashboard: {e}")
     print(f"  ERROR: {e}")

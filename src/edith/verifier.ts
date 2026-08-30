@@ -119,13 +119,13 @@ export class VerificationService {
   verifyTask(taskId: string): VerifyTaskResult {
     const task = taskService.getTask(taskId);
     if (!task) return { success: false, taskId, error: 'Task not found.' };
-    if (task.status !== 'VERIFYING') {
+    if (!this.canVerify(task)) {
       return {
         success: false,
         taskId,
         status: 'RETRYABLE',
         task,
-        error: `Task must be VERIFYING before verification. Current status: ${task.status}.`,
+        error: `Task must be RUNNING with terminal plan steps, BLOCKED, or RECOVERING before verification. Current status: ${task.status}.`,
       };
     }
 
@@ -175,7 +175,7 @@ export class VerificationService {
     checks.push(check(
       'task-status',
       'Task reached verification boundary',
-      task.status === 'VERIFYING' ? 'PASS' : 'RETRYABLE',
+      this.canVerify(task) ? 'PASS' : 'RETRYABLE',
       `Current task status: ${task.status}.`
     ));
 
@@ -255,6 +255,13 @@ export class VerificationService {
     checks.push(...artifactEvidence(task));
 
     return checks;
+  }
+
+  private canVerify(task: EdithTask): boolean {
+    if (task.status === 'BLOCKED' || task.status === 'RECOVERING') return true;
+    if (task.status !== 'RUNNING') return false;
+    if (!task.plan) return false;
+    return task.plan.steps.every((step) => isTerminalStepStatus(step.status));
   }
 }
 

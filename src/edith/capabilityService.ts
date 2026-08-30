@@ -1,5 +1,5 @@
 import { appendAuditEvent, createAuditEvent } from './audit';
-import type { EdithAgentRoute, EdithRiskLevel, EdithToolMetadata } from './core';
+import type { EdithAgentRoute, EdithRiskLevel, EdithToolMetadata, EdithToolRisk } from './core';
 import { agentRegistryService } from './agentRegistry';
 import { edithToolRegistry, getEdithToolHealth, type EdithToolHealth, type EdithToolHealthState } from './serverRegistry';
 import { permissionService, type EdithPermissionDecision } from './permissionService';
@@ -11,6 +11,7 @@ export interface CapabilityToolDecision {
   health: EdithToolHealthState;
   enabled: boolean;
   highRisk: boolean;
+  risk: EdithToolRisk;
   riskLevel: EdithRiskLevel;
   requiredPermissions: string[];
   missingPermissions: string[];
@@ -180,6 +181,7 @@ export class CapabilityService {
       health: effectiveHealth,
       enabled: permissionAllowed,
       highRisk: permissionDecision.highRisk,
+      risk: health.risk,
       riskLevel: metadata.riskLevel,
       requiredPermissions: permissionDecision.requiredPermissions,
       missingPermissions: permissionDecision.missingPermissions,
@@ -202,6 +204,8 @@ export class CapabilityService {
       state: 'UNAVAILABLE',
       enabled: false,
       highRisk: false,
+      risk: 'READ',
+      riskLevel: 0,
       missingPermissions: [],
       dependencies: [],
       message: `Tool is not registered: ${toolId}`,

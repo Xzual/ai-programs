@@ -5,6 +5,7 @@ import {
   EdithToolTimeoutError,
   EdithToolValidationError,
   EdithToolRegistry,
+  type EdithToolRisk,
   type EdithToolExecutionContext,
   type EdithToolResult,
 } from './core';
@@ -32,6 +33,8 @@ export interface EdithToolHealth {
   state: EdithToolHealthState;
   enabled: boolean;
   highRisk: boolean;
+  risk: EdithToolRisk;
+  riskLevel: number;
   missingPermissions: string[];
   dependencies: string[];
   message: string;
@@ -55,6 +58,14 @@ function recordToolRun(params: {
 
 function safeResultText(result: EdithToolResult): string {
   return (result.error ?? result.result ?? JSON.stringify(result.structuredOutput ?? {})).slice(0, 4000);
+}
+
+export function riskLabelForLevel(level: number): EdithToolRisk {
+  if (level <= 0) return 'READ';
+  if (level <= 1) return 'LOW';
+  if (level <= 2) return 'MEDIUM';
+  if (level <= 4) return 'HIGH';
+  return 'CRITICAL';
 }
 
 export function getEdithToolHealth(): EdithToolHealth[] {
@@ -82,6 +93,8 @@ export function getEdithToolHealth(): EdithToolHealth[] {
       state,
       enabled,
       highRisk,
+      risk: riskLabelForLevel(metadata.riskLevel),
+      riskLevel: metadata.riskLevel,
       missingPermissions,
       dependencies: metadata.dependencies,
       message,

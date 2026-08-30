@@ -4,13 +4,15 @@ import {
   AlertTriangle,
   Terminal,
 } from 'lucide-react';
-import { AssistantProfile, ChatMessage, UserSettings } from '../../types';
-import { TransmissionCard } from '../ui/edithOS';
+import { AssistantProfile, ChatMessage, ProviderProfile, UserSettings } from '../../types';
+import { StatusPill, TransmissionCard } from '../ui/edithOS';
+import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 
 interface ChatPanelProps {
   messages: ChatMessage[];
   settings: UserSettings;
   ollamaConnected: boolean;
+  providerProfiles?: ProviderProfile[];
   onSpeakMessage: (text: string) => void;
   onOpenOllamaModal: () => void;
   activeSpeakingId?: string | null;
@@ -22,6 +24,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   messages,
   settings,
   ollamaConnected,
+  providerProfiles = [],
   onSpeakMessage,
   onOpenOllamaModal,
   activeSpeakingId,
@@ -29,6 +32,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   className = '',
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const activeProvider = providerProfiles.find((profile) => profile.provider === settings.aiProvider);
+  const geminiProvider = providerProfiles.find((profile) => profile.provider === 'gemini');
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -54,6 +59,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </span>
       </div>
 
+      <div className="relative border-b border-white/10 bg-slate-950/35 px-3 py-2 sm:px-4">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusPill label="Assistant" value={assistantProfile.name} tone="info" />
+          <StatusPill label="Model" value={settings.selectedModel === 'auto' ? 'AUTO' : settings.selectedModel} tone={settings.selectedModel === 'auto' ? 'info' : 'muted'} />
+          <StatusPill label="Provider" value={providerDisplayName(settings.aiProvider)} tone={providerTone(activeProvider?.status ?? 'unknown')} />
+          <StatusPill label="Gemini" value={providerStatusLabel(geminiProvider?.status ?? 'configuration_required')} tone={providerTone(geminiProvider?.status ?? 'configuration_required')} />
+          <StatusPill label="Ollama" value={ollamaConnected ? 'ONLINE' : 'OFFLINE'} tone={ollamaConnected ? 'success' : 'warning'} />
+        </div>
+      </div>
+
       {/* Ollama Offline Banner */}
       {!ollamaConnected && settings.aiProvider === 'ollama' && (
         <div className="relative m-3 p-3 rounded-xl bg-amber-500/13 backdrop-blur-xl border border-amber-300/35 text-amber-200 text-xs flex items-start gap-2.5 shadow-[0_14px_36px_rgba(245,158,11,0.16),inset_0_1px_0_rgba(255,255,255,0.08)]">
@@ -76,6 +91,20 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       )}
 
+      {settings.aiProvider === 'gemini' && (geminiProvider?.status ?? 'configuration_required') !== 'available' && (
+        <div className="relative m-3 rounded-lg border border-amber-300/35 bg-amber-500/13 p-3 text-xs text-amber-200 shadow-[0_14px_36px_rgba(245,158,11,0.12)] backdrop-blur-xl">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+            <div>
+              <p className="font-medium text-amber-200">Gemini provider is not configured.</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-amber-100/80">
+                Set <code className="rounded bg-amber-950/70 px-1 py-0.5 font-mono">GEMINI_API_KEY</code> in environment configuration. E.D.I.T.H. will not expose or request the key in frontend.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Messages List Container */}
       <div className="relative flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 custom-scrollbar bg-[radial-gradient(circle_at_80%_20%,var(--assistant-glow),transparent_28%),radial-gradient(circle_at_20%_90%,rgba(255,255,255,0.04),transparent_28%)]">
         {messages.map((msg) => (
@@ -86,6 +115,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <TransmissionCard
               message={msg}
               settings={settings}
+              providerProfiles={providerProfiles}
               assistantName={msg.assistantName ?? assistantProfile.name}
               onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
             />

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Activity, Bot, ChevronDown, LogOut, PlusCircle, Power, RotateCcw, UserRound, Volume2, VolumeX } from 'lucide-react';
-import { AssistantProfile, EdithAuthSession, UserSettings } from '../../types';
+import { Activity, AlertTriangle, Bot, CheckCircle2, ChevronDown, Cloud, LogOut, PlusCircle, Power, RotateCcw, Server, UserRound, Volume2, VolumeX } from 'lucide-react';
+import { AiProvider, AssistantProfile, EdithAuthSession, ProviderHealthSnapshot, ProviderProfile, UserSettings } from '../../types';
 import { StatusPill } from '../ui/edithOS';
+import { modelsForProvider, providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 
 interface HeaderProps {
   settings: UserSettings;
@@ -9,6 +10,9 @@ interface HeaderProps {
   assistantProfiles: AssistantProfile[];
   authSession: EdithAuthSession;
   ollamaConnected: boolean;
+  providerProfiles: ProviderProfile[];
+  providerHealth: ProviderHealthSnapshot;
+  availableModels: string[];
   onNewChat: () => void;
   onResetChat: () => void;
   onTestConnection: () => void;
@@ -25,6 +29,9 @@ export const Header: React.FC<HeaderProps> = ({
   assistantProfiles,
   authSession,
   ollamaConnected,
+  providerProfiles,
+  providerHealth,
+  availableModels,
   onNewChat,
   onResetChat,
   onTestConnection,
@@ -35,14 +42,18 @@ export const Header: React.FC<HeaderProps> = ({
   isTestingConnection,
 }) => {
   const [profileOpen, setProfileOpen] = useState(false);
-  const providerLabel: Record<string, string> = {
-    ollama: settings.selectedModel,
-    gemini: 'Gemini',
-    openai: 'OpenAI',
-    anthropic: 'Claude',
-    openrouter: 'OpenRouter',
-    local: 'Local',
-    mock: 'EDITH Mock',
+  const activeProvider = providerProfiles.find((profile) => profile.provider === settings.aiProvider);
+  const activeProviderStatus = activeProvider?.status ?? 'unknown';
+  const providerOptions = providerProfiles.length ? providerProfiles : [];
+  const modelOptions = modelsForProvider(settings.aiProvider, providerProfiles, availableModels);
+
+  const handleProviderChange = (provider: AiProvider) => {
+    const nextModels = modelsForProvider(provider, providerProfiles, availableModels);
+    const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
+    const selectedModel = nextModels.includes(settings.selectedModel)
+      ? settings.selectedModel
+      : nextProfile?.defaultModel ?? 'auto';
+    onUpdateSettings({ aiProvider: provider, selectedModel });
   };
 
   return (
@@ -102,18 +113,47 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        {/* Model Badge */}
-        <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-950/54 border border-white/10 text-[11px] font-mono text-slate-300">
-          <span className="text-slate-500">Model:</span>
-          <span className="text-[var(--assistant-primary)] font-medium">
-            {providerLabel[settings.aiProvider] ?? settings.selectedModel}
-          </span>
+        <div className="hidden xl:flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300">
+          <Cloud className="h-3.5 w-3.5 text-[var(--assistant-primary)]" />
+          <label className="text-slate-500" htmlFor="edith-provider-selector">Provider</label>
+          <select
+            id="edith-provider-selector"
+            value={settings.aiProvider}
+            onChange={(event) => handleProviderChange(event.target.value as AiProvider)}
+            className="max-w-36 bg-transparent text-slate-100 outline-none"
+            title="Select model provider without changing assistant persona"
+          >
+            {providerOptions.map((profile) => (
+              <option key={profile.provider} value={profile.provider} className="bg-slate-950 text-slate-100">
+                {profile.displayName}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="hidden xl:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-950/54 border border-white/10 text-[11px] font-mono text-slate-300">
-          <span className="text-slate-500">Provider:</span>
-          <span className="text-slate-200">{settings.aiProvider.toUpperCase()}</span>
+        <div className="hidden xl:flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300">
+          <Server className="h-3.5 w-3.5 text-[var(--assistant-primary)]" />
+          <label className="text-slate-500" htmlFor="edith-model-selector">Model</label>
+          <select
+            id="edith-model-selector"
+            value={settings.selectedModel || 'auto'}
+            onChange={(event) => onUpdateSettings({ selectedModel: event.target.value })}
+            className="max-w-44 bg-transparent text-[var(--assistant-primary)] outline-none"
+            title="Select model without changing assistant persona"
+          >
+            {modelOptions.map((model) => (
+              <option key={model} value={model} className="bg-slate-950 text-slate-100">
+                {model === 'auto' ? 'AUTO' : model}
+              </option>
+            ))}
+          </select>
         </div>
+
+        {settings.selectedModel === 'auto' && (
+          <div className="hidden 2xl:block">
+            <StatusPill label="AUTO MODE" value="ROUTED" tone="info" />
+          </div>
+        )}
 
         {/* Connection Status Button */}
         <button
@@ -135,10 +175,32 @@ export const Header: React.FC<HeaderProps> = ({
             {isTestingConnection
               ? 'Testing...'
               : ollamaConnected
-              ? 'Provider Online'
-              : 'Provider Degraded'}
+              ? 'Ollama Online'
+              : 'Ollama Offline'}
           </span>
         </button>
+
+        <button
+          onClick={onTestConnection}
+          disabled={isTestingConnection}
+          className={`hidden lg:flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-mono transition-all ${
+            providerTone(activeProviderStatus) === 'success'
+              ? 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
+              : providerTone(activeProviderStatus) === 'danger'
+              ? 'border-red-500/30 bg-red-950/40 text-red-300'
+              : 'border-amber-500/30 bg-amber-950/40 text-amber-300'
+          }`}
+          title={activeProvider?.requiredEnv.length ? `Required environment: ${activeProvider.requiredEnv.join(', ')}` : 'Provider status'}
+        >
+          {activeProviderStatus === 'available' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+          <span>{providerDisplayName(settings.aiProvider)}</span>
+          <span className="text-current/75">{providerStatusLabel(activeProviderStatus)}</span>
+        </button>
+
+        <div className="hidden 2xl:flex items-center gap-2">
+          <StatusPill label="Gemini" value={providerHealth.geminiAvailable ? 'CONFIGURED' : 'SET GEMINI_API_KEY'} tone={providerHealth.geminiAvailable ? 'success' : 'warning'} />
+          <StatusPill label="Local" value={ollamaConnected ? 'OLLAMA ONLINE' : 'OLLAMA OFFLINE'} tone={ollamaConnected ? 'success' : 'warning'} />
+        </div>
 
         <div className="hidden 2xl:flex items-center gap-2">
           <StatusPill label="Voice" value={settings.autoSpeech ? 'ON' : 'OFF'} tone={settings.autoSpeech ? 'success' : 'muted'} />

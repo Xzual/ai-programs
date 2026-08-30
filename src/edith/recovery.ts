@@ -25,11 +25,11 @@ function recoveryId(taskId: string): string {
 }
 
 function classify(task: EdithTask): EdithRecoveryClassification {
-  if (task.status === 'WAITING_PERMISSION') return 'PERMISSION_DENIED';
+  if (task.status === 'WAITING_FOR_APPROVAL') return 'PERMISSION_DENIED';
   if (task.status === 'FAILED') return 'EXECUTION_FAILED';
-  if (task.status === 'PAUSED') return 'BUDGET_EXHAUSTED';
   if (task.verification?.status === 'RETRYABLE') return 'VERIFICATION_RETRYABLE';
   if (task.verification?.status === 'PARTIAL') return 'PARTIAL_RESULT';
+  if (task.status === 'BLOCKED') return 'BUDGET_EXHAUSTED';
   return 'UNKNOWN';
 }
 
@@ -59,10 +59,10 @@ function permissionAssessmentFor(task: EdithTask): CapabilityAssessment {
 }
 
 function allowedForRecovery(status: EdithTaskStatus): boolean {
-  return status === 'RETRYING' ||
-    status === 'PAUSED' ||
+  return status === 'BLOCKED' ||
     status === 'FAILED' ||
-    status === 'WAITING_PERMISSION';
+    status === 'RECOVERING' ||
+    status === 'WAITING_FOR_APPROVAL';
 }
 
 export class RecoveryService {
@@ -81,11 +81,27 @@ export class RecoveryService {
     const classification = classify(task);
     const attempt = recoveryAttempt(task);
     const maxRetries = retryBudget(task);
+    taskService.updateStatus(taskId, 'RECOVERING', `Recovery attempt ${attempt} classified as ${classification}.`);
+    taskService.recordActivity({
+      taskId,
+      agentId: 'recovery',
+      role: 'recovery',
+      status: 'RUNNING',
+      message: `Recovery attempt ${attempt}: ${classification}.`,
+      planningOnly: false,
+    });
 
     if (classification === 'PERMISSION_DENIED') {
       const assessment = permissionAssessmentFor(task);
-      const recovery = this.createRecovery(task, attempt, classification, 'WAIT_PERMISSION', task.status, 'WAITING_PERMISSION', undefined, assessment);
+      const recovery = this.createRecovery(task, attempt, classification, 'WAIT_PERMISSION', task.status, 'WAITING_FOR_APPROVAL', undefined, assessment);
       const updated = taskService.recordRecovery(taskId, recovery);
+      taskService.recordActivity({
+        taskId,
+        agentId: 'recovery',
+        role: 'recovery',
+        status: 'WAITING_FOR_APPROVAL',
+        message: recovery.reason,
+      });
       return {
         success: false,
         taskId,
@@ -101,6 +117,13 @@ export class RecoveryService {
     if (attempt > maxRetries) {
       const recovery = this.createRecovery(task, attempt, classification, 'STOP', task.status, 'FAILED');
       const updated = taskService.recordRecovery(taskId, recovery);
+      taskService.recordActivity({
+        taskId,
+        agentId: 'recovery',
+        role: 'recovery',
+        status: 'FAILED',
+        message: recovery.reason,
+      });
       return {
         success: false,
         taskId,
@@ -116,6 +139,13 @@ export class RecoveryService {
     const nextPlan = plannerService.createPlan(task);
     const recovery = this.createRecovery(task, attempt, classification, 'REPLAN', task.status, 'QUEUED', nextPlan.id);
     const updated = taskService.recordRecovery(taskId, recovery, nextPlan);
+    taskService.recordActivity({
+      taskId,
+      agentId: 'recovery',
+      role: 'recovery',
+      status: 'COMPLETED',
+      message: `Recovery replanned task with ${nextPlan.id}.`,
+    });
     return {
       success: true,
       taskId,

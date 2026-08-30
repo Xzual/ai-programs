@@ -2,31 +2,20 @@ import express from "express";
 import path from "path";
 import http from "http";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
 import { edithToolRegistry, executeEdithTool, getEdithToolHealth } from "./src/edith/serverRegistry";
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from "./src/edith/audit";
-import { createStoredTask, listTasks, updateTaskStatus } from "./src/edith/taskStore";
 import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
-import { taskService } from "./src/edith/taskService";
-import { taskQueueService } from "./src/edith/taskQueueService";
-import { plannerService } from "./src/edith/planner";
-import { executorService } from "./src/edith/executor";
-import { verificationService } from "./src/edith/verifier";
-import { recoveryService } from "./src/edith/recovery";
 import { agentRegistryService } from "./src/edith/agentRegistry";
 import { capabilityService } from "./src/edith/capabilityService";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { buildChatSystemPrompt } from "./src/edith/chatContext";
-import { knowledgeMapService } from "./src/edith/knowledgeMapService";
-import { knowledgeGraphService } from "./src/edith/knowledgeGraphService";
 import { obsidianVaultService } from "./src/edith/obsidianVaultService";
 import { cryptoService } from "./src/edith/cryptoService";
-import { ragService } from "./src/edith/ragService";
 import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch";
-import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } from "./src/edith/permissionService";
+import { permissionService } from "./src/edith/permissionService";
 import { visionObservationService } from "./src/edith/visionService";
 import { computerActionService } from "./src/edith/computerActionService";
 import { browserWorkflowService } from "./src/edith/browserWorkflowService";
@@ -34,18 +23,33 @@ import { interruptService } from "./src/edith/interruptService";
 import { confidenceService, patternMemoryService, presenceContextService, sentimentContextService } from "./src/edith/contextSignals";
 import { proactiveService } from "./src/edith/proactiveService";
 import { design3dService } from "./src/edith/design3dService";
-import { modelCapabilityRegistry } from "./src/edith/modelCapabilities";
 import { legacyToolForPermission } from "./src/edith/legacyToolPolicy";
 import { localToolProbeService } from "./src/edith/localToolProbes";
 import { sensitiveIntegrationService } from "./src/edith/sensitiveIntegrationService";
+import { interactionSafetyService } from "./src/edith/interactionSafetyService";
 import assistantProfiles from "./src/config/assistantProfiles.json";
-import type { EdithModelModality, EdithModelTaskType, EdithPrivacyPreference } from "./src/edith/modelRouter";
-import type { AiProvider, MemoryScope, MemoryType } from "./src/types";
+import { getGeminiClient } from "./server/providers/gemini";
+import { createCryptoRouter } from "./server/routes/crypto";
+import { createHealthRouter } from "./server/routes/health";
+import { createKnowledgeRouter } from "./server/routes/knowledge";
+import { createKillSwitchRouter } from "./server/routes/killSwitch";
+import { createMemoryRouter } from "./server/routes/memory";
+import { createModelsRouter } from "./server/routes/models";
+import { createPermissionsRouter } from "./server/routes/permissions";
+import { createTasksRouter } from "./server/routes/tasks";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
+app.use(createHealthRouter());
+app.use(createCryptoRouter());
+app.use(createModelsRouter());
+app.use(createKnowledgeRouter());
+app.use(createKillSwitchRouter());
+app.use(createPermissionsRouter());
+app.use(createTasksRouter());
+app.use(createMemoryRouter());
 
 app.post("/api/voice/tts", async (req, res) => {
   const { text, apiKey, voiceId = "pNInz6obpgDQGcFmaJgB" } = req.body ?? {};
@@ -87,55 +91,6 @@ app.post("/api/voice/tts", async (req, res) => {
   }
 });
 
-// Initialize Gemini API client lazily if key exists
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || apiKey === "MY_GEMINI_API_KEY") {
-    return null;
-  }
-  try {
-    return new GoogleGenAI({ apiKey });
-  } catch (err) {
-    console.error("Gemini init error:", err);
-    return null;
-  }
-}
-
-// 1. Health & Connection Diagnostic
-app.get("/api/health", async (req, res) => {
-  const ollamaUrl = (req.query.ollamaUrl as string) || "http://localhost:11434";
-  let ollamaConnected = false;
-  let availableModels: string[] = [];
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch(`${ollamaUrl}/api/tags`, {
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const data = (await response.json()) as { models?: Array<{ name: string }> };
-      ollamaConnected = true;
-      availableModels = (data.models || []).map((m) => m.name);
-    }
-  } catch (err) {
-    ollamaConnected = false;
-  }
-
-  const geminiClient = getGeminiClient();
-
-  res.json({
-    status: "ok",
-    ollamaConnected,
-    ollamaUrl,
-    availableModels,
-    geminiAvailable: !!geminiClient,
-    timestamp: Date.now(),
-  });
-});
-
 app.get("/api/edith/tools", (_req, res) => {
   res.json({
     success: true,
@@ -158,46 +113,11 @@ app.get("/api/edith/runtime/probes", (_req, res) => {
   });
 });
 
-app.get("/api/edith/crypto/status", async (_req, res) => {
-  try {
-    res.json({
-      success: true,
-      status: await cryptoService.status(),
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-app.post("/api/edith/crypto/start", async (_req, res) => {
-  try {
-    res.json({
-      success: true,
-      status: await cryptoService.start("Manual start from EDITH Crypto view"),
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-app.post("/api/edith/crypto/stop", (_req, res) => {
-  try {
-    res.json({
-      success: true,
-      status: cryptoService.stop("Manual stop from EDITH Crypto view"),
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+app.get("/api/edith/interaction-safety", (_req, res) => {
+  res.json({
+    success: true,
+    snapshot: interactionSafetyService.snapshot(),
+  });
 });
 
 app.get("/api/edith/agents", (_req, res) => {
@@ -240,70 +160,6 @@ app.post("/api/edith/capabilities/assess", (req, res) => {
   }
 });
 
-const MODEL_TASK_TYPES = new Set<EdithModelTaskType>(['conversation', 'classification', 'planning', 'verification', 'coding', 'vision', 'voice']);
-const MODEL_MODALITIES = new Set<EdithModelModality>(['text', 'image', 'audio', 'screen']);
-const MODEL_PRIVACY_PREFERENCES = new Set<EdithPrivacyPreference>(['local_first', 'cloud_allowed', 'offline_only']);
-
-function parseAiProvider(value: unknown): AiProvider | undefined {
-  return value === 'ollama' ||
-    value === 'gemini' ||
-    value === 'openai' ||
-    value === 'anthropic' ||
-    value === 'openrouter' ||
-    value === 'local' ||
-    value === 'mock'
-    ? value
-    : undefined;
-}
-
-function parseModelTaskType(value: unknown): EdithModelTaskType | undefined {
-  return typeof value === 'string' && MODEL_TASK_TYPES.has(value as EdithModelTaskType) ? value as EdithModelTaskType : undefined;
-}
-
-function parseModelModality(value: unknown): EdithModelModality | undefined {
-  return typeof value === 'string' && MODEL_MODALITIES.has(value as EdithModelModality) ? value as EdithModelModality : undefined;
-}
-
-function parsePrivacyPreference(value: unknown): EdithPrivacyPreference | undefined {
-  return typeof value === 'string' && MODEL_PRIVACY_PREFERENCES.has(value as EdithPrivacyPreference) ? value as EdithPrivacyPreference : undefined;
-}
-
-app.get("/api/edith/models/route", (req, res) => {
-  const providerHealth = {
-    ollama: req.query.ollamaAvailable === 'true' ? 'available' as const : 'unknown' as const,
-    gemini: getGeminiClient() ? 'available' as const : 'unavailable' as const,
-    openai: process.env.OPENAI_API_KEY ? 'unknown' as const : 'unavailable' as const,
-    anthropic: process.env.ANTHROPIC_API_KEY ? 'unknown' as const : 'unavailable' as const,
-    openrouter: process.env.OPENROUTER_API_KEY ? 'unknown' as const : 'unavailable' as const,
-    local: 'unknown' as const,
-    mock: 'available' as const,
-  };
-  const route = modelRouterService.route({
-    requestedProvider: parseAiProvider(req.query.provider),
-    model: typeof req.query.model === 'string' ? req.query.model : undefined,
-    taskType: parseModelTaskType(req.query.taskType),
-    modality: parseModelModality(req.query.modality),
-    privacyPreference: parsePrivacyPreference(req.query.privacy),
-    providerHealth,
-  });
-  res.json({ success: true, route });
-});
-
-app.get("/api/edith/models/capabilities", (req, res) => {
-  res.json({
-    success: true,
-    providers: modelCapabilityRegistry.list({
-      ollama: req.query.ollamaAvailable === 'true' ? 'available' : 'unknown',
-      gemini: getGeminiClient() ? 'available' : 'unavailable',
-      openai: process.env.OPENAI_API_KEY ? 'unknown' : 'unavailable',
-      anthropic: process.env.ANTHROPIC_API_KEY ? 'unknown' : 'unavailable',
-      openrouter: process.env.OPENROUTER_API_KEY ? 'unknown' : 'unavailable',
-      local: 'unknown',
-      mock: 'available',
-    }),
-  });
-});
-
 app.get("/api/edith/skill-catalog", (_req, res) => {
   res.json({
     success: true,
@@ -325,178 +181,6 @@ app.get("/api/edith/tool-runs", (req, res) => {
   res.json({
     success: true,
     runs: store.listToolRuns?.(Number.isFinite(limit) ? limit : 100) ?? [],
-  });
-});
-
-app.get("/api/edith/knowledge-map", (_req, res) => {
-  res.json({
-    success: true,
-    map: knowledgeMapService.snapshot(),
-  });
-});
-
-app.get("/api/edith/knowledge/graph", (req, res) => {
-  res.json({
-    success: true,
-    graph: knowledgeGraphService.snapshot({
-      query: typeof req.query.query === 'string' ? req.query.query : undefined,
-      nodeType: typeof req.query.nodeType === 'string' ? req.query.nodeType as any : undefined,
-      relationshipType: typeof req.query.relationshipType === 'string' ? req.query.relationshipType as any : undefined,
-      folder: typeof req.query.folder === 'string' ? req.query.folder : undefined,
-      tag: typeof req.query.tag === 'string' ? req.query.tag : undefined,
-      source: typeof req.query.source === 'string' ? req.query.source : undefined,
-      limit: Number.isFinite(Number(req.query.limit)) ? Number(req.query.limit) : undefined,
-    }),
-  });
-});
-
-app.get("/api/edith/knowledge/nodes/:id", (req, res) => {
-  const node = knowledgeGraphService.findNode(req.params.id);
-  if (!node) return res.status(404).json({ success: false, error: "Knowledge node not found." });
-  res.json({ success: true, node });
-});
-
-app.get("/api/edith/knowledge/search", (req, res) => {
-  const query = String(req.query.query ?? "").trim();
-  if (!query) return res.status(400).json({ success: false, error: "query is required." });
-  res.json({
-    success: true,
-    nodes: knowledgeGraphService.search(query, parseMemoryLimit(req.query.limit, 25)),
-    retrieval: ragService.retrieve(query, parseMemoryLimit(req.query.limit, 8)),
-  });
-});
-
-app.post("/api/edith/knowledge/reindex", (_req, res) => {
-  res.json({ success: true, reindex: obsidianVaultService.reindex() });
-});
-
-app.get("/api/edith/knowledge/rag/status", (_req, res) => {
-  res.json({ success: true, status: ragService.status() });
-});
-
-app.get("/api/edith/knowledge/rag/retrieve", (req, res) => {
-  const query = String(req.query.query ?? "").trim();
-  if (!query) return res.status(400).json({ success: false, error: "query is required." });
-  res.json({ success: true, retrieval: ragService.retrieve(query, parseMemoryLimit(req.query.limit, 8)) });
-});
-
-app.get("/api/edith/obsidian/status", (_req, res) => {
-  res.json({ success: true, status: obsidianVaultService.status() });
-});
-
-app.patch("/api/edith/obsidian/settings", (req, res) => {
-  res.json({ success: true, settings: obsidianVaultService.updateSettings(req.body ?? {}), status: obsidianVaultService.status() });
-});
-
-app.post("/api/edith/obsidian/sync-now", (_req, res) => {
-  res.json({ success: true, reindex: obsidianVaultService.reindex() });
-});
-
-app.post("/api/edith/obsidian/agent-notes", (req, res) => {
-  const kind = String(req.body?.kind ?? "");
-  if (kind !== "research" && kind !== "coding" && kind !== "meeting" && kind !== "trading") {
-    return res.status(400).json({ success: false, error: "kind must be research, coding, meeting, or trading." });
-  }
-  const title = String(req.body?.title ?? "").trim();
-  const body = String(req.body?.body ?? "").trim();
-  if (!title || !body) return res.status(400).json({ success: false, error: "title and body are required." });
-  const notePath = obsidianVaultService.writeAgentNote({
-    agentId: String(req.body?.agentId ?? "agent"),
-    kind,
-    title,
-    body,
-  });
-  res.json({ success: true, path: notePath });
-});
-
-app.get("/api/edith/kill-switch", (_req, res) => {
-  res.json({
-    success: true,
-    state: killSwitchService.status(),
-  });
-});
-
-app.get("/api/edith/permissions/policy", (_req, res) => {
-  res.json({
-    success: true,
-    policy: {
-      mode: permissionService.getPolicy().mode,
-      policy: permissionService.getPolicy(),
-      highRiskEnabled: permissionService.highRiskEnabled(),
-      defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
-      highRiskPermissions: HIGH_RISK_PERMISSIONS,
-      authorizedPermissions: permissionService.defaultAuthorizedPermissions(),
-      activeGrants: permissionService.listGrants().length,
-    },
-  });
-});
-
-app.patch("/api/edith/permissions/policy", (req, res) => {
-  try {
-    const policy = permissionService.updatePolicy({
-      mode: req.body?.mode,
-      updatedBy: 'edith-dashboard',
-    });
-    res.json({
-      success: true,
-      policy: {
-        mode: policy.mode,
-        policy,
-        highRiskEnabled: permissionService.highRiskEnabled(),
-        defaultLocalPermissions: DEFAULT_LOCAL_PERMISSIONS,
-        highRiskPermissions: HIGH_RISK_PERMISSIONS,
-        authorizedPermissions: permissionService.defaultAuthorizedPermissions(),
-        activeGrants: permissionService.listGrants().length,
-      },
-    });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.get("/api/edith/permissions/grants", (req, res) => {
-  res.json({
-    success: true,
-    grants: permissionService.listGrants({
-      includeExpired: req.query.includeExpired === 'true',
-      includeRevoked: req.query.includeRevoked === 'true',
-    }),
-  });
-});
-
-app.post("/api/edith/permissions/grants", (req, res) => {
-  try {
-    const grant = permissionService.createGrant({
-      actor: typeof req.body?.actor === 'string' ? req.body.actor : undefined,
-      permissions: Array.isArray(req.body?.permissions) ? req.body.permissions.map(String) : [],
-      toolIds: Array.isArray(req.body?.toolIds) ? req.body.toolIds.map(String) : undefined,
-      reason: String(req.body?.reason ?? ''),
-      grantedBy: 'edith-dashboard',
-      ttlMs: Number(req.body?.ttlMs ?? undefined),
-    });
-    res.json({ success: true, grant });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.delete("/api/edith/permissions/grants/:id", (req, res) => {
-  const grant = permissionService.revokeGrant(req.params.id, 'edith-dashboard');
-  res.status(grant ? 200 : 404).json({ success: Boolean(grant), grant });
-});
-
-app.post("/api/edith/kill-switch/activate", (req, res) => {
-  const reason = String(req.body?.reason ?? "").trim();
-  res.json({
-    success: true,
-    state: killSwitchService.activate(reason || "Manual emergency stop from EDITH API.", "edith-dashboard"),
-  });
-});
-
-app.post("/api/edith/kill-switch/deactivate", (_req, res) => {
-  res.json({
-    success: true,
-    state: killSwitchService.deactivate("edith-dashboard"),
   });
 });
 
@@ -642,253 +326,6 @@ app.post("/api/edith/interrupt", (req, res) => {
 app.delete("/api/edith/interrupt/:id", (req, res) => {
   const cleared = interruptService.clear(req.params.id, "edith-api");
   res.status(cleared ? 200 : 404).json({ success: cleared });
-});
-
-app.get("/api/edith/tasks", (_req, res) => {
-  res.json({
-    success: true,
-    tasks: listTasks(),
-  });
-});
-
-app.get("/api/edith/tasks/queue", (_req, res) => {
-  res.json({ success: true, queue: taskQueueService.snapshot(), next: taskQueueService.next() });
-});
-
-app.post("/api/edith/tasks", (req, res) => {
-  const {
-    title = "EDITH Task",
-    objective,
-    originalUserRequest,
-    toolsRequired = [],
-    permissionsRequired = [],
-    riskLevel = 1,
-  } = req.body ?? {};
-  if (!objective || !originalUserRequest) {
-    return res.status(400).json({ success: false, error: "objective and originalUserRequest are required." });
-  }
-  try {
-    const task = createStoredTask({
-      title,
-      objective,
-      originalUserRequest,
-      toolsRequired,
-      permissionsRequired,
-      riskLevel,
-    });
-    obsidianVaultService.writeTaskNote(task);
-    res.json({ success: true, task });
-  } catch (error) {
-    if (error instanceof KillSwitchActiveError) {
-      return res.status(423).json({ success: false, error: error.message, killSwitch: error.state });
-    }
-    throw error;
-  }
-});
-
-app.patch("/api/edith/tasks/:id/status", (req, res) => {
-  const task = updateTaskStatus(req.params.id, req.body?.status, req.body?.result);
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  obsidianVaultService.writeTaskNote(task);
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/queue", (req, res) => {
-  const queued = taskQueueService.enqueue(req.params.id);
-  if (!queued) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task: queued });
-});
-
-app.post("/api/edith/tasks/:id/pause", (req, res) => {
-  const task = taskQueueService.pause(req.params.id, String(req.body?.reason ?? "Task paused."));
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/resume", (req, res) => {
-  const task = taskQueueService.resume(req.params.id);
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/cancel", (req, res) => {
-  const task = taskQueueService.cancel(req.params.id, String(req.body?.reason ?? "Task cancelled by user."), "edith-api");
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/observations", (req, res) => {
-  const observation = String(req.body?.observation ?? "").trim();
-  if (!observation) return res.status(400).json({ success: false, error: "observation is required." });
-  const task = taskService.addObservation(req.params.id, observation);
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/checkpoints", (req, res) => {
-  const checkpoint = String(req.body?.checkpoint ?? "").trim();
-  if (!checkpoint) return res.status(400).json({ success: false, error: "checkpoint is required." });
-  const task = taskService.addCheckpoint(req.params.id, checkpoint);
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/artifacts", (req, res) => {
-  const artifact = String(req.body?.artifact ?? "").trim();
-  if (!artifact) return res.status(400).json({ success: false, error: "artifact is required." });
-  const task = taskService.addArtifact(req.params.id, artifact);
-  if (!task) return res.status(404).json({ success: false, error: "Task not found." });
-  res.json({ success: true, task });
-});
-
-app.post("/api/edith/tasks/:id/plan", (req, res) => {
-  const result = plannerService.planTask(req.params.id);
-  if (!result.success) {
-    return res.status(404).json({ success: false, error: result.error ?? "Task not found." });
-  }
-  res.json({ success: true, plan: result.plan, task: result.task });
-});
-
-app.post("/api/edith/tasks/:id/execute", async (req, res) => {
-  const result = await executorService.executeTask(req.params.id);
-  res.status(result.success ? 200 : 400).json(result);
-});
-
-app.post("/api/edith/tasks/:id/verify", (req, res) => {
-  const result = verificationService.verifyTask(req.params.id);
-  res.status(result.success ? 200 : 400).json(result);
-});
-
-app.post("/api/edith/tasks/:id/recover", (req, res) => {
-  const result = recoveryService.recoverTask(req.params.id);
-  res.status(result.success ? 200 : 400).json(result);
-});
-
-const MEMORY_TYPES = new Set<MemoryType>(['working', 'episodic', 'semantic', 'preference', 'project', 'procedural', 'failure']);
-const MEMORY_SCOPES = new Set<MemoryScope>(['global', 'user', 'project', 'task', 'conversation']);
-
-function parseMemoryType(value: unknown): MemoryType | undefined {
-  return typeof value === 'string' && MEMORY_TYPES.has(value as MemoryType) ? value as MemoryType : undefined;
-}
-
-function parseMemoryScope(value: unknown): MemoryScope | undefined {
-  return typeof value === 'string' && MEMORY_SCOPES.has(value as MemoryScope) ? value as MemoryScope : undefined;
-}
-
-function parseMemoryLimit(value: unknown, fallback: number): number {
-  const parsed = Number(value ?? fallback);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.min(Math.floor(parsed), 200) : fallback;
-}
-
-app.get("/api/edith/memory-v2", (req, res) => {
-  const options = {
-    query: typeof req.query.query === 'string' ? req.query.query : undefined,
-    type: parseMemoryType(req.query.type),
-    scope: parseMemoryScope(req.query.scope),
-    includeSensitive: req.query.includeSensitive === 'true',
-    limit: parseMemoryLimit(req.query.limit, 50),
-  };
-  res.json({
-    success: true,
-    memories: options.query ? memoryService.search(options) : memoryService.list(options).slice(0, options.limit),
-  });
-});
-
-app.post("/api/edith/memory-v2", (req, res) => {
-  try {
-    const conflicts = memoryService.conflicts(req.body ?? {});
-    const memory = memoryService.upsert(req.body ?? {});
-    obsidianVaultService.writeMemoryNote(memory);
-    res.json({ success: true, memory, conflicts });
-  } catch (error) {
-    res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
-  }
-});
-
-app.get("/api/edith/memory-v2/context", (req, res) => {
-  const query = String(req.query.query ?? "").trim();
-  if (!query) return res.status(400).json({ success: false, error: "query is required." });
-  res.json({
-    success: true,
-    memories: memoryService.context(query, parseMemoryLimit(req.query.limit, 8)),
-  });
-});
-
-app.post("/api/edith/memory-v2/merge", (req, res) => {
-  const targetId = String(req.body?.targetId ?? "").trim();
-  const sourceIds = Array.isArray(req.body?.sourceIds) ? req.body.sourceIds.map(String) : [];
-  if (!targetId || sourceIds.length === 0) return res.status(400).json({ success: false, error: "targetId and sourceIds are required." });
-  const memory = memoryService.merge(targetId, sourceIds);
-  if (!memory) return res.status(404).json({ success: false, error: "Target memory not found." });
-  res.json({ success: true, memory });
-});
-
-app.get("/api/edith/memory-v2/export", (_req, res) => {
-  res.json({ success: true, export: memoryService.exportSnapshot() });
-});
-
-app.delete("/api/edith/memory-v2/:id", (req, res) => {
-  const deleted = memoryService.delete(req.params.id);
-  res.status(deleted ? 200 : 404).json({ success: deleted, deleted });
-});
-
-app.get("/api/edith/memories", (_req, res) => {
-  const store = getEdithPersistenceStore();
-  res.json({
-    success: true,
-    memories: store.listMemories?.() ?? [],
-  });
-});
-
-app.post("/api/edith/memories", (req, res) => {
-  const store = getEdithPersistenceStore();
-  if (!store.upsertMemory) {
-    return res.status(501).json({ success: false, error: "Memory persistence is unavailable." });
-  }
-
-  const { category = "custom", key, value, isSensitive = false } = req.body ?? {};
-  if (!key || !value) {
-    return res.status(400).json({ success: false, error: "key and value are required." });
-  }
-
-  const memory = {
-    id: req.body?.id || `mem-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    category,
-    key,
-    value,
-    createdAt: Number(req.body?.createdAt ?? Date.now()),
-    isSensitive: Boolean(isSensitive),
-  };
-  store.upsertMemory(memory);
-  res.json({ success: true, memory });
-});
-
-// 2. Ollama Models Proxy
-app.get("/api/ollama/models", async (req, res) => {
-  const ollamaUrl = (req.query.ollamaUrl as string) || "http://localhost:11434";
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const response = await fetch(`${ollamaUrl}/api/tags`, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      const data = await response.json();
-      return res.json(data);
-    }
-    res.status(502).json({ error: "Ollama sunucusuna ulaşılamadı", models: [] });
-  } catch (err) {
-    res.json({
-      error: "Ollama sunucusuna ulaşılamadı. EDITH yerel sunucuyu başlatmadı; yalnızca mevcut durumu algılıyor.",
-      models: [
-        { name: "llama3.2:latest", details: { family: "llama" } },
-        { name: "qwen2.5:latest", details: { family: "qwen" } },
-        { name: "mistral:latest", details: { family: "mistral" } },
-        { name: "gemma2:latest", details: { family: "gemma" } },
-      ],
-      offline: true,
-    });
-  }
 });
 
 function extractExplicitMemory(text: string): { key: string; content: string } | undefined {

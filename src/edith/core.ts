@@ -1,6 +1,7 @@
 import { permissionService } from './permissionService';
 
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
+export type EdithToolRisk = 'READ' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
 export type StructuredObservationSource =
   | 'screen'
@@ -68,6 +69,7 @@ export interface BrowserWorkflowRequest {
   filePath?: string;
   verificationGoal: string;
   dryRun?: boolean;
+  approvalGranted?: boolean;
 }
 
 export interface InterruptSignal {
@@ -383,19 +385,65 @@ export interface EdithAgentRoute {
 export type EdithTaskStatus =
   | 'CREATED'
   | 'ANALYZING'
+  | 'QUEUED'
   | 'PLANNING'
   | 'WAITING_DEPENDENCY'
-  | 'WAITING_PERMISSION'
-  | 'QUEUED'
   | 'RUNNING'
   | 'PAUSED'
   | 'RETRYING'
   | 'VERIFYING'
+  | 'WAITING_PERMISSION'
+  | 'WAITING_FOR_APPROVAL'
+  | 'BLOCKED'
+  | 'RECOVERING'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED'
   | 'ROLLING_BACK'
   | 'ROLLED_BACK';
+
+export type EdithTaskTimelineEventType =
+  | 'status'
+  | 'plan'
+  | 'agent'
+  | 'tool'
+  | 'verification'
+  | 'recovery'
+  | 'memory'
+  | 'checkpoint'
+  | 'artifact'
+  | 'observation'
+  | 'permission'
+  | 'audit';
+
+export interface EdithTaskTimelineEvent {
+  id: string;
+  taskId: string;
+  type: EdithTaskTimelineEventType;
+  actor: string;
+  message: string;
+  createdAt: string;
+  status?: EdithTaskStatus;
+  toolId?: string;
+  agentId?: string;
+  riskLevel?: EdithRiskLevel;
+  auditEventId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EdithAgentActivity {
+  id: string;
+  taskId: string;
+  agentId: string;
+  agentName?: string;
+  role: 'orchestrator' | 'planner' | 'executor' | 'verifier' | 'recovery' | 'tool' | 'memory' | 'security' | 'abstraction';
+  status: 'SELECTED' | 'RUNNING' | 'WAITING_FOR_APPROVAL' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
+  startedAt: string;
+  endedAt?: string;
+  message: string;
+  tools: string[];
+  planningOnly: boolean;
+}
 
 export interface EdithTask {
   id: string;
@@ -407,6 +455,7 @@ export interface EdithTask {
   priority: 'low' | 'normal' | 'high' | 'urgent';
   status: EdithTaskStatus;
   createdAt: string;
+  updatedAt?: string;
   deadline?: string;
   dependencies: string[];
   subtasks: string[];
@@ -422,6 +471,8 @@ export interface EdithTask {
   plan?: EdithPlan;
   verification?: EdithVerificationResult;
   recoveryEvents?: EdithRecoveryEvent[];
+  timeline: EdithTaskTimelineEvent[];
+  agentActivity: EdithAgentActivity[];
   result?: string;
   failureReason?: string;
   memoryReferences: string[];
@@ -659,8 +710,9 @@ export function createTask(params: {
     objective: params.objective,
     originalUserRequest: params.originalUserRequest,
     priority: 'normal',
-    status: 'CREATED',
+    status: 'QUEUED',
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     dependencies: [],
     subtasks: [],
     candidateAgents: [],
@@ -672,6 +724,8 @@ export function createTask(params: {
     observations: [],
     validationRules: [],
     recoveryEvents: [],
+    timeline: [],
+    agentActivity: [],
     memoryReferences: [],
     auditEvents: [],
   };

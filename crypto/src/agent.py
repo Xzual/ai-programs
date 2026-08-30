@@ -33,6 +33,8 @@ logger = logging.getLogger("agent_orchestrator")
 class CryptoAgent:
     def __init__(self):
         logger.info("Initializing Autonomous Crypto Trading Agent...")
+        if CONFIG.TRADING_MODE != "PAPER" or not CONFIG.PAPER_TRADING:
+            raise RuntimeError("CryptoAgent only supports PAPER mode. Live trading is blocked.")
         
         self.memory = MemoryManager()
         self.market_data = MarketDataFetcher()
@@ -100,7 +102,10 @@ class CryptoAgent:
                 decision = self.llm.get_decision(symbol, ta_results, recent_news, portfolio, history)
                 if not decision: continue
                 
-                action = decision.get("action", "HOLD").strip().upper()
+                action = decision.get("action", "HOLD").strip().upper().replace("_", " ")
+                if action not in CONFIG.ALLOWED_ACTIONS:
+                    logger.warning(f"Unsupported LLM action for {symbol}: {action}. Falling back to NO TRADE.")
+                    action = "NO TRADE"
                 reasoning = decision.get("reasoning", "")
                 confidence = decision.get("confidence", 0)
                 
@@ -109,8 +114,12 @@ class CryptoAgent:
                     action, symbol, price, portfolio['balance'], open_positions
                 )
                 
-                if is_valid and action != "HOLD":
-                    decision_id = self.memory.save_decision(symbol, action, confidence, reasoning, ta_results)
+                if is_valid and action not in ("HOLD", "NO TRADE"):
+                    decision_id = self.memory.save_decision(
+                        symbol, action, confidence, reasoning, ta_results,
+                        risk_status="APPROVED",
+                        risk_reason=risk_reason,
+                    )
                     
                     pos_to_close = None
                     if action == "SELL":
@@ -130,9 +139,16 @@ class CryptoAgent:
                             "reasoning": f"LLM Decision SELL: {reasoning}"
                         })
                 else:
-                    if action != "HOLD":
+                    if action not in ("HOLD", "NO TRADE"):
                         logger.info(f"Trade rejected by Risk Manager: {risk_reason}")
-                    self.memory.save_decision(symbol, "HOLD (REJECTED)" if action != "HOLD" else "HOLD", confidence, reasoning, ta_results)
+                    saved_action = "NO TRADE" if action == "NO TRADE" else "HOLD"
+                    if action not in ("HOLD", "NO TRADE"):
+                        saved_action = f"{action} (REJECTED)"
+                    self.memory.save_decision(
+                        symbol, saved_action, confidence, reasoning, ta_results,
+                        risk_status="REJECTED" if action not in ("HOLD", "NO TRADE") else "NO_ACTION",
+                        risk_reason=risk_reason,
+                    )
 
             # F. Save portfolio state every cycle (feeds dashboard equity chart)
             balance  = self.paper_trading.get_balance()

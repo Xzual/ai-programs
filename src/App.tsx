@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
+import { BootScreen } from './components/layout/BootScreen';
+import { DesktopTitleBar } from './components/layout/DesktopTitleBar';
 import { DashboardView } from './components/views/DashboardView';
 import { ChatConsoleView } from './components/views/ChatConsoleView';
 import { MemoryView } from './components/views/MemoryView';
@@ -16,6 +18,8 @@ import { CryptoView } from './components/views/CryptoView';
 import { ThemeTransition } from './components/effects/ThemeTransition';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
 import { LoginScreen } from './components/auth/LoginScreen';
+import { invokeDesktopCommand } from './edith/desktopShell';
+import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles } from './edith/providerService';
 import {
   AgentsScreen,
   AutomationsMissionScreen,
@@ -67,6 +71,8 @@ import {
   IntegrationConfig,
   MemoryCategory,
   EdithAuthSession,
+  ProviderHealthSnapshot,
+  ProviderProfile,
 } from './types';
 
 export default function App() {
@@ -102,10 +108,18 @@ export default function App() {
   // System & Connection State
   const [aiState, setAiState] = useState<AiState>('idle');
   const [ollamaConnected, setOllamaConnected] = useState<boolean>(false);
+  const [providerHealth, setProviderHealth] = useState<ProviderHealthSnapshot>({
+    ollamaConnected: false,
+    geminiAvailable: false,
+    availableModels: [],
+    source: 'placeholder',
+  });
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>(() => fallbackProviderProfiles());
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [showOllamaModal, setShowOllamaModal] = useState<boolean>(false);
+  const [bootComplete, setBootComplete] = useState<boolean>(false);
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
   const [themeTransition, setThemeTransition] = useState<{
     id: number;
@@ -130,6 +144,10 @@ export default function App() {
   useEffect(() => {
     applyAssistantTheme(activeAssistant);
   }, [activeAssistant]);
+
+  const completeBoot = useCallback(() => {
+    setBootComplete(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,20 +221,43 @@ export default function App() {
   const checkHealth = async () => {
     setIsTestingConnection(true);
     try {
-      const res = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(settings.ollamaUrl)}`);
-      if (res.ok) {
-        const data = await res.json();
-        setOllamaConnected(data.ollamaConnected);
-        setAvailableModels(data.availableModels || []);
-      } else {
-        setOllamaConnected(false);
-      }
+      const health = await fetchProviderHealth(settings.ollamaUrl);
+      setProviderHealth(health);
+      setOllamaConnected(health.ollamaConnected);
+      setAvailableModels(health.availableModels || []);
+      const profiles = await fetchProviderProfiles(health.ollamaConnected);
+      setProviderProfiles(
+        profiles.map((profile) => {
+          if (profile.provider === 'ollama') {
+            return {
+              ...profile,
+              status: health.ollamaConnected ? 'available' : 'offline',
+              modelExamples: health.availableModels.length ? health.availableModels : profile.modelExamples,
+            };
+          }
+          if (profile.provider === 'gemini') {
+            return { ...profile, status: health.geminiAvailable ? 'available' : 'configuration_required' };
+          }
+          return profile;
+        })
+      );
     } catch (e) {
       setOllamaConnected(false);
+      setProviderHealth({
+        ollamaConnected: false,
+        geminiAvailable: false,
+        availableModels: [],
+        checkedAt: Date.now(),
+        source: 'placeholder',
+      });
+      setProviderProfiles(fallbackProviderProfiles());
     } finally {
       setIsTestingConnection(false);
     }
   };
+
+  const selectedProviderStatus =
+    providerProfiles.find((profile) => profile.provider === settings.aiProvider)?.status ?? 'unknown';
 
   // 2. Audio Web Audio API setup for Speech Visualizer & Microphone Analysis
   const initAudioAnalyser = async (stream?: MediaStream) => {
@@ -352,6 +393,11 @@ export default function App() {
       sender: 'assistant',
       assistantProfileId: activeAssistant.id,
       assistantName: activeAssistant.name,
+      requestedProvider: settings.aiProvider,
+      requestedModel: settings.selectedModel || 'auto',
+      providerUsed: settings.aiProvider,
+      modelUsed: settings.selectedModel || 'auto',
+      providerStatus: selectedProviderStatus,
       text: '',
       timestamp: Date.now() + 1,
       isStreaming: true,
@@ -404,6 +450,15 @@ export default function App() {
               accumulatedText += data.text;
               updateAssistantMessageText(assistantMsgId, accumulatedText, true);
             }
+            if (data.provider || data.model || data.fallbackUsed || data.fallbackProvider || data.fallbackModel) {
+              updateAssistantMessageText(assistantMsgId, accumulatedText, true, {
+                providerUsed: data.provider ?? data.providerUsed,
+                modelUsed: data.model ?? data.modelUsed,
+                fallbackUsed: Boolean(data.fallbackUsed),
+                fallbackProvider: data.fallbackProvider,
+                fallbackModel: data.fallbackModel,
+              });
+            }
             if (data.done) {
               break;
             }
@@ -427,7 +482,8 @@ export default function App() {
       updateAssistantMessageText(
         assistantMsgId,
         'Bir hata oluştu veya yerel LLM sunucusuna ulaşılamadı. Lütfen ayarlarınızı kontrol edin.',
-        false
+        false,
+        { error: true, providerStatus: 'unavailable' }
       );
       setAiState('error');
       setTimeout(() => setAiState('idle'), 3000);
@@ -452,6 +508,11 @@ export default function App() {
       sender: 'assistant',
       assistantProfileId: activeAssistant.id,
       assistantName: activeAssistant.name,
+      requestedProvider: settings.aiProvider,
+      requestedModel: settings.selectedModel || 'auto',
+      providerUsed: settings.aiProvider,
+      modelUsed: settings.selectedModel || 'auto',
+      providerStatus: selectedProviderStatus,
       text: '',
       timestamp: Date.now() + 1,
       isStreaming: true,
@@ -513,6 +574,28 @@ export default function App() {
                   ...prev,
                   messages: prev.messages.map((m) =>
                     m.id === assistantMsgId ? { ...m, text: accumulatedText, isStreaming: true } : m
+                  ),
+                  updatedAt: Date.now(),
+                };
+                saveCodeSession(updated);
+                return updated;
+              });
+            }
+            if (data.provider || data.model || data.fallbackUsed || data.fallbackProvider || data.fallbackModel) {
+              setCodeSession((prev) => {
+                const updated = {
+                  ...prev,
+                  messages: prev.messages.map((m) =>
+                    m.id === assistantMsgId
+                      ? {
+                          ...m,
+                          providerUsed: data.provider ?? data.providerUsed ?? m.providerUsed,
+                          modelUsed: data.model ?? data.modelUsed ?? m.modelUsed,
+                          fallbackUsed: Boolean(data.fallbackUsed),
+                          fallbackProvider: data.fallbackProvider ?? m.fallbackProvider,
+                          fallbackModel: data.fallbackModel ?? m.fallbackModel,
+                        }
+                      : m
                   ),
                   updatedAt: Date.now(),
                 };
@@ -583,12 +666,12 @@ export default function App() {
     saveSessions(updated);
   };
 
-  const updateAssistantMessageText = (msgId: string, text: string, streaming: boolean) => {
+  const updateAssistantMessageText = (msgId: string, text: string, streaming: boolean, metadata: Partial<ChatMessage> = {}) => {
     setSessions((prev) => {
       const updated = prev.map((s) => {
         if (s.id !== activeSession.id) return s;
         const newMsgs = s.messages.map((m) =>
-          m.id === msgId ? { ...m, text, isStreaming: streaming } : m
+          m.id === msgId ? { ...m, ...metadata, text, isStreaming: streaming } : m
         );
         return { ...s, messages: newMsgs, updatedAt: Date.now() };
       });
@@ -745,12 +828,60 @@ export default function App() {
     window.location.reload();
   };
 
+  const handleEmergencyStop = useCallback(async () => {
+    stopSpeech();
+    setIsStreaming(false);
+    setAiState('warning');
+    try {
+      await fetch('/api/edith/kill-switch/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'Emergency stop from E.D.I.T.H. desktop shell.' }),
+      });
+    } catch (error) {
+      console.warn('Emergency stop could not reach kill switch endpoint:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (event.ctrlKey && event.shiftKey && key === 'k') {
+        event.preventDefault();
+        setActiveTab('dashboard');
+      }
+      if (event.ctrlKey && event.shiftKey && key === 's') {
+        event.preventDefault();
+        stopSpeech();
+      }
+      if (event.ctrlKey && event.shiftKey && key === 'f') {
+        event.preventDefault();
+        void invokeDesktopCommand('toggle_fullscreen');
+      }
+      if (event.ctrlKey && event.shiftKey && key === 'e') {
+        event.preventDefault();
+        void handleEmergencyStop();
+      }
+      if (event.ctrlKey && event.shiftKey && key === 'm') {
+        event.preventDefault();
+        handleSaveSettings({ ...settings, voiceHandsFree: false, autoSpeech: false });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleEmergencyStop, settings]);
+
+  if (!bootComplete) {
+    return <BootScreen assistant={activeAssistant} settings={settings} onComplete={completeBoot} />;
+  }
+
   if (!authSession?.authenticated) {
     return <LoginScreen onAuthenticated={handleAuthenticated} />;
   }
 
   return (
-    <div className="edith-theme-shell fixed inset-0 flex overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--assistant-primary)] selection:text-slate-950">
+    <div className="edith-theme-shell fixed inset-0 flex flex-col overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--assistant-primary)] selection:text-slate-950">
       {themeTransition && (
         <ThemeTransition
           key={themeTransition.id}
@@ -759,28 +890,33 @@ export default function App() {
           onComplete={() => setThemeTransition(null)}
         />
       )}
-      {/* Left Sidebar */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        ollamaConnected={ollamaConnected}
-        selectedModel={settings.selectedModel}
-      />
+      <DesktopTitleBar activeAssistant={activeAssistant} onEmergencyStop={handleEmergencyStop} />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Left Sidebar */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          ollamaConnected={ollamaConnected}
+          selectedModel={settings.selectedModel}
+        />
 
-      {/* Main Content Workspace */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+        {/* Main Content Workspace */}
+        <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
         <Header
           settings={settings}
           activeAssistant={activeAssistant}
           assistantProfiles={assistantProfiles}
           authSession={authSession}
           ollamaConnected={ollamaConnected}
+          providerProfiles={providerProfiles}
+          providerHealth={providerHealth}
+          availableModels={availableModels}
           onNewChat={handleNewChat}
           onResetChat={handleResetActiveChat}
           onTestConnection={checkHealth}
           onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
           onUpdateSettings={updateSettings}
-          onEmergencyStop={stopSpeech}
+          onEmergencyStop={handleEmergencyStop}
           onLogout={handleLogout}
           isTestingConnection={isTestingConnection}
         />
@@ -794,6 +930,7 @@ export default function App() {
               settings={settings}
               assistantProfile={activeAssistant}
               ollamaConnected={ollamaConnected}
+              providerProfiles={providerProfiles}
               onSendMessage={handleSendMessage}
               onStopSpeech={stopSpeech}
               onVoiceTranscript={(txt) => handleSendMessage(txt)}
@@ -814,6 +951,7 @@ export default function App() {
               settings={settings}
               assistantProfile={activeAssistant}
               ollamaConnected={ollamaConnected}
+              providerProfiles={providerProfiles}
               onSendMessage={handleSendMessage}
               onStopSpeech={stopSpeech}
               onVoiceTranscript={(txt) => handleSendMessage(txt)}
@@ -875,12 +1013,23 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsArchitectureScreen settings={settings} integrations={integrations} assistant={activeAssistant} />
+            <SettingsArchitectureScreen
+              settings={settings}
+              integrations={integrations}
+              assistant={activeAssistant}
+              providerProfiles={providerProfiles}
+              providerHealth={providerHealth}
+              availableModels={availableModels}
+              onUpdateSettings={updateSettings}
+              onTestConnection={checkHealth}
+              isTestingConnection={isTestingConnection}
+            />
           )}
           {activeTab !== 'dashboard' && activeTab !== 'chat' && (
             <ContextPanel aiState={aiState} assistant={activeAssistant} tools={tools} logs={logs} />
           )}
         </main>
+        </div>
       </div>
 
       {/* Ollama Guide Modal */}

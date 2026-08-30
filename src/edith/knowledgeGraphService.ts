@@ -195,8 +195,18 @@ export class KnowledgeGraphService {
       type: 'Task',
       source: 'task',
       importance: task.riskLevel >= 3 ? 0.76 : 0.55,
-      recentActivityAt: task.createdAt,
-      properties: { status: task.status, objective: task.objective, riskLevel: task.riskLevel },
+      recentActivityAt: task.updatedAt ?? task.createdAt,
+      properties: {
+        status: task.status,
+        objective: task.objective,
+        riskLevel: task.riskLevel,
+        timelineEvents: task.timeline?.length ?? 0,
+        agentActivity: task.agentActivity?.map((activity) => ({
+          agentId: activity.agentId,
+          status: activity.status,
+          planningOnly: activity.planningOnly,
+        })) ?? [],
+      },
     });
     this.upsertRelationship({ from: coreId, to: node.id, type: 'created', source: 'task', evidence: 'EDITH task service.' });
     for (const toolId of task.toolsRequired ?? []) {

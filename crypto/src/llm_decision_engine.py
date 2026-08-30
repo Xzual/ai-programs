@@ -54,7 +54,7 @@ class LLMDecisionEngine:
             logger.error(f"Error calling Ollama: {e}")
             # Fallback to HOLD if LLM fails
             return {
-                "action": "HOLD",
+                "action": "NO TRADE",
                 "reasoning": f"LLM error: {str(e)}",
                 "confidence": 0
             }
@@ -82,12 +82,14 @@ Açık Pozisyonlar: {portfolio['positions']}
 {history_text if history_text else "Geçmiş kayıt yok."}
 
 ### GÖREV:
-Bu verileri değerlendirerek bir karar ver (BUY, SELL veya HOLD). 
+Bu verileri değerlendirerek bir karar ver (BUY, SELL, HOLD veya NO TRADE).
 Kararın rasyonel, teknik verilere ve haber duyarlılığına dayalı olmalıdır.
+Sinyal zayıfsa, veri eksikse veya risk/ödül net değilse NO TRADE geçerli ve tercih edilen karardır.
+Risk yöneticisi bu kararı veto edebilir; kâr garantisi yoktur.
 Yanıtını SADECE aşağıdaki JSON formatında ver:
 
 {{
-    "action": "BUY" | "SELL" | "HOLD",
+    "action": "BUY" | "SELL" | "HOLD" | "NO TRADE",
     "symbol": "{symbol}",
     "confidence": 0.0 ile 1.0 arası skor,
     "reasoning": "Kararının detaylı teknik ve temel gerekçesi",

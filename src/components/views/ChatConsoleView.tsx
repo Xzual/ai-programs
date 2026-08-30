@@ -2,7 +2,7 @@ import React from 'react';
 import { MessageSquare, RadioTower, ShieldCheck } from 'lucide-react';
 import { ChatPanel } from '../chat/ChatPanel';
 import { VoiceBar } from '../chat/VoiceBar';
-import { AiState, AssistantProfile, ChatMessage, UserSettings } from '../../types';
+import { AiState, AssistantProfile, ChatMessage, ProviderProfile, UserSettings } from '../../types';
 import { OSPanel, StatusPill } from '../ui/edithOS';
 
 interface ChatConsoleViewProps {
@@ -10,6 +10,7 @@ interface ChatConsoleViewProps {
   messages: ChatMessage[];
   settings: UserSettings;
   ollamaConnected: boolean;
+  providerProfiles?: ProviderProfile[];
   onSendMessage: (text: string) => void;
   onStopSpeech: () => void;
   onVoiceTranscript: (text: string) => void;
@@ -25,6 +26,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
   messages,
   settings,
   ollamaConnected,
+  providerProfiles = [],
   onSendMessage,
   onStopSpeech,
   onVoiceTranscript,
@@ -62,6 +64,7 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
           messages={messages}
           settings={settings}
           ollamaConnected={ollamaConnected}
+          providerProfiles={providerProfiles}
           onSpeakMessage={onSpeakMessage}
           onOpenOllamaModal={onOpenOllamaModal}
           activeSpeakingId={activeSpeakingId}

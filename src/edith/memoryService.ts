@@ -11,6 +11,7 @@ export interface UpsertMemoryInput {
   value?: string;
   content?: string;
   source?: string;
+  namespace?: string;
   provenance?: string;
   confidence?: number;
   importance?: number;
@@ -24,6 +25,7 @@ export interface MemorySearchOptions {
   query?: string;
   type?: MemoryType;
   scope?: MemoryScope;
+  namespace?: string;
   includeSensitive?: boolean;
   limit?: number;
 }
@@ -75,6 +77,7 @@ export class MemoryService {
       .filter((memory) => options.includeSensitive || !memory.isSensitive)
       .filter((memory) => !options.type || memory.type === options.type)
       .filter((memory) => !options.scope || memory.scope === options.scope)
+      .filter((memory) => !options.namespace || (memory.namespace ?? memory.assistantNamespace) === options.namespace)
       .sort((a, b) => (b.importance ?? 0.5) - (a.importance ?? 0.5) || (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt));
   }
 
@@ -96,6 +99,8 @@ export class MemoryService {
       scope: input.scope ?? 'user',
       content,
       source: input.source ?? 'edith-memory-service',
+      namespace: input.namespace ?? input.scope ?? 'user',
+      assistantNamespace: input.namespace ?? input.scope ?? 'user',
       provenance: input.provenance ?? 'manual_or_service_input',
       confidence: clamp01(input.confidence, 0.75),
       importance: clamp01(input.importance, 0.5),
@@ -110,8 +115,34 @@ export class MemoryService {
     return memory;
   }
 
+  add(input: UpsertMemoryInput): MemoryItem {
+    return this.upsert(input);
+  }
+
   find(id: string): MemoryItem | undefined {
     return (getEdithPersistenceStore().listMemories?.() ?? []).find((memory) => memory.id === id && !memory.deletedAt);
+  }
+
+  retrieve(id: string): MemoryItem | undefined {
+    const memory = this.find(id);
+    if (!memory) return undefined;
+    const touched = { ...memory, lastAccessed: Date.now() };
+    getEdithPersistenceStore().upsertMemory?.(touched);
+    this.audit('memory.retrieve', touched, `Memory retrieved: ${memory.key}`);
+    return touched;
+  }
+
+  update(id: string, input: Partial<UpsertMemoryInput>): MemoryItem | undefined {
+    const existing = this.find(id);
+    if (!existing) return undefined;
+    return this.upsert({
+      ...existing,
+      ...input,
+      id,
+      key: input.key ?? existing.key,
+      content: input.content ?? input.value ?? existing.content ?? existing.value,
+      value: input.value ?? input.content ?? existing.value,
+    });
   }
 
   search(options: MemorySearchOptions): MemoryItem[] {
@@ -176,6 +207,10 @@ export class MemoryService {
       this.audit('memory.delete', { id, key: id }, `Memory deleted: ${id}`);
     }
     return deleted;
+  }
+
+  forget(id: string): boolean {
+    return this.delete(id);
   }
 
   exportSnapshot(): { exportedAt: string; memories: MemoryItem[] } {

@@ -56,7 +56,10 @@ class MemoryManager:
                     action TEXT,
                     confidence REAL,
                     reasoning TEXT,
-                    market_context TEXT
+                    market_context TEXT,
+                    mode TEXT DEFAULT 'PAPER',
+                    risk_status TEXT,
+                    risk_reason TEXT
                 )
             ''')
 
@@ -73,6 +76,7 @@ class MemoryManager:
                     status TEXT,
                     pnl REAL,
                     decision_id INTEGER,
+                    mode TEXT DEFAULT 'PAPER',
                     FOREIGN KEY (decision_id) REFERENCES decisions(id)
                 )
             ''')
@@ -100,10 +104,21 @@ class MemoryManager:
             ''')
 
             conn.commit()
+            self._ensure_column(cursor, "decisions", "mode", "TEXT DEFAULT 'PAPER'")
+            self._ensure_column(cursor, "decisions", "risk_status", "TEXT")
+            self._ensure_column(cursor, "decisions", "risk_reason", "TEXT")
+            self._ensure_column(cursor, "trades", "mode", "TEXT DEFAULT 'PAPER'")
+            conn.commit()
             conn.close()
             logger.info(f"Database initialized at {self.db_path}")
         except Exception as e:
             logger.error(f"Error initializing database: {e}")
+
+    def _ensure_column(self, cursor, table: str, column: str, definition: str):
+        cursor.execute(f"PRAGMA table_info({table})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column not in columns:
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def save_market_snapshot(self, symbol: str, price: float, ta_data: Dict):
         try:
@@ -131,13 +146,26 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Error saving news item: {e}")
 
-    def save_decision(self, symbol: str, action: str, confidence: float, reasoning: str, context: Dict) -> int:
+    def save_decision(
+        self,
+        symbol: str,
+        action: str,
+        confidence: float,
+        reasoning: str,
+        context: Dict,
+        risk_status: str = None,
+        risk_reason: str = None,
+    ) -> int:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO decisions (symbol, action, confidence, reasoning, market_context) VALUES (?, ?, ?, ?, ?)",
-                (symbol, action, confidence, reasoning, json.dumps(context))
+                """
+                INSERT INTO decisions
+                    (symbol, action, confidence, reasoning, market_context, mode, risk_status, risk_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (symbol, action, confidence, reasoning, json.dumps(context), CONFIG.TRADING_MODE, risk_status, risk_reason)
             )
             decision_id = cursor.lastrowid
             conn.commit()
@@ -152,8 +180,8 @@ class MemoryManager:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO trades (symbol, side, price, amount, cost, status, pnl, decision_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (symbol, side, price, amount, cost, status, pnl, decision_id)
+                "INSERT INTO trades (symbol, side, price, amount, cost, status, pnl, decision_id, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (symbol, side, price, amount, cost, status, pnl, decision_id, CONFIG.TRADING_MODE)
             )
             
             # If this is a SELL trade, let's also close the corresponding OPEN BUY trade in the DB

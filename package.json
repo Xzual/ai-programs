@@ -39,6 +39,7 @@
     "test:edith-sensitive-integrations": "tsx scripts/test-edith-sensitive-integrations.ts",
     "test:edith-obsidian-knowledge": "tsx scripts/test-edith-obsidian-knowledge.ts",
     "test:edith-awesome-agent-skills": "tsx scripts/test-edith-awesome-agent-skills.ts",
+    "test:edith-interaction-safety": "tsx scripts/test-edith-interaction-safety.ts",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "vite:dev": "vite",

@@ -1,7 +1,8 @@
 import React from 'react';
 import { VoiceBar } from '../chat/VoiceBar';
-import { AiState, AssistantProfile, AutomationTool, ChatMessage, MemoryItem, ToolExecutionLog, UserSettings } from '../../types';
+import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
 import { CommandCenter, StatusPill } from '../ui/edithOS';
+import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 
 interface DashboardViewProps {
   aiState: AiState;
@@ -19,6 +20,7 @@ interface DashboardViewProps {
   tools?: AutomationTool[];
   logs?: ToolExecutionLog[];
   assistantProfile?: AssistantProfile;
+  providerProfiles?: ProviderProfile[];
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -34,6 +36,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   tools = [],
   logs = [],
   assistantProfile,
+  providerProfiles = [],
 }) => {
   const profile = assistantProfile ?? {
     name: 'JARVIS',
@@ -59,6 +62,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             aiState={aiState}
             provider={settings.aiProvider}
             model={settings.selectedModel}
+            providerProfiles={providerProfiles}
             messageCount={messages.length}
             toolCount={tools.length}
             pendingApprovals={tools.filter((tool) => tool.requiresConfirmation).length}
@@ -84,18 +88,22 @@ function CommandSurface({
   aiState,
   provider,
   model,
+  providerProfiles,
   messageCount,
   toolCount,
   pendingApprovals,
 }: {
   assistantName: string;
   aiState: AiState;
-  provider: string;
+  provider: AiProvider;
   model: string;
+  providerProfiles: ProviderProfile[];
   messageCount: number;
   toolCount: number;
   pendingApprovals: number;
 }) {
+  const activeProvider = providerProfiles.find((profile) => profile.provider === provider);
+  const activeProviderStatus = activeProvider?.status ?? 'unknown';
   const tracks = [
     ['Intent', messageCount > 1 ? 'Chat state active' : 'Awaiting command'],
     ['Plan', aiState === 'thinking' ? 'Model response running' : 'No active plan'],
@@ -140,8 +148,9 @@ function CommandSurface({
           <div className="mt-4 space-y-3">
             <StatusPill label="Assistant" value={assistantName} tone="info" />
             <StatusPill label="State" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
-            <StatusPill label="Model" value={model || 'AUTO'} tone="muted" />
-            <StatusPill label="Provider" value={provider.toUpperCase()} tone="warning" />
+            <StatusPill label="Model" value={model === 'auto' ? 'AUTO' : model || 'AUTO'} tone={model === 'auto' ? 'info' : 'muted'} />
+            <StatusPill label="Provider" value={providerDisplayName(provider)} tone={providerTone(activeProviderStatus)} />
+            <StatusPill label="Status" value={providerStatusLabel(activeProviderStatus)} tone={providerTone(activeProviderStatus)} />
           </div>
           <div className="mt-6 rounded-lg border border-[var(--assistant-primary)]/20 bg-[var(--assistant-primary)]/8 p-3">
             <div className="text-xs font-semibold text-slate-200">Quick Command</div>

@@ -60,6 +60,23 @@ class PaperTradingEngine:
 
     def execute_trade(self, symbol: str, side: str, amount: float, price: float, decision_id: int, sl: float = None, tp: float = None):
         """Execute a virtual trade."""
+        if CONFIG.TRADING_MODE != "PAPER" or not CONFIG.PAPER_TRADING:
+            logger.error("PaperTradingEngine refused execution because trading mode is not PAPER.")
+            return False
+
+        side = (side or "").strip().upper().replace("_", " ")
+        if side in ("HOLD", "NO TRADE"):
+            logger.info(f"No virtual trade executed for {symbol}: {side}")
+            return True
+
+        if side not in ("BUY", "SELL"):
+            logger.warning(f"Unsupported virtual trade side for {symbol}: {side}")
+            return False
+
+        if amount <= 0 or price <= 0:
+            logger.warning(f"Invalid virtual trade parameters for {symbol}: amount={amount}, price={price}")
+            return False
+
         cost = amount * price
         
         if side == "BUY":

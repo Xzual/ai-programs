@@ -32,6 +32,22 @@ function containsForbiddenIntent(request: ComputerActionRequest): string | undef
 }
 
 export class ComputerActionService {
+  phases(): Array<{
+    name: 'OBSERVE' | 'UNDERSTAND' | 'PLAN' | 'REQUEST_APPROVAL_IF_NEEDED' | 'ACT' | 'VERIFY' | 'REPORT';
+    status: 'required' | 'blocked' | 'configuration_required';
+    notes: string;
+  }> {
+    return [
+      { name: 'OBSERVE', status: 'required', notes: 'Use read-only structured observation before selecting a target.' },
+      { name: 'UNDERSTAND', status: 'required', notes: 'Classify target, intent, risk, and forbidden patterns.' },
+      { name: 'PLAN', status: 'required', notes: 'Produce an explicit action plan with target and reason.' },
+      { name: 'REQUEST_APPROVAL_IF_NEEDED', status: 'required', notes: 'Any mouse, keyboard, app, or window action needs scoped approval.' },
+      { name: 'ACT', status: 'configuration_required', notes: 'No local computer-control runtime adapter is bound.' },
+      { name: 'VERIFY', status: 'required', notes: 'Compare post-action evidence before reporting success.' },
+      { name: 'REPORT', status: 'required', notes: 'Return audit id, result, and verification evidence.' },
+    ];
+  }
+
   execute(request: ComputerActionRequest, actor = 'edith-computer-action'): EdithToolResult {
     const riskLevel = ACTION_RISK[request.action] ?? 5;
     const forbiddenPattern = containsForbiddenIntent(request);

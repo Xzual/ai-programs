@@ -17,6 +17,8 @@ class Config:
 
     # --- Market Data ---
     EXCHANGE_ID: str = "binance"  # ccxt exchange id
+    EXCHANGE_API_KEY_ENV: str = "BINANCE_API_KEY"
+    EXCHANGE_API_SECRET_ENV: str = "BINANCE_API_SECRET"
     TIMEFRAMES: List[str] = field(default_factory=lambda: ["15m", "1h", "4h"])
     WATCHLIST: List[str] = field(
         default_factory=lambda: [
@@ -65,12 +67,23 @@ class Config:
 
     # --- Agent Loop ---
     LOOP_INTERVAL_MINUTES: int = 1  # how often the full cycle runs
-    PAPER_TRADING: bool = True  # True = simulation only
+    TRADING_MODE: str = os.getenv("TRADING_MODE", "PAPER").strip().upper()
+    ENABLE_LIVE_TRADING: bool = os.getenv("ENABLE_LIVE_TRADING", "false").strip().lower() == "true"
+    ALLOWED_ACTIONS: List[str] = field(default_factory=lambda: ["BUY", "SELL", "HOLD", "NO TRADE"])
 
     # --- Paths ---
-    DATA_DIR: str = "data"
-    LOG_DIR: str = "logs"
-    DB_PATH: str = "data/agent_memory.db"
+    DATA_DIR: str = os.getenv("CRYPTO_DATA_DIR", "data")
+    LOG_DIR: str = os.getenv("CRYPTO_LOG_DIR", "logs")
+    DB_PATH: str = os.getenv("CRYPTO_DB_PATH", "data/agent_memory.db")
+
+    def __post_init__(self):
+        if self.TRADING_MODE not in ("PAPER", "LIVE"):
+            self.TRADING_MODE = "PAPER"
+        self.PAPER_TRADING = self.TRADING_MODE != "LIVE"
+
+    @property
+    def live_trading_active(self) -> bool:
+        return self.TRADING_MODE == "LIVE" and self.ENABLE_LIVE_TRADING
 
 
 # Singleton

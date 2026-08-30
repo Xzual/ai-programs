@@ -15,6 +15,13 @@ export type AiState =
 
 export type AiProvider = 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrouter' | 'local' | 'mock';
 export type AssistantPersona = 'jarvis' | 'friday' | 'ultron' | 'karen' | 'alfred' | 'homer';
+export type ProviderRuntimeStatus =
+  | 'available'
+  | 'unavailable'
+  | 'configuration_required'
+  | 'rate_limited'
+  | 'offline'
+  | 'unknown';
 
 export interface AssistantThemeTokens {
   primary: string;
@@ -78,6 +85,14 @@ export interface ChatMessage {
   timestamp: number;
   assistantProfileId?: AssistantPersona;
   assistantName?: string;
+  requestedProvider?: AiProvider;
+  requestedModel?: string;
+  providerUsed?: AiProvider;
+  modelUsed?: string;
+  fallbackUsed?: boolean;
+  fallbackProvider?: AiProvider;
+  fallbackModel?: string;
+  providerStatus?: ProviderRuntimeStatus;
   isStreaming?: boolean;
   audioUrl?: string;
   toolsUsed?: string[];
@@ -114,6 +129,7 @@ export interface MemoryItem {
   mergeOf?: string[];
   deletedAt?: number;
   assistantNamespace?: string;
+  namespace?: string;
 }
 
 export interface AutomationTool {
@@ -217,4 +233,26 @@ export interface SystemHealth {
   sttAvailable: boolean;
   ttsAvailable: boolean;
   lastChecked: number;
+}
+
+export interface ProviderProfile {
+  provider: AiProvider;
+  displayName: string;
+  privacy: 'local' | 'cloud' | 'offline';
+  defaultModel: string;
+  modelExamples: string[];
+  tasks: string[];
+  capabilities: string[];
+  requiredEnv: string[];
+  status: ProviderRuntimeStatus;
+  notes: string;
+  pendingBackend?: boolean;
+}
+
+export interface ProviderHealthSnapshot {
+  ollamaConnected: boolean;
+  geminiAvailable: boolean;
+  availableModels: string[];
+  checkedAt?: number;
+  source: 'backend' | 'placeholder';
 }

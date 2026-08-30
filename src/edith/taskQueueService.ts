@@ -22,7 +22,7 @@ export class TaskQueueService {
     return {
       queued: tasks.filter((task) => task.queue?.state === 'queued' || task.status === 'QUEUED'),
       running: tasks.filter((task) => task.queue?.state === 'running' || task.status === 'RUNNING'),
-      resumable: tasks.filter((task) => task.queue?.state === 'resumable' || task.status === 'PAUSED' || task.status === 'RETRYING'),
+      resumable: tasks.filter((task) => task.queue?.state === 'resumable' || task.status === 'BLOCKED'),
       interrupted: tasks.filter((task) => task.queue?.state === 'interrupted' || task.status === 'CANCELLED'),
       done: tasks.filter((task) => task.queue?.state === 'done' || task.status === 'COMPLETED'),
     };
@@ -61,7 +61,7 @@ export class TaskQueueService {
   pause(taskId: string, reason: string): EdithTask | undefined {
     return this.update(taskId, 'task.queue.pause', (task) => ({
       ...task,
-      status: 'PAUSED',
+      status: 'BLOCKED',
       result: reason,
       queue: {
         ...task.queue,
@@ -70,6 +70,19 @@ export class TaskQueueService {
         resumeFromStepId: this.nextPendingStepId(task),
       },
       checkpoints: [...task.checkpoints, `Paused at ${now()}: ${reason}`],
+      timeline: [
+        ...(task.timeline ?? []),
+        {
+          id: `timeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          taskId,
+          type: 'status',
+          actor: 'edith-task-queue',
+          message: reason,
+          createdAt: now(),
+          status: 'BLOCKED',
+          riskLevel: task.riskLevel,
+        },
+      ],
     }));
   }
 

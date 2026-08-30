@@ -10,9 +10,11 @@ from datetime import datetime
 
 from config import CONFIG
 from memory_manager import MemoryManager
+from risk_manager import RiskManager
 
 app = Flask(__name__, template_folder='../templates')
 memory = MemoryManager()
+risk_manager = RiskManager()
 
 # Suppress Flask access logs for cleaner console
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -116,6 +118,8 @@ def api_overview():
             "loop_minutes": CONFIG.LOOP_INTERVAL_MINUTES,
             "watchlist": CONFIG.WATCHLIST,
             "paper_trading": CONFIG.PAPER_TRADING,
+            "trading_mode": CONFIG.TRADING_MODE,
+            "live_trading_active": CONFIG.live_trading_active,
         }
     })
 
@@ -129,7 +133,7 @@ def api_trades():
         conn = _db()
         c = conn.cursor()
         c.execute("""
-            SELECT id, timestamp, symbol, side, price, amount, cost, status, pnl, decision_id
+            SELECT id, timestamp, symbol, side, price, amount, cost, status, pnl, decision_id, mode
             FROM trades
             ORDER BY id DESC
             LIMIT 100
@@ -246,57 +250,32 @@ def api_risk():
         peak = max((float(h['equity'] or balance) for h in history), default=equity)
         drawdown = max((peak - equity) / peak * 100, 0) if peak > 0 else 0.0
 
-        total_exposure = 0.0
-        position_rows = []
-        for pos in positions:
-            symbol = pos.get('symbol')
-            amount = float(pos.get('amount', 0) or 0)
-            entry = float(pos.get('entry_price', 0) or 0)
-            value = amount * entry
-            total_exposure += value
-            position_rows.append({
-                "symbol": symbol,
-                "amount": amount,
-                "entry_price": entry,
-                "value": round(value, 2),
-                "stop_loss": pos.get('stop_loss'),
-                "take_profit": pos.get('take_profit'),
-            })
-
-        exposure_ratio = (total_exposure / equity * 100) if equity else 0.0
-        if exposure_ratio >= 75 or drawdown >= 30:
-            risk_level = "Yüksek"
-        elif exposure_ratio >= 45 or drawdown >= 15:
-            risk_level = "Orta"
-        else:
-            risk_level = "Düşük"
-
-        alerts = []
-        if drawdown >= 20:
-            alerts.append("Portföy drawdown kritik seviyede")
-        if len(position_rows) >= CONFIG.MAX_OPEN_POSITIONS:
-            alerts.append("Maksimum açık pozisyon sınırı doldu")
-        if exposure_ratio >= 60:
-            alerts.append("Açık pozisyon maruziyeti yüksek")
-        if not alerts:
-            alerts.append("Risk yönetimi normal aralıkta")
-
+        risk = risk_manager.summarize_portfolio_risk(balance, equity, positions, drawdown)
         conn.close()
-        return jsonify({
-            "risk": {
-                "risk_level": risk_level,
-                "drawdown_pct": round(drawdown, 2),
-                "open_positions": len(position_rows),
-                "total_exposure": round(total_exposure, 2),
-                "exposure_ratio": round(exposure_ratio, 2),
-                "balance": round(balance, 2),
-                "equity": round(equity, 2),
-                "alerts": alerts,
-                "positions": position_rows,
-            }
-        })
+        return jsonify({"risk": risk})
     except Exception as e:
-        return jsonify({"risk": {"risk_level": "Düşük", "drawdown_pct": 0, "open_positions": 0, "total_exposure": 0, "exposure_ratio": 0, "alerts": ["Veri alınamadı"], "positions": []}, "error": str(e)})
+        return jsonify({"risk": {"risk_level": "Low", "drawdown_pct": 0, "open_positions": 0, "total_exposure": 0, "exposure_ratio": 0, "mode": CONFIG.TRADING_MODE, "live_trading_active": CONFIG.live_trading_active, "risk_engine_can_veto": True, "alerts": ["Risk data unavailable"], "positions": []}, "error": str(e)})
+
+
+@app.route('/api/trading-status')
+def api_trading_status():
+    """Safe EDITH-facing trading status summary."""
+    return jsonify({
+        "mode": CONFIG.TRADING_MODE,
+        "paper_trading": CONFIG.PAPER_TRADING,
+        "live_trading_active": CONFIG.live_trading_active,
+        "live_execution_available": False,
+        "exchange": CONFIG.EXCHANGE_ID,
+        "allowed_decisions": CONFIG.ALLOWED_ACTIONS,
+        "risk_engine_can_veto": True,
+        "safety_locks": [
+            "Paper mode is the default",
+            "Authenticated exchange access is blocked",
+            "Paper engine refuses non-paper execution",
+            "Risk engine vetoes live-mode trades",
+            "NO TRADE is a valid decision",
+        ],
+    })
 
 
 @app.route('/api/market-sentiment')
