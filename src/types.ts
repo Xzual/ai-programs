@@ -21,6 +21,8 @@ export type ProviderRuntimeStatus =
   | 'configuration_required'
   | 'rate_limited'
   | 'offline'
+  | 'degraded'
+  | 'error'
   | 'unknown';
 
 export interface AssistantThemeTokens {
@@ -93,6 +95,7 @@ export interface ChatMessage {
   fallbackProvider?: AiProvider;
   fallbackModel?: string;
   providerStatus?: ProviderRuntimeStatus;
+  errorCode?: string;
   isStreaming?: boolean;
   audioUrl?: string;
   toolsUsed?: string[];
@@ -237,12 +240,23 @@ export interface SystemHealth {
 
 export interface ProviderProfile {
   provider: AiProvider;
+  id?: AiProvider;
   displayName: string;
+  name?: string;
   privacy: 'local' | 'cloud' | 'offline';
+  privacyMode?: 'local' | 'cloud' | 'offline' | string;
   defaultModel: string;
   modelExamples: string[];
+  models?: string[];
   tasks: string[];
   capabilities: string[];
+  configured?: boolean;
+  available?: boolean;
+  supportsStreaming?: boolean;
+  supportsVision?: boolean;
+  supportsTools?: boolean;
+  errorCode?: string;
+  lastCheckedAt?: number;
   requiredEnv: string[];
   status: ProviderRuntimeStatus;
   notes: string;
@@ -253,6 +267,8 @@ export interface ProviderHealthSnapshot {
   ollamaConnected: boolean;
   geminiAvailable: boolean;
   availableModels: string[];
+  providers?: ProviderProfile[];
+  errorCode?: string;
   checkedAt?: number;
   source: 'backend' | 'placeholder';
 }

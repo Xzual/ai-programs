@@ -24,6 +24,8 @@ import {
   TrendingUp,
   Wrench,
 } from 'lucide-react';
+import { ProviderRuntimeStatus } from '../../types';
+import { providerStatusLabel, providerTone } from '../../edith/providerService';
 
 export type ActiveTab =
   | 'dashboard'
@@ -50,6 +52,8 @@ interface SidebarProps {
   setActiveTab: (tab: ActiveTab) => void;
   ollamaConnected: boolean;
   selectedModel: string;
+  providerName?: string;
+  providerStatus?: ProviderRuntimeStatus;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -57,7 +61,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   ollamaConnected,
   selectedModel,
+  providerName = 'Ollama',
+  providerStatus,
 }) => {
+  const status = providerStatus ?? (ollamaConnected ? 'available' : 'offline');
+  const tone = providerTone(status);
+  const statusDotClass =
+    tone === 'success'
+      ? 'bg-emerald-400'
+      : tone === 'danger'
+      ? 'bg-red-400'
+      : tone === 'warning'
+      ? 'bg-amber-400'
+      : 'bg-slate-500';
+  const statusIcon = tone === 'success' ? (
+    <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+  ) : tone === 'danger' ? (
+    <ShieldAlert className="w-4 h-4 text-red-400 shrink-0" />
+  ) : (
+    <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
+  );
   const menuItems = [
     { id: 'dashboard' as ActiveTab, label: 'Command Center', icon: LayoutDashboard },
     { id: 'chat' as ActiveTab, label: 'Chat', icon: MessageSquare },
@@ -145,22 +168,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Bottom Status Card */}
       <div className="mt-3 p-2 sm:p-3 rounded-lg bg-black/45 border border-white/10 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
         <div className="flex items-center gap-2">
-          {ollamaConnected ? (
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-          ) : (
-              <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
-          )}
+          {statusIcon}
           <div className="hidden sm:block truncate">
             <div className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
-              <span>Provider</span>
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                ollamaConnected ? 'bg-emerald-400' : 'bg-amber-400'
-                }`}
-              />
+              <span className="truncate">{providerName}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${statusDotClass}`} />
             </div>
             <p className="text-[10px] text-slate-400 truncate font-mono">
-              {ollamaConnected ? selectedModel : 'Degraded Mode'}
+              {selectedModel === 'auto' ? 'AUTO' : selectedModel} / {providerStatusLabel(status)}
             </p>
           </div>
         </div>

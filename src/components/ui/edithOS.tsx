@@ -34,7 +34,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
-import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
+import { modelsForProvider, providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
 
 export interface AssistantTheme {
@@ -90,6 +90,16 @@ type InteractionSafetySnapshot = {
     tts: string;
     handsFreeRequiresUserSetting: boolean;
   };
+  classifications?: Array<{
+    id: string;
+    area: string;
+    status: string;
+    mode: string;
+    riskLevel: number;
+    requiredPermissions: string[];
+    verification: string;
+    notes: string;
+  }>;
   requiredApprovals?: Array<{ action: string; permissions: string[]; reason: string }>;
 };
 
@@ -274,7 +284,9 @@ export function TransmissionCard({
     ? 'FAILED'
     : message.isStreaming
     ? 'STREAMING'
-    : 'VERIFIED';
+    : providerStatus === 'available'
+    ? 'VERIFIED'
+    : providerStatusLabel(providerStatus);
   return (
     <article className={`edith-transmission ${user ? 'edith-transmission-user' : ''}`}>
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -294,6 +306,7 @@ export function TransmissionCard({
           <StatusPill label="Provider" value={providerDisplayName(providerUsed as AiProvider)} tone={providerTone(providerStatus)} />
           {fallbackLabel && <StatusPill label="Fallback" value={fallbackLabel} tone="warning" />}
           <StatusPill label={responseStatusLabel} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : providerStatus === 'available' ? 'success' : providerTone(providerStatus)} />
+          {message.errorCode && <StatusPill label="Error" value={message.errorCode} tone="danger" />}
         </div>
       )}
       <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-200">
@@ -1026,6 +1039,36 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
           </div>
         </OSPanel>
       </div>
+      <div className="mt-4">
+        <OSPanel title="Capability Review" eyebrow="SAFE BOUNDARY" icon={<ShieldAlert className="h-4 w-4" />}>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
+            {(safety?.classifications ?? []).slice(0, 12).map((capability) => (
+              <div key={capability.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold text-slate-200">{capability.id}</div>
+                    <div className="mt-1 font-mono text-[10px] uppercase text-slate-500">{capability.area} / risk {capability.riskLevel}</div>
+                  </div>
+                  <StatusPill
+                    label={capability.status}
+                    tone={capability.status === 'blocked' || capability.status === 'unsafe' ? 'danger' : capability.status === 'stub' || capability.status === 'partial' ? 'warning' : 'success'}
+                  />
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  <ActionRow label="Mode" value={capability.mode} />
+                  <ActionRow label="Permissions" value={capability.requiredPermissions.join(', ') || 'none'} />
+                </div>
+                <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-500">{capability.verification}</p>
+              </div>
+            ))}
+            {!safety?.classifications?.length && (
+              <div className="xl:col-span-3">
+                <EmptyState icon={<ShieldAlert className="h-4 w-4" />} title="Capability snapshot pending" text="Backend safety snapshot yüklenemediğinde gerçek yetenek iddiası gösterilmez." />
+              </div>
+            )}
+          </div>
+        </OSPanel>
+      </div>
     </ScreenFrame>
   );
 }
@@ -1052,13 +1095,13 @@ export function SettingsArchitectureScreen({
   isTestingConnection?: boolean;
 }) {
   const activeProvider = providerProfiles.find((profile) => profile.provider === settings?.aiProvider);
-  const modelOptions = settings ? Array.from(new Set(['auto', ...(settings.aiProvider === 'ollama' && availableModels.length ? availableModels : activeProvider?.modelExamples ?? []), activeProvider?.defaultModel].filter(Boolean) as string[])) : ['auto'];
+  const modelOptions = settings ? modelsForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel) : ['auto'];
   const canEdit = Boolean(settings && onUpdateSettings);
 
   const handleProviderChange = (provider: AiProvider) => {
     if (!settings || !onUpdateSettings) return;
     const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
-    const nextModels = Array.from(new Set(['auto', ...(provider === 'ollama' && availableModels.length ? availableModels : nextProfile?.modelExamples ?? []), nextProfile?.defaultModel].filter(Boolean) as string[]));
+    const nextModels = modelsForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
     onUpdateSettings({
       aiProvider: provider,
       selectedModel: nextModels.includes(settings.selectedModel) ? settings.selectedModel : nextProfile?.defaultModel ?? 'auto',
@@ -1199,13 +1242,15 @@ function ProviderMatrixCard({
         <StatusPill label={status} tone={providerTone(profile.status)} />
       </div>
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
-        <ActionRow label="Configured" value={profile.status === 'available' ? 'yes' : profile.requiredEnv.length ? 'missing env' : 'unknown'} />
+        <ActionRow label="Configured" value={profile.configured === true ? 'yes' : profile.configured === false ? 'missing env' : profile.requiredEnv.length ? 'unknown env' : 'not required'} />
+        <ActionRow label="Available" value={profile.available === true ? 'yes' : profile.available === false ? 'no' : 'unknown'} />
         <ActionRow label="Selected model" value={selectedModel === 'auto' ? 'AUTO' : selectedModel ?? 'not selected'} />
         <ActionRow label="Fallback model" value={profile.provider === 'gemini' ? 'Ollama / EDITH Mock' : profile.provider === 'ollama' ? 'Gemini / EDITH Mock' : 'EDITH Mock'} />
         <ActionRow label="Backend" value={profile.pendingBackend ? 'pending integration' : 'endpoint reported'} />
+        <ActionRow label="Streaming" value={profile.supportsStreaming ? 'supported' : 'not reported'} />
       </div>
       <div className="mt-3 flex flex-wrap gap-1.5">
-        {profile.modelExamples.map((model) => (
+        {(profile.models?.length ? profile.models : profile.modelExamples).map((model) => (
           <span key={model} className="rounded border border-white/10 bg-slate-950/55 px-2 py-0.5 font-mono text-[10px] text-slate-400">
             {model === 'auto' ? 'AUTO' : model}
           </span>

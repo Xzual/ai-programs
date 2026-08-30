@@ -29,6 +29,8 @@ import { sensitiveIntegrationService } from "./src/edith/sensitiveIntegrationSer
 import { interactionSafetyService } from "./src/edith/interactionSafetyService";
 import assistantProfiles from "./src/config/assistantProfiles.json";
 import { getGeminiClient } from "./server/providers/gemini";
+import { providerRegistry } from "./server/providers/registry";
+import { ProviderError } from "./server/providers/types";
 import { createCryptoRouter } from "./server/routes/crypto";
 import { createHealthRouter } from "./server/routes/health";
 import { createKnowledgeRouter } from "./server/routes/knowledge";
@@ -36,12 +38,14 @@ import { createKillSwitchRouter } from "./server/routes/killSwitch";
 import { createMemoryRouter } from "./server/routes/memory";
 import { createModelsRouter } from "./server/routes/models";
 import { createPermissionsRouter } from "./server/routes/permissions";
+import { createProvidersRouter } from "./server/routes/providers";
 import { createTasksRouter } from "./server/routes/tasks";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
+app.use(createProvidersRouter());
 app.use(createHealthRouter());
 app.use(createCryptoRouter());
 app.use(createModelsRouter());
@@ -431,13 +435,25 @@ app.post("/api/chat", async (req, res) => {
     privacyPreference: provider === "mock" ? "offline_only" : "local_first",
     providerHealth: {
       ollama: "unknown",
-      gemini: getGeminiClient() ? "available" : "unavailable",
+      gemini: providerRegistry.get("gemini")?.metadata().configured ? "available" : "unavailable",
       openai: process.env.OPENAI_API_KEY ? "unknown" : "unavailable",
       anthropic: process.env.ANTHROPIC_API_KEY ? "unknown" : "unavailable",
       openrouter: process.env.OPENROUTER_API_KEY ? "unknown" : "unavailable",
       local: "unknown",
       mock: "available",
     },
+  });
+  sendEvent({
+    requestedProvider: provider,
+    requestedModel: model,
+    resolvedProvider: modelRoute.selectedProvider,
+    resolvedModel: modelRoute.selectedModel,
+    provider: modelRoute.selectedProvider,
+    model: modelRoute.selectedModel,
+    fallbackUsed: modelRoute.selectedProvider !== provider,
+    fallbackProvider: modelRoute.selectedProvider !== provider ? modelRoute.selectedProvider : undefined,
+    fallbackModel: modelRoute.selectedProvider !== provider ? modelRoute.selectedModel : undefined,
+    providerStatus: modelRoute.candidates.find((candidate) => candidate.provider === modelRoute.selectedProvider)?.health ?? "unknown",
   });
 
   const intent = intentService.understand(lastUserMessage);
@@ -536,36 +552,65 @@ app.post("/api/chat", async (req, res) => {
     }
   }
 
-  // Fallback 1: Gemini API
-  const gemini = modelRouterService.shouldAttempt(modelRoute, "gemini") ? getGeminiClient() : null;
-  if (gemini) {
+  // Fallback 1: Gemini provider adapter
+  const gemini = modelRouterService.shouldAttempt(modelRoute, "gemini") ? providerRegistry.get("gemini") : null;
+  if (gemini?.metadata().configured) {
+    const geminiModel = modelRoute.candidates.find((candidate) => candidate.provider === "gemini")?.model ?? model;
     try {
-      const historyStr = messages
-        .map((m: any) => `${m.sender === "user" ? "Kullanıcı" : activeAssistant.name}: ${m.text}`)
-        .join("\n");
-
-      const fullPrompt = `${fullSystem}\n\nKonuşma Geçmişi:\n${historyStr}\n\n${activeAssistant.name} (Türkçe yanıt ver):`;
-
-      const resultStream = await gemini.models.generateContentStream({
-        model: "gemini-2.5-flash",
-        contents: fullPrompt,
+      sendEvent({
+        provider: "gemini",
+        model: geminiModel,
+        resolvedProvider: "gemini",
+        resolvedModel: geminiModel,
+        fallbackUsed: provider !== "gemini",
+        fallbackProvider: provider !== "gemini" ? "gemini" : undefined,
+        fallbackModel: provider !== "gemini" ? geminiModel : undefined,
+        providerStatus: "available",
       });
+      const providerMessages = [
+        { role: "system" as const, content: fullSystem },
+        ...messages.map((m: any) => ({
+          role: m.sender === "user" ? "user" as const : "assistant" as const,
+          content: m.text,
+        })),
+        { role: "user" as const, content: `${activeAssistant.name} olarak Türkçe yanıt ver.` },
+      ];
 
-      for await (const chunk of resultStream) {
-        if (chunk.text) {
-          sendEvent({ text: chunk.text, done: false });
-        }
+      for await (const chunk of gemini.stream({
+        model: geminiModel,
+        messages: providerMessages,
+        temperature,
+      })) {
+        if (chunk.text) sendEvent({ text: chunk.text, done: false });
       }
-      sendEvent({ done: true });
+      sendEvent({ done: true, provider: "gemini", model: geminiModel, providerStatus: "available" });
       return res.end();
     } catch (geminiErr: any) {
-      console.error("Gemini API error:", geminiErr);
+      const errorCode = geminiErr instanceof ProviderError ? geminiErr.code : "unknown_error";
+      console.error("Gemini provider error:", errorCode);
+      sendEvent({
+        warning: "Gemini provider unavailable. Falling back to mock/degraded mode.",
+        provider: "gemini",
+        model: geminiModel,
+        providerStatus: errorCode === "configuration_required" ? "configuration_required" : "unavailable",
+        errorCode,
+      });
     }
   }
 
   // Fallback 2: Intelligent Local AI Assistant Mock Engine
   const lastUserMsg = messages[messages.length - 1]?.text || "Merhaba";
   const mockResponses = generateMockResponse(lastUserMsg, userName, memories, activeAssistant.name);
+  sendEvent({
+    provider: "mock",
+    model: "edith-mock",
+    resolvedProvider: "mock",
+    resolvedModel: "edith-mock",
+    fallbackUsed: provider !== "mock",
+    fallbackProvider: provider !== "mock" ? "mock" : undefined,
+    fallbackModel: provider !== "mock" ? "edith-mock" : undefined,
+    providerStatus: "available",
+  });
 
   for (let i = 0; i < mockResponses.length; i++) {
     await new Promise((resolve) => setTimeout(resolve, 30 + Math.random() * 40));
@@ -608,13 +653,12 @@ app.post("/api/tools/execute", async (req, res) => {
 
   // ── Yardımcı: Gemini metin üretimi ──────────────────────────────────────
   async function geminiGenerate(prompt: string): Promise<string> {
-    const gemini = getGeminiClient();
-    if (!gemini) throw new Error("Gemini API anahtarı tanımlı değil.");
-    const result = await gemini.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+    const gemini = providerRegistry.get("gemini");
+    if (!gemini?.metadata().configured) throw new Error("Gemini API anahtarı tanımlı değil.");
+    const result = await gemini.generate({
+      messages: [{ role: "user", content: prompt }],
     });
-    return (result as any).text ?? JSON.stringify(result);
+    return result.text;
   }
 
   // ── Yardımcı: DuckDuckGo arama (fetch tabanlı) ───────────────────────────

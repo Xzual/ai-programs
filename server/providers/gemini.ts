@@ -85,10 +85,12 @@ export class GeminiProvider implements AIProviderAdapter {
       configured,
       available: configured,
       status: configured ? "unknown" : "configuration_required",
+      privacyMode: "cloud",
       models: Array.from(new Set([defaultModel, ...DEFAULT_MODELS])).map((model) => ({ id: model, name: model })),
       defaultModel,
+      capabilities: ["text", "streaming"],
       supportsStreaming: true,
-      supportsVision: true,
+      supportsVision: false,
       supportsTools: false,
     };
   }

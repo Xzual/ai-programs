@@ -17,8 +17,10 @@ export class OllamaProvider implements AIProviderAdapter {
       configured: true,
       available: false,
       status: "unknown",
+      privacyMode: "local",
       models: FALLBACK_MODELS.map((model) => ({ id: model, name: model })),
       defaultModel: DEFAULT_MODEL,
+      capabilities: ["text", "streaming"],
       supportsStreaming: true,
       supportsVision: false,
       supportsTools: false,
@@ -53,6 +55,10 @@ export class OllamaProvider implements AIProviderAdapter {
       const code = error instanceof Error && error.name === "AbortError" ? "timeout" : "network_error";
       return this.unavailable(Date.now() - startedAt, code, "Ollama local API is unreachable.");
     }
+  }
+
+  async getModels(options: OllamaProviderOptions = {}) {
+    return (await this.healthCheck(options)).models;
   }
 
   async generate(_options: GenerateOptions): Promise<GenerateResult> {

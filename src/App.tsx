@@ -73,6 +73,8 @@ import {
   EdithAuthSession,
   ProviderHealthSnapshot,
   ProviderProfile,
+  AiProvider,
+  ProviderRuntimeStatus,
 } from './types';
 
 export default function App() {
@@ -225,18 +227,26 @@ export default function App() {
       setProviderHealth(health);
       setOllamaConnected(health.ollamaConnected);
       setAvailableModels(health.availableModels || []);
-      const profiles = await fetchProviderProfiles(health.ollamaConnected);
+      const profiles = health.providers?.length ? health.providers : await fetchProviderProfiles(health.ollamaConnected);
       setProviderProfiles(
         profiles.map((profile) => {
           if (profile.provider === 'ollama') {
+            const reported = health.providers?.find((candidate) => candidate.provider === 'ollama');
             return {
               ...profile,
-              status: health.ollamaConnected ? 'available' : 'offline',
+              ...reported,
+              status: reported?.status ?? (health.ollamaConnected ? 'available' : 'offline'),
               modelExamples: health.availableModels.length ? health.availableModels : profile.modelExamples,
+              models: health.availableModels.length ? health.availableModels : profile.models,
             };
           }
           if (profile.provider === 'gemini') {
-            return { ...profile, status: health.geminiAvailable ? 'available' : 'configuration_required' };
+            const reported = health.providers?.find((candidate) => candidate.provider === 'gemini');
+            return {
+              ...profile,
+              ...reported,
+              status: reported?.status ?? (health.geminiAvailable ? 'available' : 'configuration_required'),
+            };
           }
           return profile;
         })
@@ -258,6 +268,58 @@ export default function App() {
 
   const selectedProviderStatus =
     providerProfiles.find((profile) => profile.provider === settings.aiProvider)?.status ?? 'unknown';
+
+  const normalizeChatProvider = (value: unknown): AiProvider | undefined => {
+    if (
+      value === 'ollama' ||
+      value === 'gemini' ||
+      value === 'openai' ||
+      value === 'anthropic' ||
+      value === 'openrouter' ||
+      value === 'local' ||
+      value === 'mock'
+    ) {
+      return value;
+    }
+    return undefined;
+  };
+
+  const normalizeChatProviderStatus = (value: unknown): ProviderRuntimeStatus | undefined => {
+    if (
+      value === 'available' ||
+      value === 'unavailable' ||
+      value === 'configuration_required' ||
+      value === 'rate_limited' ||
+      value === 'offline' ||
+      value === 'degraded' ||
+      value === 'error' ||
+      value === 'unknown'
+    ) {
+      return value;
+    }
+    return undefined;
+  };
+
+  const chatMetadataFromSse = (data: Record<string, unknown>): Partial<ChatMessage> => {
+    const providerUsed = normalizeChatProvider(data.resolvedProvider ?? data.providerUsed ?? data.provider);
+    const fallbackProvider = normalizeChatProvider(data.fallbackProvider);
+    const providerStatus = normalizeChatProviderStatus(data.providerStatus);
+    return {
+      ...(providerUsed ? { providerUsed } : {}),
+      ...(typeof data.resolvedModel === 'string'
+        ? { modelUsed: data.resolvedModel }
+        : typeof data.modelUsed === 'string'
+        ? { modelUsed: data.modelUsed }
+        : typeof data.model === 'string'
+        ? { modelUsed: data.model }
+        : {}),
+      ...(typeof data.fallbackUsed === 'boolean' ? { fallbackUsed: data.fallbackUsed } : {}),
+      ...(fallbackProvider ? { fallbackProvider } : {}),
+      ...(typeof data.fallbackModel === 'string' ? { fallbackModel: data.fallbackModel } : {}),
+      ...(providerStatus ? { providerStatus } : {}),
+      ...(typeof data.errorCode === 'string' ? { errorCode: data.errorCode } : {}),
+    };
+  };
 
   // 2. Audio Web Audio API setup for Speech Visualizer & Microphone Analysis
   const initAudioAnalyser = async (stream?: MediaStream) => {
@@ -450,14 +512,9 @@ export default function App() {
               accumulatedText += data.text;
               updateAssistantMessageText(assistantMsgId, accumulatedText, true);
             }
-            if (data.provider || data.model || data.fallbackUsed || data.fallbackProvider || data.fallbackModel) {
-              updateAssistantMessageText(assistantMsgId, accumulatedText, true, {
-                providerUsed: data.provider ?? data.providerUsed,
-                modelUsed: data.model ?? data.modelUsed,
-                fallbackUsed: Boolean(data.fallbackUsed),
-                fallbackProvider: data.fallbackProvider,
-                fallbackModel: data.fallbackModel,
-              });
+            const metadata = chatMetadataFromSse(data);
+            if (Object.keys(metadata).length) {
+              updateAssistantMessageText(assistantMsgId, accumulatedText, true, metadata);
             }
             if (data.done) {
               break;
@@ -483,7 +540,7 @@ export default function App() {
         assistantMsgId,
         'Bir hata oluştu veya yerel LLM sunucusuna ulaşılamadı. Lütfen ayarlarınızı kontrol edin.',
         false,
-        { error: true, providerStatus: 'unavailable' }
+        { error: true, providerStatus: 'unavailable', errorCode: 'chat_request_failed' }
       );
       setAiState('error');
       setTimeout(() => setAiState('idle'), 3000);
@@ -581,7 +638,8 @@ export default function App() {
                 return updated;
               });
             }
-            if (data.provider || data.model || data.fallbackUsed || data.fallbackProvider || data.fallbackModel) {
+            const metadata = chatMetadataFromSse(data);
+            if (Object.keys(metadata).length) {
               setCodeSession((prev) => {
                 const updated = {
                   ...prev,
@@ -589,11 +647,14 @@ export default function App() {
                     m.id === assistantMsgId
                       ? {
                           ...m,
-                          providerUsed: data.provider ?? data.providerUsed ?? m.providerUsed,
-                          modelUsed: data.model ?? data.modelUsed ?? m.modelUsed,
-                          fallbackUsed: Boolean(data.fallbackUsed),
-                          fallbackProvider: data.fallbackProvider ?? m.fallbackProvider,
-                          fallbackModel: data.fallbackModel ?? m.fallbackModel,
+                          ...metadata,
+                          providerUsed: metadata.providerUsed ?? m.providerUsed,
+                          modelUsed: metadata.modelUsed ?? m.modelUsed,
+                          fallbackUsed: metadata.fallbackUsed ?? m.fallbackUsed,
+                          fallbackProvider: metadata.fallbackProvider ?? m.fallbackProvider,
+                          fallbackModel: metadata.fallbackModel ?? m.fallbackModel,
+                          providerStatus: metadata.providerStatus ?? m.providerStatus,
+                          errorCode: metadata.errorCode ?? m.errorCode,
                         }
                       : m
                   ),
@@ -633,6 +694,8 @@ export default function App() {
                   text: 'Kod chat isteği işlenirken hata oluştu. Lütfen model/bağlantı ayarlarını kontrol edin.',
                   isStreaming: false,
                   error: true,
+                  providerStatus: 'unavailable',
+                  errorCode: 'code_chat_request_failed',
                 }
               : m
           ),
@@ -898,6 +961,8 @@ export default function App() {
           setActiveTab={setActiveTab}
           ollamaConnected={ollamaConnected}
           selectedModel={settings.selectedModel}
+          providerName={providerProfiles.find((profile) => profile.provider === settings.aiProvider)?.displayName}
+          providerStatus={selectedProviderStatus}
         />
 
         {/* Main Content Workspace */}

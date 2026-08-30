@@ -45,7 +45,7 @@ const PROVIDER_DEFINITIONS: Array<Omit<EdithProviderProfile, 'status'>> = [
     defaultModel: 'gemini-2.5-flash',
     modelExamples: ['gemini-2.5-flash'],
     tasks: ['conversation', 'classification', 'planning', 'verification', 'coding', 'vision'],
-    capabilities: ['text', 'vision', 'structuredOutput', 'streaming'],
+    capabilities: ['text', 'vision', 'streaming'],
     requiredEnv: ['GEMINI_API_KEY'],
     notes: 'Cloud provider used only when an API key is configured and privacy policy allows cloud.',
   },
@@ -107,7 +107,10 @@ const PROVIDER_DEFINITIONS: Array<Omit<EdithProviderProfile, 'status'>> = [
 ];
 
 function envConfigured(envNames: string[]): boolean {
-  return envNames.every((name) => Boolean(process.env[name]));
+  return envNames.every((name) => {
+    const value = process.env[name];
+    return Boolean(value && value !== `MY_${name}`);
+  });
 }
 
 export class ModelCapabilityRegistry {

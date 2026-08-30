@@ -4,6 +4,7 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { VoiceBar } from '../chat/VoiceBar';
 import { AiState, AssistantProfile, ChatMessage, ProviderProfile, UserSettings } from '../../types';
 import { OSPanel, StatusPill } from '../ui/edithOS';
+import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 
 interface ChatConsoleViewProps {
   aiState: AiState;
@@ -36,6 +37,9 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
   activeSpeakingId,
   assistantProfile,
 }) => {
+  const activeProvider = providerProfiles.find((profile) => profile.provider === settings.aiProvider);
+  const providerStatus = activeProvider?.status ?? (ollamaConnected && settings.aiProvider === 'ollama' ? 'available' : 'unknown');
+
   return (
     <div className="edith-workspace flex min-h-0 flex-col custom-scrollbar">
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 xl:grid-cols-[18rem_1fr]">
@@ -44,7 +48,8 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
             <div className="space-y-2">
               <StatusPill label="Assistant" value={assistantProfile.name} tone="info" />
               <StatusPill label="Model" value={settings.selectedModel || 'AUTO'} tone="muted" />
-              <StatusPill label="Provider" value={settings.aiProvider.toUpperCase()} tone={ollamaConnected ? 'success' : 'warning'} />
+              <StatusPill label="Provider" value={providerDisplayName(settings.aiProvider)} tone={providerTone(providerStatus)} />
+              <StatusPill label="Status" value={providerStatusLabel(providerStatus)} tone={providerTone(providerStatus)} />
               <StatusPill label="State" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
             </div>
           </OSPanel>

@@ -1,7 +1,25 @@
 import { Router } from "express";
 import type { AiProvider } from "../../src/types";
 import { providerRegistry } from "../providers/registry";
-import type { ProviderHealth } from "../providers/types";
+import type { ProviderHealth, ProviderMetadata } from "../providers/types";
+
+function toProviderPayload(provider: ProviderMetadata) {
+  const modelExamples = provider.models.map((model) => model.id);
+  return {
+    ...provider,
+    provider: provider.id,
+    displayName: provider.name,
+    privacy: provider.privacyMode,
+    modelExamples,
+    tasks: ["conversation"],
+    requiredEnv: provider.id === "gemini" ? ["GEMINI_API_KEY"] : [],
+    notes: provider.id === "gemini"
+      ? "Cloud provider. Set GEMINI_API_KEY on the backend environment; the key value is never returned to frontend."
+      : provider.id === "ollama"
+      ? "Local HTTP runtime. Availability is detected by health check; EDITH does not start Ollama."
+      : "Offline degraded fallback for development, demo, and last-resort chat.",
+  };
+}
 
 function toLegacyHealth(providers: ProviderHealth[]) {
   const ollama = providers.find((provider) => provider.id === "ollama");
@@ -19,7 +37,7 @@ export function createProvidersRouter(): Router {
   router.get("/api/providers", (_req, res) => {
     res.json({
       success: true,
-      providers: providerRegistry.list(),
+      providers: providerRegistry.list().map(toProviderPayload),
     });
   });
 
@@ -29,8 +47,9 @@ export function createProvidersRouter(): Router {
     });
     res.json({
       success: true,
-      providers: health,
+      providers: health.map(toProviderPayload),
       ...toLegacyHealth(health),
+      timestamp: Date.now(),
       checkedAt: Date.now(),
     });
   });

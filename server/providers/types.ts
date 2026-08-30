@@ -16,8 +16,10 @@ export interface ProviderMetadata {
   configured: boolean;
   available: boolean;
   status: ProviderRuntimeStatus;
+  privacyMode: "local" | "cloud" | "offline";
   models: ProviderModelInfo[];
   defaultModel: string;
+  capabilities: Array<"text" | "streaming" | "vision" | "tools" | "structuredOutput" | "embeddings">;
   supportsStreaming: boolean;
   supportsVision: boolean;
   supportsTools: boolean;
@@ -46,6 +48,7 @@ export interface GenerateOptions {
   messages: ProviderMessage[];
   temperature?: number;
   timeoutMs?: number;
+  ollamaUrl?: string;
 }
 
 export interface GenerateResult {
@@ -63,6 +66,7 @@ export interface StreamChunk {
 export interface AIProviderAdapter {
   metadata(): ProviderMetadata;
   healthCheck(options?: Record<string, unknown>): Promise<ProviderHealth>;
+  getModels?(options?: Record<string, unknown>): Promise<ProviderModelInfo[]>;
   generate(options: GenerateOptions): Promise<GenerateResult>;
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
 }

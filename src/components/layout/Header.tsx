@@ -43,12 +43,14 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const activeProvider = providerProfiles.find((profile) => profile.provider === settings.aiProvider);
+  const geminiProvider = providerProfiles.find((profile) => profile.provider === 'gemini');
+  const ollamaProvider = providerProfiles.find((profile) => profile.provider === 'ollama');
   const activeProviderStatus = activeProvider?.status ?? 'unknown';
   const providerOptions = providerProfiles.length ? providerProfiles : [];
-  const modelOptions = modelsForProvider(settings.aiProvider, providerProfiles, availableModels);
+  const modelOptions = modelsForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel);
 
   const handleProviderChange = (provider: AiProvider) => {
-    const nextModels = modelsForProvider(provider, providerProfiles, availableModels);
+    const nextModels = modelsForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
     const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
     const selectedModel = nextModels.includes(settings.selectedModel)
       ? settings.selectedModel
@@ -164,7 +166,7 @@ export const Header: React.FC<HeaderProps> = ({
               ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40'
               : 'bg-amber-950/40 border-amber-500/30 text-amber-300 hover:bg-amber-900/40'
           }`}
-          title="Ollama bağlantısını test etmek için tıklayın"
+          title="Provider bağlantılarını test etmek için tıklayın"
         >
           <Activity
             className={`w-3 h-3 ${
@@ -198,8 +200,16 @@ export const Header: React.FC<HeaderProps> = ({
         </button>
 
         <div className="hidden 2xl:flex items-center gap-2">
-          <StatusPill label="Gemini" value={providerHealth.geminiAvailable ? 'CONFIGURED' : 'SET GEMINI_API_KEY'} tone={providerHealth.geminiAvailable ? 'success' : 'warning'} />
-          <StatusPill label="Local" value={ollamaConnected ? 'OLLAMA ONLINE' : 'OLLAMA OFFLINE'} tone={ollamaConnected ? 'success' : 'warning'} />
+          <StatusPill
+            label="Gemini"
+            value={providerStatusLabel(geminiProvider?.status ?? (providerHealth.geminiAvailable ? 'available' : 'configuration_required'))}
+            tone={providerTone(geminiProvider?.status ?? (providerHealth.geminiAvailable ? 'available' : 'configuration_required'))}
+          />
+          <StatusPill
+            label="Local"
+            value={providerStatusLabel(ollamaProvider?.status ?? (ollamaConnected ? 'available' : 'offline'))}
+            tone={providerTone(ollamaProvider?.status ?? (ollamaConnected ? 'available' : 'offline'))}
+          />
         </div>
 
         <div className="hidden 2xl:flex items-center gap-2">
