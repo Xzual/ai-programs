@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { BrowserWorkflowAction, EdithRiskLevel } from './core';
 import { browserWorkflowService } from './browserWorkflowService';
 import { computerActionService } from './computerActionService';
@@ -29,10 +31,14 @@ export interface InteractionSafetySnapshot {
     mode: ComputerUseMode;
     runtimeBound: boolean;
     approvalRequired: true;
+    permissionPolicyMode: string;
+    policyWarning?: string;
     phases: ReturnType<typeof computerActionService.phases>;
   };
   browser: {
     mode: BrowserUseMode;
+    permissionPolicyMode: string;
+    policyWarning?: string;
     capabilities: ReturnType<typeof browserWorkflowService.capabilities>;
   };
   voice: {
@@ -42,6 +48,12 @@ export interface InteractionSafetySnapshot {
     tts: 'CONFIGURATION_DEPENDENT';
     handsFreeRequiresUserSetting: true;
   };
+  desktopPackaging: {
+    tauriPackageBuildAvailable: boolean;
+    cargoFoundInPath: boolean;
+    warning?: 'Tauri package build unavailable: Cargo not found in PATH';
+    commandsAfterCargoAvailable: ['npm run tauri:dev', 'npm run tauri:build'];
+  };
   markL: ReturnType<typeof markLAdapterService.snapshot>;
   classifications: InteractionCapabilityClassification[];
   requiredApprovals: Array<{
@@ -49,6 +61,30 @@ export interface InteractionSafetySnapshot {
     permissions: string[];
     reason: string;
   }>;
+}
+
+function executableCandidates(command: string): string[] {
+  const pathExt = process.platform === 'win32'
+    ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';')
+    : [''];
+  return pathExt.map((extension) => `${command}${extension.toLowerCase()}`).concat(
+    pathExt.map((extension) => `${command}${extension.toUpperCase()}`)
+  );
+}
+
+function commandExistsOnPath(command: string): boolean {
+  const rawPath = process.env.PATH ?? process.env.Path ?? '';
+  const directories = rawPath.split(path.delimiter).filter(Boolean);
+  const candidates = executableCandidates(command);
+  return directories.some((directory) =>
+    candidates.some((candidate) => {
+      try {
+        return fs.existsSync(path.join(directory, candidate));
+      } catch {
+        return false;
+      }
+    })
+  );
 }
 
 const BROWSER_ACTION_MODE: Record<BrowserWorkflowAction, BrowserUseMode> = {
@@ -71,9 +107,11 @@ export class InteractionSafetyService {
     const computerMode: ComputerUseMode = killSwitchService.status().active
       ? 'BLOCKED'
       : 'READ_ONLY';
-    const browserMode: BrowserUseMode = highRiskEnabled && policy.mode === 'full_access'
-      ? 'FORM_FILLING_WITH_APPROVAL'
-      : 'READ_ONLY';
+    const browserMode: BrowserUseMode = 'READ_ONLY';
+    const policyWarning = policy.mode === 'full_access' || highRiskEnabled
+      ? 'High-risk permission policy is elevated locally; EDITH interaction safety remains read-only until a scoped action approval/runtime binding exists.'
+      : undefined;
+    const cargoFoundInPath = commandExistsOnPath('cargo');
 
     return {
       generatedAt: new Date().toISOString(),
@@ -83,10 +121,14 @@ export class InteractionSafetyService {
         mode: computerMode,
         runtimeBound: false,
         approvalRequired: true,
+        permissionPolicyMode: policy.mode,
+        policyWarning,
         phases: computerActionService.phases(),
       },
       browser: {
         mode: browserMode,
+        permissionPolicyMode: policy.mode,
+        policyWarning,
         capabilities: browserCapabilities,
       },
       voice: {
@@ -95,6 +137,12 @@ export class InteractionSafetyService {
         stt: 'BROWSER_RUNTIME_ONLY',
         tts: 'CONFIGURATION_DEPENDENT',
         handsFreeRequiresUserSetting: true,
+      },
+      desktopPackaging: {
+        tauriPackageBuildAvailable: cargoFoundInPath,
+        cargoFoundInPath,
+        warning: cargoFoundInPath ? undefined : 'Tauri package build unavailable: Cargo not found in PATH',
+        commandsAfterCargoAvailable: ['npm run tauri:dev', 'npm run tauri:build'],
       },
       markL,
       classifications: [

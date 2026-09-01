@@ -41,7 +41,7 @@
     "test:edith-awesome-agent-skills": "tsx scripts/test-edith-awesome-agent-skills.ts",
     "test:edith-interaction-safety": "tsx scripts/test-edith-interaction-safety.ts",
     "test:edith-providers": "tsx scripts/test-edith-providers.ts",
-    "tauri:dev": "tauri dev",
+    "tauri:dev": "node scripts/tauri-dev-preflight.mjs",
     "tauri:build": "tauri build",
     "vite:dev": "vite",
     "vite:build": "vite build"

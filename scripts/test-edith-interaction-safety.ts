@@ -6,6 +6,26 @@ import path from 'node:path';
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-interaction-safety-test-'));
 const originalCwd = process.cwd();
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function cleanup(): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
+      if (attempt === 4) {
+        console.warn(`Temp cleanup skipped because Windows still holds a handle: ${tempRoot}`);
+        return;
+      }
+      await sleep(200 * (attempt + 1));
+    }
+  }
+}
+
 try {
   process.chdir(tempRoot);
   process.env.EDITH_PERSISTENCE = 'json';
@@ -21,11 +41,20 @@ try {
   assert.equal(snapshot.defaultRule, 'READ_ONLY');
   assert.equal(snapshot.computer.mode, 'READ_ONLY');
   assert.equal(snapshot.computer.runtimeBound, false);
+  assert.equal(snapshot.browser.mode, 'READ_ONLY');
   assert.equal(snapshot.voice.mode, 'DISABLED');
   assert.equal(snapshot.voice.wakeWord, 'BLOCKED');
+  assert.equal(snapshot.desktopPackaging.commandsAfterCargoAvailable.includes('npm run tauri:build'), true);
+  assert.equal(
+    snapshot.desktopPackaging.warning === undefined ||
+      snapshot.desktopPackaging.warning === 'Tauri package build unavailable: Cargo not found in PATH',
+    true
+  );
   assert.equal(snapshot.loop.includes('REQUEST_APPROVAL_IF_NEEDED'), true);
   assert.equal(snapshot.classifications.some((item) => item.id === 'computer_action' && item.status === 'blocked'), true);
   assert.equal(snapshot.classifications.some((item) => item.area === 'mark-l' && item.mode === 'BLOCKED'), true);
+  assert.equal(snapshot.classifications.some((item) => item.id === 'vision_observe' && item.notes.includes('Screenshot/OCR providers are not bound')), true);
+  assert.equal(snapshot.classifications.some((item) => item.id === 'voice_pipeline' && item.notes.includes('Wake word is blocked')), true);
 
   const capabilities = browserWorkflowService.capabilities();
   assert.equal(capabilities.find((item) => item.action === 'fill_form')?.runtimeStatus, 'BLOCKED');
@@ -90,7 +119,11 @@ try {
     scenarios: [
       'interaction_snapshot_default_read_only',
       'computer_runtime_unbound',
+      'browser_read_only_default',
       'voice_disabled_backend_default',
+      'desktop_packaging_reports_cargo_status',
+      'screenshot_ocr_not_enabled',
+      'wake_word_not_enabled',
       'browser_capabilities_require_approval',
       'browser_invalid_action_fails_closed',
       'browser_unapproved_action_denied',
@@ -101,5 +134,5 @@ try {
   }, null, 2));
 } finally {
   process.chdir(originalCwd);
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  await cleanup();
 }

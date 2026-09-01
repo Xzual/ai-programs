@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import http from "http";
@@ -489,113 +490,100 @@ app.post("/api/chat", async (req, res) => {
     return res.end();
   }
 
-  // Attempt Ollama standard streaming when the model route includes the local provider.
-  if (modelRouterService.shouldAttempt(modelRoute, "ollama")) {
+  const providerMessages = [
+    { role: "system" as const, content: fullSystem },
+    ...messages.map((m: any) => ({
+      role: m.sender === "user" ? "user" as const : "assistant" as const,
+      content: m.text,
+    })),
+  ];
+
+  const streamOllama = async (selectedModel: string): Promise<boolean> => {
+    const ollama = providerRegistry.get("ollama");
+    if (!ollama) return false;
     try {
-      const formattedMessages = [
-        { role: "system", content: fullSystem },
-        ...messages.map((m: any) => ({
-          role: m.sender === "user" ? "user" : "assistant",
-          content: m.text,
-        })),
-      ];
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-      const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: modelRoute.candidates.find((candidate) => candidate.provider === "ollama")?.model ?? model,
-          messages: formattedMessages,
-          options: { temperature },
-          stream: true,
-        }),
-        signal: controller.signal,
+      sendEvent({
+        provider: "ollama",
+        model: selectedModel,
+        resolvedProvider: "ollama",
+        resolvedModel: selectedModel,
+        fallbackUsed: provider !== "ollama",
+        fallbackProvider: provider !== "ollama" ? "ollama" : undefined,
+        fallbackModel: provider !== "ollama" ? selectedModel : undefined,
+        providerStatus: "unknown",
       });
 
-      clearTimeout(timeoutId);
-
-      if (ollamaRes.ok && ollamaRes.body) {
-        const reader = ollamaRes.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunkText = decoder.decode(value, { stream: true });
-          const lines = chunkText.split("\n").filter((l) => l.trim() !== "");
-
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line);
-              if (parsed.message?.content) {
-                sendEvent({ text: parsed.message.content, done: false });
-              }
-              if (parsed.done) {
-                sendEvent({ done: true });
-              }
-            } catch (e) {
-              // Ignore line parse errors
-            }
-          }
-        }
-        return res.end();
+      const startedAt = Date.now();
+      for await (const chunk of ollama.stream({
+        model: selectedModel,
+        messages: providerMessages,
+        temperature,
+        timeoutMs: 4000,
+        ollamaUrl,
+      })) {
+        if (chunk.text) sendEvent({ text: chunk.text, done: false });
       }
+      sendEvent({ done: true, provider: "ollama", model: selectedModel, providerStatus: "available", latencyMs: Date.now() - startedAt });
+      res.end();
+      return true;
     } catch (err: any) {
-      console.log("Ollama connection failed, falling back gracefully to Cloud/Mock mode...", err.message);
+      const errorCode = err instanceof ProviderError ? err.code : "provider_unavailable";
+      console.log("Ollama provider unavailable, falling back gracefully...", errorCode);
       sendEvent({
         warning: "Ollama local API unreachable. Switch to Gemini/Mock mode or start Ollama service.",
+        provider: "ollama",
+        model: selectedModel,
+        providerStatus: "offline",
+        errorCode,
       });
+      return false;
     }
-  }
+  };
 
-  // Fallback 1: Gemini provider adapter
-  const gemini = modelRouterService.shouldAttempt(modelRoute, "gemini") ? providerRegistry.get("gemini") : null;
-  if (gemini?.metadata().configured) {
-    const geminiModel = modelRoute.candidates.find((candidate) => candidate.provider === "gemini")?.model ?? model;
+  const streamGemini = async (selectedModel: string): Promise<boolean> => {
+    const gemini = providerRegistry.get("gemini");
+    if (!gemini?.metadata().configured) return false;
     try {
       sendEvent({
         provider: "gemini",
-        model: geminiModel,
+        model: selectedModel,
         resolvedProvider: "gemini",
-        resolvedModel: geminiModel,
+        resolvedModel: selectedModel,
         fallbackUsed: provider !== "gemini",
         fallbackProvider: provider !== "gemini" ? "gemini" : undefined,
-        fallbackModel: provider !== "gemini" ? geminiModel : undefined,
+        fallbackModel: provider !== "gemini" ? selectedModel : undefined,
         providerStatus: "available",
       });
-      const providerMessages = [
-        { role: "system" as const, content: fullSystem },
-        ...messages.map((m: any) => ({
-          role: m.sender === "user" ? "user" as const : "assistant" as const,
-          content: m.text,
-        })),
-        { role: "user" as const, content: `${activeAssistant.name} olarak Türkçe yanıt ver.` },
-      ];
 
+      const startedAt = Date.now();
       for await (const chunk of gemini.stream({
-        model: geminiModel,
+        model: selectedModel,
         messages: providerMessages,
         temperature,
       })) {
         if (chunk.text) sendEvent({ text: chunk.text, done: false });
       }
-      sendEvent({ done: true, provider: "gemini", model: geminiModel, providerStatus: "available" });
-      return res.end();
+      sendEvent({ done: true, provider: "gemini", model: selectedModel, providerStatus: "available", latencyMs: Date.now() - startedAt });
+      res.end();
+      return true;
     } catch (geminiErr: any) {
       const errorCode = geminiErr instanceof ProviderError ? geminiErr.code : "unknown_error";
       console.error("Gemini provider error:", errorCode);
       sendEvent({
         warning: "Gemini provider unavailable. Falling back to mock/degraded mode.",
         provider: "gemini",
-        model: geminiModel,
+        model: selectedModel,
         providerStatus: errorCode === "configuration_required" ? "configuration_required" : "unavailable",
         errorCode,
       });
+      return false;
     }
+  };
+
+  for (const candidate of modelRoute.candidates) {
+    if (candidate.skippedReason || candidate.provider === "mock") continue;
+    if (candidate.provider === "ollama" && await streamOllama(candidate.model)) return;
+    if (candidate.provider === "gemini" && await streamGemini(candidate.model)) return;
   }
 
   // Fallback 2: Intelligent Local AI Assistant Mock Engine

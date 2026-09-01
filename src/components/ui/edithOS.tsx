@@ -72,10 +72,14 @@ type InteractionSafetySnapshot = {
     mode: string;
     runtimeBound: boolean;
     approvalRequired: boolean;
+    permissionPolicyMode?: string;
+    policyWarning?: string;
     phases?: Array<{ name: string; status: string; notes: string }>;
   };
   browser?: {
     mode: string;
+    permissionPolicyMode?: string;
+    policyWarning?: string;
     capabilities?: Array<{
       action: string;
       runtimeStatus: string;
@@ -89,6 +93,12 @@ type InteractionSafetySnapshot = {
     stt: string;
     tts: string;
     handsFreeRequiresUserSetting: boolean;
+  };
+  desktopPackaging?: {
+    tauriPackageBuildAvailable: boolean;
+    cargoFoundInPath: boolean;
+    warning?: string;
+    commandsAfterCargoAvailable: string[];
   };
   classifications?: Array<{
     id: string;
@@ -994,6 +1004,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
     ['Gemini', settings?.aiProvider === 'gemini' ? 'selected provider; key verified by backend health' : 'not selected or key not verified here', settings?.aiProvider === 'gemini' ? 'DEGRADED' : 'CONFIGURATION REQUIRED'],
     ['Voice', safety?.voice?.stt ?? 'browser STT only after permission', 'CONFIGURATION REQUIRED'],
     ['Tauri shell', shellStatus?.tauri ? `desktop shell v${shellStatus.version ?? 'unknown'}` : 'browser/dev mode', shellStatus?.tauri ? 'ONLINE' : 'DEGRADED'],
+    ['Tauri package build', safety?.desktopPackaging?.warning ?? 'Cargo detected or check pending', safety?.desktopPackaging?.tauriPackageBuildAvailable ? 'ONLINE' : 'CONFIGURATION REQUIRED'],
     ['Tool registry', `${toolsHealth.length || tools.length} tools visible`, toolsHealth.length || tools.length ? 'ONLINE' : 'DEGRADED'],
     ['Permissions', permissionMode, permissionMode === 'FULL_ACCESS' ? 'DEGRADED' : 'ONLINE'],
     ['Kill switch', killSwitchActive === null ? 'pending' : killSwitchActive ? 'active' : 'inactive', killSwitchActive ? 'BLOCKED' : 'ONLINE'],
@@ -1029,6 +1040,8 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
             <ActionRow label="Tray" value={shellStatus?.trayConfigured ? 'configured' : 'planned'} />
             <ActionRow label="Unsafe computer control" value={shellStatus?.unsafeComputerControl ? 'enabled' : 'blocked'} />
             <ActionRow label="Downloads/forms" value="approval required" />
+            <ActionRow label="Policy warning" value={safety?.computer?.policyWarning ? 'elevated policy detected' : 'none'} />
+            <ActionRow label="Tauri package build" value={safety?.desktopPackaging?.tauriPackageBuildAvailable ? 'available' : 'Cargo not found'} />
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             <StatusPill label="Ctrl Shift K" value="Command Center" tone="muted" />
@@ -1037,6 +1050,16 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
             <StatusPill label="Ctrl Shift F" value="Fullscreen" tone="muted" />
             <StatusPill label="Ctrl Shift E" value="Emergency stop" tone="danger" />
           </div>
+          {safety?.computer?.policyWarning && (
+            <div className="mt-4 rounded-lg border border-red-400/25 bg-red-500/10 p-3 text-[11px] leading-relaxed text-red-100">
+              {safety.computer.policyWarning}
+            </div>
+          )}
+          {safety?.desktopPackaging?.warning && (
+            <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-[11px] font-semibold leading-relaxed text-amber-100">
+              {safety.desktopPackaging.warning}
+            </div>
+          )}
         </OSPanel>
       </div>
       <div className="mt-4">

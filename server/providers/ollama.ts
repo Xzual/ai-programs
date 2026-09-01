@@ -67,19 +67,30 @@ export class OllamaProvider implements AIProviderAdapter {
 
   async *stream(options: GenerateOptions & OllamaProviderOptions): AsyncIterable<StreamChunk> {
     const ollamaUrl = options.ollamaUrl || DEFAULT_OLLAMA_URL;
-    const response = await fetch(`${ollamaUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: options.model || DEFAULT_MODEL,
-        messages: options.messages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        })),
-        options: { temperature: options.temperature },
-        stream: true,
-      }),
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
+    let response: Response;
+    try {
+      response = await fetch(`${ollamaUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: options.model || DEFAULT_MODEL,
+          messages: options.messages.map((message) => ({
+            role: message.role,
+            content: message.content,
+          })),
+          options: { temperature: options.temperature },
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const code = error instanceof Error && error.name === "AbortError" ? "timeout" : "network_error";
+      throw new ProviderError(code, "Ollama local API is unreachable.", code === "timeout" ? 504 : 503);
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok || !response.body) {
       throw new ProviderError("provider_unavailable", `Ollama returned HTTP ${response.status}`, 502);
