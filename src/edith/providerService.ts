@@ -199,6 +199,16 @@ function toProviderPayloadArray(data: unknown): ProviderPayload[] {
   return [];
 }
 
+async function readJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(`Expected JSON from ${response.url || 'provider endpoint'} but received a non-JSON response.`);
+  }
+}
+
 function normalizeProviderProfile(raw: ProviderPayload): ProviderProfile | undefined {
   const provider = normalizeProvider(raw.provider ?? raw.providerId ?? raw.id);
   if (!provider) return undefined;
@@ -315,7 +325,7 @@ export async function fetchProviderHealth(ollamaUrl: string): Promise<ProviderHe
   try {
     const providerHealthResponse = await fetch(`/api/providers/health?ollamaUrl=${encodeURIComponent(ollamaUrl)}`);
     if (providerHealthResponse.ok) {
-      const data = await providerHealthResponse.json();
+      const data = await readJsonResponse(providerHealthResponse);
       const providerProfiles = toProviderPayloadArray(data)
         .map((profile) => normalizeProviderProfile({ ...profile, pendingBackend: false, lastCheckedAt: Date.now() }))
         .filter((profile): profile is ProviderProfile => Boolean(profile));
@@ -335,7 +345,7 @@ export async function fetchProviderHealth(ollamaUrl: string): Promise<ProviderHe
 
     const response = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(ollamaUrl)}`);
     if (!response.ok) throw new Error(`Health endpoint returned ${response.status}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     return {
       ollamaConnected: Boolean(data.ollamaConnected),
       geminiAvailable: Boolean(data.geminiAvailable),
@@ -362,7 +372,7 @@ async function fetchProviderModelMap(): Promise<Map<AiProvider, string[]>> {
   try {
     const response = await fetch('/api/models');
     if (!response.ok) return modelMap;
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     const rawModelPayload = data.models;
     const rawModels = Array.isArray(rawModelPayload) ? rawModelPayload : [];
     rawModels.forEach((entry: unknown) => {
@@ -433,7 +443,7 @@ export async function fetchProviderProfiles(ollamaConnected: boolean): Promise<P
   try {
     const providerResponse = await fetch('/api/providers');
     if (providerResponse.ok) {
-      const data = await providerResponse.json();
+      const data = await readJsonResponse(providerResponse);
       const providers = toProviderPayloadArray(data);
       if (providers.length) {
         const normalized = providers
@@ -447,7 +457,7 @@ export async function fetchProviderProfiles(ollamaConnected: boolean): Promise<P
 
     const response = await fetch(`/api/edith/models/capabilities?ollamaAvailable=${ollamaConnected}`);
     if (!response.ok) throw new Error(`Models endpoint returned ${response.status}`);
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (!Array.isArray(data.providers)) throw new Error('Provider list missing');
     const normalized = data.providers
       .map((profile: Partial<ProviderProfile>) => normalizeProviderProfile({ ...profile, pendingBackend: false }))

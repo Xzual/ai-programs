@@ -8,12 +8,14 @@ from datetime import datetime
 
 from config import CONFIG
 from memory_manager import MemoryManager
+from coin_permissions import CoinPermissionManager
 
 logger = logging.getLogger("paper_trading")
 
 class PaperTradingEngine:
-    def __init__(self, memory: MemoryManager):
+    def __init__(self, memory: MemoryManager, permission_manager: CoinPermissionManager = None):
         self.memory = memory
+        self.permissions = permission_manager or CoinPermissionManager()
         self.balance = CONFIG.INITIAL_BALANCE
         self.positions = [] # List of open position dicts
         self._load_state()
@@ -60,7 +62,7 @@ class PaperTradingEngine:
 
     def execute_trade(self, symbol: str, side: str, amount: float, price: float, decision_id: int, sl: float = None, tp: float = None):
         """Execute a virtual trade."""
-        if CONFIG.TRADING_MODE != "PAPER" or not CONFIG.PAPER_TRADING:
+        if CONFIG.TRADING_MODE != "PAPER_TRADING" or not CONFIG.PAPER_TRADING:
             logger.error("PaperTradingEngine refused execution because trading mode is not PAPER.")
             return False
 
@@ -71,6 +73,20 @@ class PaperTradingEngine:
 
         if side not in ("BUY", "SELL"):
             logger.warning(f"Unsupported virtual trade side for {symbol}: {side}")
+            return False
+
+        profile = self.permissions.get_profile(symbol)
+        if not profile.get("watchEnabled"):
+            logger.warning(f"Paper trade blocked for {symbol}: SYMBOL_BLOCKED")
+            self.memory.save_permission_event(symbol, profile, "SYMBOL_BLOCKED", event_type="PAPER_TRADE_BLOCKED")
+            return False
+        if not profile.get("paperTradingEnabled"):
+            logger.warning(f"Paper trade blocked for {symbol}: PAPER_TRADING_DISABLED")
+            self.memory.save_permission_event(symbol, profile, "PAPER_TRADING_DISABLED", event_type="PAPER_TRADE_BLOCKED")
+            return False
+        if profile.get("requiresApproval"):
+            logger.warning(f"Paper trade blocked for {symbol}: APPROVAL_REQUIRED")
+            self.memory.save_permission_event(symbol, profile, "APPROVAL_REQUIRED", event_type="PAPER_TRADE_BLOCKED")
             return False
 
         if amount <= 0 or price <= 0:

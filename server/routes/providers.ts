@@ -1,7 +1,26 @@
 import { Router } from "express";
 import type { AiProvider } from "../../src/types";
+import { setGeminiRuntimeApiKey } from "../providers/gemini";
 import { providerRegistry } from "../providers/registry";
 import type { ProviderHealth, ProviderMetadata } from "../providers/types";
+
+const DEV_KEY_ENV_BY_PROVIDER: Partial<Record<AiProvider, string>> = {
+  gemini: "GEMINI_API_KEY",
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
+function setRuntimeProviderApiKey(provider: AiProvider, apiKey: string): string | undefined {
+  const envName = DEV_KEY_ENV_BY_PROVIDER[provider];
+  if (!envName) return undefined;
+  if (provider === "gemini") {
+    setGeminiRuntimeApiKey(apiKey);
+    return envName;
+  }
+  process.env[envName] = apiKey.trim();
+  return envName;
+}
 
 function toProviderPayload(provider: ProviderMetadata) {
   const modelExamples = provider.models.map((model) => model.id);
@@ -51,6 +70,38 @@ export function createProvidersRouter(): Router {
       ...toLegacyHealth(health),
       timestamp: Date.now(),
       checkedAt: Date.now(),
+    });
+  });
+
+  router.post("/api/providers/dev-key", async (req, res) => {
+    const provider = String(req.body?.provider ?? "").trim() as AiProvider;
+    const apiKey = String(req.body?.apiKey ?? "").trim();
+
+    if (!provider || !apiKey) {
+      return res.status(400).json({
+        success: false,
+        error: "provider and apiKey are required.",
+      });
+    }
+
+    const envName = setRuntimeProviderApiKey(provider, apiKey);
+    if (!envName) {
+      return res.status(400).json({
+        success: false,
+        error: "This provider does not accept a runtime dev API key.",
+        provider,
+      });
+    }
+
+    const metadata = providerRegistry.get(provider)?.metadata();
+
+    res.json({
+      success: true,
+      provider,
+      configured: metadata ? Boolean(metadata.configured) : true,
+      status: metadata?.status ?? "unknown",
+      requiredEnv: [envName],
+      message: `${envName} accepted for this running backend session. The key value is not returned.`,
     });
   });
 

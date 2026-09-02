@@ -6,15 +6,17 @@ import logging
 from typing import Dict, List, Any, Tuple, Optional
 
 from config import CONFIG
+from coin_permissions import CoinPermissionManager
 
 logger = logging.getLogger("risk_manager")
 
 class RiskManager:
-    def __init__(self):
+    def __init__(self, permission_manager: CoinPermissionManager = None):
         self.max_pos_pct = CONFIG.MAX_POSITION_PCT
         self.max_open_positions = CONFIG.MAX_OPEN_POSITIONS
         self.stop_loss_pct = CONFIG.STOP_LOSS_PCT
         self.take_profit_pct = CONFIG.TAKE_PROFIT_PCT
+        self.permissions = permission_manager or CoinPermissionManager()
 
     def validate_trade(
         self, 
@@ -22,39 +24,66 @@ class RiskManager:
         symbol: str, 
         current_price: float, 
         balance: float, 
-        open_positions: List[Dict]
+        open_positions: List[Dict],
+        permission_profile: Dict[str, Any] = None,
+        execution_mode: str = None,
     ) -> Tuple[bool, str, Dict[str, Any]]:
         """
         Validates if a trade should be executed based on risk rules.
         Returns (is_valid, reason, trade_params).
         """
         action = (action or "HOLD").strip().upper().replace("_", " ")
+        symbol = self.permissions.normalize_symbol(symbol)
+        execution_mode = (execution_mode or CONFIG.TRADING_MODE).strip().upper()
+        if execution_mode == "PAPER":
+            execution_mode = "PAPER_TRADING"
+        permission_profile = permission_profile or self.permissions.get_profile(symbol)
+
         if action in ("HOLD", "NO TRADE"):
             return True, "No action required", {}
 
         if action not in CONFIG.ALLOWED_ACTIONS:
-            return False, f"Unknown action: {action}", {}
+            return False, "RISK_REJECTED", {"details": f"Unknown action: {action}"}
 
-        if CONFIG.TRADING_MODE == "LIVE":
-            return False, "LIVE mode is disabled: no reviewed live execution path exists", {}
+        permission_ok, permission_code = self._validate_permission(action, permission_profile, execution_mode)
+        if not permission_ok:
+            return False, permission_code, {"permission_profile": permission_profile}
 
         if not current_price or current_price <= 0:
-            return False, f"Invalid current price for {symbol}: {current_price}", {}
+            return False, "RISK_REJECTED", {"details": f"Invalid current price for {symbol}: {current_price}"}
 
         if balance < 0:
-            return False, f"Invalid negative balance: {balance}", {}
+            return False, "RISK_REJECTED", {"details": f"Invalid negative balance: {balance}"}
 
         # 1. Check max open positions
         if action == "BUY":
             # Check if already holding this symbol
             if any(p['symbol'] == symbol for p in open_positions):
-                return False, f"Already holding {symbol}", {}
+                return False, "RISK_REJECTED", {"details": f"Already holding {symbol}"}
             
             if len(open_positions) >= self.max_open_positions:
-                return False, f"Max open positions ({self.max_open_positions}) reached", {}
+                return False, "RISK_REJECTED", {"details": f"Max open positions ({self.max_open_positions}) reached"}
 
             # 2. Calculate position size
             max_cost = balance * self.max_pos_pct
+            profile_max_position = float(permission_profile.get("maxPositionUSDT", 0) or 0)
+            if profile_max_position > 0:
+                max_cost = min(max_cost, profile_max_position)
+
+            portfolio_value = balance + sum(
+                float(p.get("amount", 0) or 0) * float(p.get("entry_price", 0) or 0)
+                for p in open_positions
+            )
+            allocation_pct = float(permission_profile.get("maxPortfolioAllocationPct", 0) or 0)
+            if allocation_pct > 0 and portfolio_value > 0:
+                max_cost = min(max_cost, portfolio_value * (allocation_pct / 100.0))
+
+            if max_cost <= 0:
+                return False, "MAX_POSITION_EXCEEDED", {"permission_profile": permission_profile}
+
+            if max_cost > balance:
+                return False, "MAX_PORTFOLIO_ALLOCATION_EXCEEDED", {"permission_profile": permission_profile}
+
             amount = max_cost / current_price
             
             # 3. Calculate SL and TP
@@ -65,7 +94,8 @@ class RiskManager:
                 "amount": amount,
                 "cost": max_cost,
                 "stop_loss": stop_loss,
-                "take_profit": take_profit
+                "take_profit": take_profit,
+                "permission_profile": permission_profile,
             }
             
             return True, "Risk validation passed", trade_params
@@ -74,15 +104,41 @@ class RiskManager:
             # Check if holding this symbol
             position = next((p for p in open_positions if p['symbol'] == symbol), None)
             if not position:
-                return False, f"No open position for {symbol} to sell", {}
+                return False, "RISK_REJECTED", {"details": f"No open position for {symbol} to sell"}
             
             trade_params = {
                 "amount": position['amount'],
-                "cost": position['amount'] * current_price
+                "cost": position['amount'] * current_price,
+                "permission_profile": permission_profile,
             }
             return True, "Risk validation passed", trade_params
 
-        return False, f"Unknown action: {action}", {}
+        return False, "RISK_REJECTED", {"details": f"Unknown action: {action}"}
+
+    def validate_symbol_access(self, symbol: str) -> Tuple[bool, str, Dict[str, Any]]:
+        profile = self.permissions.get_profile(symbol)
+        if not profile.get("watchEnabled"):
+            reason = "CATEGORY_BLOCKED" if profile.get("_blockedByCategory") else "SYMBOL_BLOCKED"
+            return False, reason, profile
+        return True, "WATCH_ENABLED", profile
+
+    def _validate_permission(self, action: str, profile: Dict[str, Any], execution_mode: str) -> Tuple[bool, str]:
+        if not profile.get("watchEnabled"):
+            return False, "CATEGORY_BLOCKED" if profile.get("_blockedByCategory") else "SYMBOL_BLOCKED"
+        if not profile.get("decisionEnabled"):
+            return False, "DECISION_DISABLED"
+        if profile.get("requiresApproval"):
+            return False, "APPROVAL_REQUIRED"
+        if execution_mode == "PAPER_TRADING":
+            if not profile.get("paperTradingEnabled"):
+                return False, "PAPER_TRADING_DISABLED"
+        elif execution_mode in ("LIVE", "LIVE_TRADING_LOCKED"):
+            if not profile.get("liveTradingEnabled"):
+                return False, "LIVE_TRADING_DISABLED"
+            return False, "LIVE_TRADING_DISABLED"
+        else:
+            return False, "RISK_REJECTED"
+        return True, "APPROVED"
 
     def summarize_portfolio_risk(
         self,
@@ -111,7 +167,7 @@ class RiskManager:
 
         exposure_ratio = (total_exposure / equity * 100) if equity > 0 else 0.0
         alerts = []
-        if CONFIG.TRADING_MODE != "PAPER":
+        if CONFIG.live_trading_active:
             alerts.append("LIVE mode requested but execution is blocked")
         if drawdown_pct >= 20:
             alerts.append("Portfolio drawdown is above safety threshold")

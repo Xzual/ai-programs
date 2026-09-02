@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "identifier": "com.edith.desktop",
   "build": {
-    "beforeDevCommand": "npm run vite:dev",
+    "beforeDevCommand": "node scripts/tauri-before-dev.mjs",
     "beforeBuildCommand": "npm run vite:build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
@@ -42,7 +42,6 @@
   },
   "plugins": {
     "shell": {
-      "all": false,
       "open": true
     }
   }

@@ -103,11 +103,47 @@ class MemoryManager:
                 )
             ''')
 
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS permission_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    symbol TEXT,
+                    category TEXT,
+                    event_type TEXT,
+                    reason TEXT,
+                    profile TEXT
+                )
+            ''')
+
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS market_observations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    symbol TEXT,
+                    mode TEXT,
+                    market_regime TEXT,
+                    trend TEXT,
+                    volatility TEXT,
+                    confidence REAL,
+                    technical_summary TEXT,
+                    news_context TEXT,
+                    what_changed TEXT,
+                    what_to_watch_next_json TEXT,
+                    learning_note TEXT,
+                    risk_note TEXT,
+                    raw_json TEXT,
+                    obsidian_exported INTEGER DEFAULT 0,
+                    obsidian_path TEXT
+                )
+            ''')
+
             conn.commit()
             self._ensure_column(cursor, "decisions", "mode", "TEXT DEFAULT 'PAPER'")
             self._ensure_column(cursor, "decisions", "risk_status", "TEXT")
             self._ensure_column(cursor, "decisions", "risk_reason", "TEXT")
             self._ensure_column(cursor, "trades", "mode", "TEXT DEFAULT 'PAPER'")
+            self._ensure_column(cursor, "market_snapshots", "category", "TEXT")
+            self._ensure_column(cursor, "market_snapshots", "permission_status", "TEXT")
             conn.commit()
             conn.close()
             logger.info(f"Database initialized at {self.db_path}")
@@ -120,13 +156,19 @@ class MemoryManager:
         if column not in columns:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
-    def save_market_snapshot(self, symbol: str, price: float, ta_data: Dict):
+    def save_market_snapshot(self, symbol: str, price: float, ta_data: Dict, permission_profile: Dict = None, permission_status: str = None):
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO market_snapshots (symbol, price, ta_data) VALUES (?, ?, ?)",
-                (symbol, price, json.dumps(ta_data))
+                "INSERT INTO market_snapshots (symbol, price, ta_data, category, permission_status) VALUES (?, ?, ?, ?, ?)",
+                (
+                    symbol,
+                    price,
+                    json.dumps(ta_data),
+                    (permission_profile or {}).get("category"),
+                    permission_status,
+                )
             )
             conn.commit()
             conn.close()
@@ -262,3 +304,90 @@ class MemoryManager:
             conn.close()
         except Exception as e:
             logger.error(f"Error saving analysis log: {e}")
+
+    def save_permission_event(self, symbol: str, profile: Dict, reason: str, event_type: str = "PERMISSION"):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO permission_events (symbol, category, event_type, reason, profile)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    symbol,
+                    (profile or {}).get("category"),
+                    event_type,
+                    reason,
+                    json.dumps(profile or {}),
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"Error saving permission event: {e}")
+
+    def save_market_observation(self, observation: Dict, obsidian_exported: bool = False, obsidian_path: str = None) -> int:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO market_observations (
+                    symbol, mode, market_regime, trend, volatility, confidence,
+                    technical_summary, news_context, what_changed, what_to_watch_next_json,
+                    learning_note, risk_note, raw_json, obsidian_exported, obsidian_path
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    observation.get("symbol"),
+                    observation.get("mode", CONFIG.TRADING_MODE),
+                    observation.get("market_regime"),
+                    observation.get("trend"),
+                    observation.get("volatility"),
+                    observation.get("confidence"),
+                    observation.get("technical_summary"),
+                    observation.get("news_context"),
+                    observation.get("what_changed"),
+                    json.dumps(observation.get("what_to_watch_next") or []),
+                    observation.get("learning_note"),
+                    observation.get("risk_note"),
+                    json.dumps(observation),
+                    1 if obsidian_exported else 0,
+                    obsidian_path,
+                ),
+            )
+            observation_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return observation_id
+        except Exception as e:
+            logger.error(f"Error saving market observation: {e}")
+            return -1
+
+    def get_recent_observations(self, symbol: str = None, limit: int = 20) -> List[Dict]:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            if symbol:
+                cursor.execute(
+                    "SELECT * FROM market_observations WHERE symbol=? ORDER BY id DESC LIMIT ?",
+                    (symbol, limit),
+                )
+            else:
+                cursor.execute("SELECT * FROM market_observations ORDER BY id DESC LIMIT ?", (limit,))
+            rows = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+            for row in rows:
+                try:
+                    row["what_to_watch_next"] = json.loads(row.get("what_to_watch_next_json") or "[]")
+                    row["raw"] = json.loads(row.get("raw_json") or "{}")
+                except Exception:
+                    row["what_to_watch_next"] = []
+                    row["raw"] = {}
+            return rows
+        except Exception as e:
+            logger.error(f"Error fetching market observations: {e}")
+            return []

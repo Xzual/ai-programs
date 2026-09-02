@@ -59,20 +59,20 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="relative top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-slate-950/55 px-3 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl sm:px-5">
+    <header className="relative top-0 z-20 flex min-h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-slate-950/55 px-3 py-2 shadow-[inset_0_-1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl sm:px-5">
       {/* Left Title & Status */}
-      <div className="flex min-w-0 items-center gap-3">
-        <div className="hidden lg:block">
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+        <div className="hidden 2xl:block shrink-0">
           <div className="font-mono text-sm font-bold tracking-[0.24em] text-slate-100">E.D.I.T.H.</div>
           <div className="mt-0.5 text-[10px] tracking-[0.18em] text-slate-500">ENHANCED DIGITAL INTELLIGENCE</div>
         </div>
-        <div className="relative">
+        <div className="relative shrink-0">
           <button
             onClick={() => setProfileOpen((open) => !open)}
-            className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 text-xs font-semibold tracking-wide text-slate-100 transition-colors duration-300 hover:text-[var(--assistant-primary)]"
+            className="group flex h-9 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.035] px-3 text-xs font-semibold tracking-wide text-slate-100 transition-colors duration-300 hover:text-[var(--assistant-primary)]"
           >
             <Bot className="h-4 w-4 text-[var(--assistant-primary)]" />
-            <span className="hidden sm:inline">Assistant:</span>
+            <span className="hidden lg:inline">Assistant:</span>
             <span>{activeAssistant.name}</span>
             <ChevronDown
               className={`w-4 h-4 text-[var(--assistant-primary)] transition-transform duration-300 ${profileOpen ? 'rotate-180' : ''}`}
@@ -115,14 +115,14 @@ export const Header: React.FC<HeaderProps> = ({
           )}
         </div>
 
-        <div className="hidden xl:flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300">
+        <div className="hidden min-w-0 max-w-[15rem] flex-1 items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300 xl:flex">
           <Cloud className="h-3.5 w-3.5 text-[var(--assistant-primary)]" />
-          <label className="text-slate-500" htmlFor="edith-provider-selector">Provider</label>
+          <label className="hidden text-slate-500 2xl:inline" htmlFor="edith-provider-selector">Provider</label>
           <select
             id="edith-provider-selector"
             value={settings.aiProvider}
             onChange={(event) => handleProviderChange(event.target.value as AiProvider)}
-            className="max-w-36 bg-transparent text-slate-100 outline-none"
+            className="min-w-0 flex-1 bg-transparent text-slate-100 outline-none"
             title="Select model provider without changing assistant persona"
           >
             {providerOptions.map((profile) => (
@@ -133,14 +133,14 @@ export const Header: React.FC<HeaderProps> = ({
           </select>
         </div>
 
-        <div className="hidden xl:flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300">
+        <div className="hidden min-w-0 max-w-[16rem] flex-1 items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300 xl:flex">
           <Server className="h-3.5 w-3.5 text-[var(--assistant-primary)]" />
-          <label className="text-slate-500" htmlFor="edith-model-selector">Model</label>
+          <label className="hidden text-slate-500 2xl:inline" htmlFor="edith-model-selector">Model</label>
           <select
             id="edith-model-selector"
             value={settings.selectedModel || 'auto'}
             onChange={(event) => onUpdateSettings({ selectedModel: event.target.value })}
-            className="max-w-44 bg-transparent text-[var(--assistant-primary)] outline-none"
+            className="min-w-0 flex-1 bg-transparent text-[var(--assistant-primary)] outline-none"
             title="Select model without changing assistant persona"
           >
             {modelOptions.map((model) => (
@@ -152,7 +152,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {settings.selectedModel === 'auto' && (
-          <div className="hidden 2xl:block">
+          <div className="hidden min-[2100px]:block">
             <StatusPill label="AUTO MODE" value="ROUTED" tone="info" />
           </div>
         )}
@@ -161,7 +161,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onTestConnection}
           disabled={isTestingConnection}
-          className={`hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono border transition-all ${
+          className={`hidden min-[1700px]:flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-mono border transition-all ${
             ollamaConnected
               ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/40'
               : 'bg-amber-950/40 border-amber-500/30 text-amber-300 hover:bg-amber-900/40'
@@ -185,7 +185,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onTestConnection}
           disabled={isTestingConnection}
-          className={`hidden lg:flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-mono transition-all ${
+          className={`hidden xl:flex shrink-0 items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11px] font-mono transition-all ${
             providerTone(activeProviderStatus) === 'success'
               ? 'border-emerald-500/30 bg-emerald-950/40 text-emerald-300'
               : providerTone(activeProviderStatus) === 'danger'
@@ -195,11 +195,11 @@ export const Header: React.FC<HeaderProps> = ({
           title={activeProvider?.requiredEnv.length ? `Required environment: ${activeProvider.requiredEnv.join(', ')}` : 'Provider status'}
         >
           {activeProviderStatus === 'available' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-          <span>{providerDisplayName(settings.aiProvider)}</span>
+          <span className="max-w-24 truncate">{providerDisplayName(settings.aiProvider)}</span>
           <span className="text-current/75">{providerStatusLabel(activeProviderStatus)}</span>
         </button>
 
-        <div className="hidden 2xl:flex items-center gap-2">
+        <div className="hidden min-[2100px]:flex items-center gap-2">
           <StatusPill
             label="Gemini"
             value={providerStatusLabel(geminiProvider?.status ?? (providerHealth.geminiAvailable ? 'available' : 'configuration_required'))}
@@ -212,7 +212,7 @@ export const Header: React.FC<HeaderProps> = ({
           />
         </div>
 
-        <div className="hidden 2xl:flex items-center gap-2">
+        <div className="hidden min-[2300px]:flex items-center gap-2">
           <StatusPill label="Voice" value={settings.autoSpeech ? 'ON' : 'OFF'} tone={settings.autoSpeech ? 'success' : 'muted'} />
           <StatusPill label="Network" value="UI ONLY" tone="muted" />
           <StatusPill label="Computer" value="READ" tone="success" />
@@ -223,16 +223,16 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Controls */}
-      <div className="flex items-center gap-2">
-        <div className="hidden lg:flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-slate-950/54 border border-white/10 text-[11px] font-mono text-slate-300">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <div className="hidden max-w-28 items-center gap-2 rounded-md border border-white/10 bg-slate-950/54 px-2.5 py-1.5 text-[11px] font-mono text-slate-300 min-[1800px]:flex">
           <UserRound className="w-3 h-3 text-[var(--assistant-primary)]" />
-          <span>{authSession.user.name}</span>
+          <span className="truncate">{authSession.user.name}</span>
         </div>
 
         {/* Toggle Auto Speech */}
         <button
           onClick={onToggleAutoSpeech}
-          className={`p-2 rounded-xl border text-xs transition-colors ${
+          className={`rounded-lg border p-2 text-xs transition-colors ${
             settings.autoSpeech
               ? 'bg-[var(--assistant-primary)]/20 border-[var(--assistant-primary)]/40 text-[var(--assistant-accent)]'
               : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -253,7 +253,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Reset Active Chat */}
         <button
           onClick={onResetChat}
-          className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+          className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
           title="Sohbeti Temizle"
         >
           <RotateCcw className="w-4 h-4" />
@@ -262,25 +262,24 @@ export const Header: React.FC<HeaderProps> = ({
         {/* New Chat Button */}
         <button
           onClick={onNewChat}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-slate-950 text-xs font-semibold shadow-md transition-all"
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-950 shadow-md transition-all sm:px-3"
           style={{ background: 'linear-gradient(135deg, var(--assistant-primary), var(--assistant-accent))' }}
         >
           <PlusCircle className="w-4 h-4" />
-          <span className="hidden sm:inline">Yeni Sohbet</span>
+          <span className="hidden md:inline">Yeni Sohbet</span>
         </button>
 
         <button
           onClick={onEmergencyStop}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-lg border border-red-400/40 bg-red-500/12 text-red-100 text-xs font-semibold hover:bg-red-500/20"
+          className="flex items-center justify-center rounded-lg border border-red-400/40 bg-red-500/12 p-2 text-xs font-semibold text-red-100 hover:bg-red-500/20"
           title="Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur"
         >
           <Power className="w-4 h-4" />
-          <span className="hidden xl:inline">Emergency Stop</span>
         </button>
 
         <button
           onClick={onLogout}
-          className="p-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+          className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
           title="Çıkış Yap"
         >
           <LogOut className="w-4 h-4" />

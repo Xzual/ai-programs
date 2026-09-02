@@ -1,9 +1,15 @@
 @echo off
-title Otonom Kripto Trading Agent
+title EDITH Crypto Observer
 echo ==========================================
-echo    OTONOM KRIPTO TRADING AGENT
+echo    EDITH CRYPTO OBSERVER SERVICE
 echo ==========================================
 echo.
+set CRYPTO_MODE=OBSERVER_ONLY
+set CRYPTO_TRADING_ENABLED=false
+set CRYPTO_PAPER_TRADING_ENABLED=false
+set CRYPTO_LIVE_TRADING_ENABLED=false
+set CRYPTO_OBSIDIAN_ENABLED=true
+set EDITH_OBSIDIAN_VAULT_PATH=D:\EDİTH\EDİTH
 
 :: Check if virtual environment exists
 if not exist ".venv\Scripts\python.exe" (
@@ -21,8 +27,10 @@ if not exist "data" mkdir data
 if not exist "logs" mkdir logs
 echo.
 
-echo Agent baslatiliyor...
+echo Observer API service baslatiliyor...
 echo Dashboard: http://localhost:5000
+echo Trading: DISABLED
+echo Observer: STOPPED - EDITH UI ile manuel baslatilir
 echo.
 .venv\Scripts\python.exe run_agent.py
 pause

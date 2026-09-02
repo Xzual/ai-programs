@@ -4,31 +4,22 @@ import {
   Cpu,
   Activity,
   Mic,
-  Volume2,
   Brain,
-  Sliders,
   RotateCcw,
-  Globe,
-  Zap,
-  Terminal,
   Bot,
   ShieldCheck,
   Network,
+  KeyRound,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
-import { UserSettings, AiProvider } from '../../types';
-
-interface ProviderProfile {
-  provider: AiProvider;
-  displayName: string;
-  privacy: 'local' | 'cloud' | 'offline';
-  defaultModel: string;
-  modelExamples: string[];
-  tasks: string[];
-  capabilities: string[];
-  requiredEnv: string[];
-  status: 'available' | 'unavailable' | 'configuration_required';
-  notes: string;
-}
+import { UserSettings, AiProvider, ProviderProfile, ProviderRuntimeStatus } from '../../types';
+import {
+  fetchProviderProfiles,
+  modelsForProvider,
+  providerStatusLabel,
+  providerTone,
+} from '../../edith/providerService';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -63,6 +54,16 @@ interface PermissionPolicyStatus {
   };
 }
 
+async function readJsonResponse(response: Response): Promise<Record<string, any>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as Record<string, any>;
+  } catch {
+    throw new Error(`JSON bekleniyordu ama endpoint farklı/boş cevap döndürdü: ${response.status}`);
+  }
+}
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   availableModels,
@@ -75,6 +76,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [form, setForm] = useState<UserSettings>(settings);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>([]);
+  const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({});
+  const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, { tone: 'good' | 'warn'; text: string }>>({});
+  const [savingProviderKey, setSavingProviderKey] = useState<AiProvider | null>(null);
   const [obsidianStatus, setObsidianStatus] = useState<ObsidianStatus | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<PermissionPolicyStatus | null>(null);
 
@@ -82,18 +86,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setForm(settings);
   }, [settings]);
 
+  async function loadProviderProfiles(isCancelled: () => boolean = () => false) {
+    try {
+      const profiles = await fetchProviderProfiles(ollamaConnected);
+      if (!isCancelled()) setProviderProfiles(profiles);
+    } catch {
+      if (!isCancelled()) setProviderProfiles([]);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
-    async function loadCapabilities() {
-      try {
-        const response = await fetch(`/api/edith/models/capabilities?ollamaAvailable=${ollamaConnected}`);
-        const data = await response.json();
-        if (!cancelled) setProviderProfiles(data.providers ?? []);
-      } catch {
-        if (!cancelled) setProviderProfiles([]);
-      }
-    }
-    loadCapabilities();
+    void loadProviderProfiles(() => cancelled);
     return () => {
       cancelled = true;
     };
@@ -111,22 +115,71 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleProviderChange = (provider: AiProvider) => {
-    const profile = providerProfiles.find((candidate) => candidate.provider === provider);
+    const nextModels = modelsForProvider(provider, providerProfiles, availableModels);
     const updated = {
       ...form,
       aiProvider: provider,
-      selectedModel: profile?.defaultModel ?? form.selectedModel,
+      selectedModel: nextModels.includes(form.selectedModel) ? form.selectedModel : 'auto',
     };
     setForm(updated);
     onSaveSettings(updated);
   };
 
   const activeProviderProfile = providerProfiles.find((profile) => profile.provider === form.aiProvider);
+  const modelOptions = modelsForProvider(form.aiProvider, providerProfiles, availableModels, form.selectedModel);
+  const geminiProfile = providerProfiles.find((profile) => profile.provider === 'gemini');
+  const geminiStatus = geminiProfile?.status ?? 'configuration_required';
+  const geminiNeedsSetup = geminiStatus !== 'available';
+  const keyConfigurableProviders = providerProfiles.filter((profile) =>
+    profile.provider === 'gemini' || profile.requiredEnv.includes('GEMINI_API_KEY')
+  );
+
+  async function saveProviderDevKey(provider: AiProvider) {
+    const apiKey = providerApiKeys[provider]?.trim();
+    if (!apiKey) {
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: { tone: 'warn', text: 'API key boş olamaz.' },
+      }));
+      return;
+    }
+
+    try {
+      setSavingProviderKey(provider);
+      const response = await fetch('/api/providers/dev-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Provider key update failed: ${response.status}`);
+      }
+
+      setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: { tone: 'good', text: 'Bu backend oturumu için kaydedildi. Key UI içinde tutulmuyor.' },
+      }));
+      await onTestConnection();
+      await loadProviderProfiles();
+    } catch (error) {
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: {
+          tone: 'warn',
+          text: error instanceof Error ? error.message : 'API key kaydedilemedi.',
+        },
+      }));
+    } finally {
+      setSavingProviderKey(null);
+    }
+  }
 
   async function loadObsidianStatus() {
     try {
       const response = await fetch('/api/edith/obsidian/status');
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (data.success) setObsidianStatus(data.status);
     } catch {
       setObsidianStatus(null);
@@ -141,7 +194,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   async function loadPermissionPolicy() {
     try {
       const response = await fetch('/api/edith/permissions/policy');
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (data.success) setPermissionPolicy(data.policy);
     } catch {
       setPermissionPolicy(null);
@@ -154,7 +207,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
     });
-    const data = await response.json();
+    const data = await readJsonResponse(response);
     if (data.success) setPermissionPolicy(data.policy);
   }
 
@@ -233,26 +286,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={(e) => handleChange('selectedModel', e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
               >
-                {form.aiProvider === 'ollama' && availableModels.length > 0 ? (
-                  availableModels.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))
-                ) : activeProviderProfile ? (
-                  activeProviderProfile.modelExamples.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))
-                ) : (
-                  <>
-                    <option value="llama3.2">llama3.2 (Varsayılan)</option>
-                    <option value="qwen2.5">qwen2.5</option>
-                    <option value="mistral">mistral</option>
-                    <option value="gemma2">gemma2</option>
-                  </>
-                )}
+                {modelOptions.map((model) => (
+                  <option key={model} value={model}>
+                    {model === 'auto' ? 'AUTO' : model}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -273,6 +311,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
           </div>
+
+          {geminiNeedsSetup && (
+            <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-xs text-amber-100">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <div>
+                  <p className="font-semibold">Gemini şu an kullanılabilir görünmüyor.</p>
+                  <p className="mt-1 leading-relaxed text-amber-100/75">
+                    Dev kullanım için aşağıdaki Gemini API key alanını doldurup kaydedin. Anahtar localStorage'a yazılmaz, input başarılı kayıttan sonra temizlenir ve provider health tekrar sorgulanır.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
             <div className="flex items-center justify-between gap-3 mb-3">
@@ -308,6 +360,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       </span>
                     ))}
                   </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <StatusRow label="Configured" value={profile.configured === true ? 'yes' : profile.configured === false ? 'no' : 'unknown'} tone={profile.configured ? 'good' : profile.provider === 'gemini' ? 'warn' : 'neutral'} />
+                    <StatusRow label="Available" value={profile.available === true ? 'yes' : profile.available === false ? 'no' : 'unknown'} tone={profile.available ? 'good' : profile.status === 'available' ? 'good' : 'warn'} />
+                  </div>
                   <p className="mt-2 text-[11px] text-slate-500 leading-relaxed">{profile.notes}</p>
                   {profile.requiredEnv.length > 0 && (
                     <p className="mt-1 text-[10px] text-amber-300 font-mono">
@@ -318,6 +374,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               ))}
             </div>
           </div>
+
+          {keyConfigurableProviders.length > 0 && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-950/10 p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-amber-300" />
+                  <h3 className="text-xs font-semibold text-slate-200">Dev API Anahtarları</h3>
+                </div>
+                <span className="text-[10px] font-mono text-amber-200/80">runtime only</span>
+              </div>
+              <div className="space-y-3">
+                {keyConfigurableProviders.map((profile) => (
+                  <div key={profile.provider} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                    <div className="flex flex-col lg:flex-row lg:items-end gap-3">
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-slate-400 mb-1.5 font-medium">
+                          Gemini API Key
+                        </label>
+                        <input
+                          type="password"
+                          value={providerApiKeys[profile.provider] ?? ''}
+                          onChange={(e) => setProviderApiKeys((prev) => ({ ...prev, [profile.provider]: e.target.value }))}
+                          placeholder={`${profile.requiredEnv.join(' / ')} gir`}
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 font-mono text-xs focus:outline-none focus:border-amber-400"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => saveProviderDevKey(profile.provider)}
+                        disabled={savingProviderKey === profile.provider}
+                        className="px-3 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-amber-100 text-xs font-mono shrink-0 flex items-center justify-center gap-1"
+                      >
+                        {savingProviderKey === profile.provider ? (
+                          <Activity className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <KeyRound className="w-3.5 h-3.5" />
+                        )}
+                        {savingProviderKey === profile.provider ? 'Kaydediliyor' : 'Kaydet'}
+                      </button>
+                    </div>
+                    <p className="mt-2 text-[10px] text-slate-500 leading-relaxed">
+                      Anahtar localStorage'a yazılmaz, başarılı kayıttan sonra input temizlenir ve backend response içinde geri döndürülmez.
+                    </p>
+                    {providerKeyStatus[profile.provider] && (
+                      <p className={`mt-2 text-[10px] font-mono ${providerKeyStatus[profile.provider].tone === 'good' ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {providerKeyStatus[profile.provider].text}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 2. Audio STT & TTS Settings */}
@@ -636,24 +747,20 @@ function PermissionModeCard({
 }
 
 function ProviderStatus({ status }: { status: ProviderProfile['status'] }) {
-  if (status === 'available') {
-    return (
-      <span className="px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-950/30 text-[10px] text-emerald-300 font-mono flex items-center gap-1">
-        <ShieldCheck className="w-3 h-3" />
-        AVAILABLE
-      </span>
-    );
-  }
-  if (status === 'unavailable') {
-    return (
-      <span className="px-2 py-0.5 rounded border border-red-500/30 bg-red-950/30 text-[10px] text-red-300 font-mono">
-        OFFLINE
-      </span>
-    );
-  }
+  const tone = providerTone(status);
+  const className = tone === 'success'
+    ? 'border-emerald-500/30 bg-emerald-950/30 text-emerald-300'
+    : tone === 'danger'
+      ? 'border-red-500/30 bg-red-950/30 text-red-300'
+      : tone === 'warning'
+        ? 'border-amber-500/30 bg-amber-950/30 text-amber-300'
+        : 'border-slate-700 bg-slate-950/60 text-slate-400';
+  const Icon = tone === 'success' ? CheckCircle2 : tone === 'danger' ? AlertTriangle : ShieldCheck;
+
   return (
-    <span className="px-2 py-0.5 rounded border border-amber-500/30 bg-amber-950/30 text-[10px] text-amber-300 font-mono">
-      SETUP
+    <span className={`px-2 py-0.5 rounded border text-[10px] font-mono flex items-center gap-1 ${className}`}>
+      <Icon className="w-3 h-3" />
+      {providerStatusLabel(status)}
     </span>
   );
 }

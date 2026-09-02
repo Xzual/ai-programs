@@ -19,6 +19,8 @@ export interface CryptoAgentStatus {
     at: string;
   };
   overview?: unknown;
+  health?: unknown;
+  runtime?: unknown;
   error?: string;
 }
 
@@ -38,12 +40,15 @@ export class CryptoService {
     const base = this.baseStatus();
     try {
       const [healthResponse, overviewResponse] = await Promise.all([
-        this.fetchWithTimeout(`${DASHBOARD_URL}/health`),
+        this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`),
         this.fetchWithTimeout(`${DASHBOARD_URL}/api/overview`),
       ]);
+      const health = healthResponse.ok ? await healthResponse.json() : undefined;
       return {
         ...base,
         healthy: healthResponse.ok,
+        health,
+        runtime: health?.runtime,
         overview: overviewResponse.ok ? await overviewResponse.json() : undefined,
       };
     } catch (error) {
@@ -80,6 +85,12 @@ export class CryptoService {
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
+        CRYPTO_MODE: process.env.CRYPTO_MODE || 'OBSERVER_ONLY',
+        CRYPTO_TRADING_ENABLED: 'false',
+        CRYPTO_PAPER_TRADING_ENABLED: 'false',
+        CRYPTO_LIVE_TRADING_ENABLED: 'false',
+        CRYPTO_OBSIDIAN_ENABLED: process.env.CRYPTO_OBSIDIAN_ENABLED || 'true',
+        EDITH_OBSIDIAN_VAULT_PATH: process.env.EDITH_OBSIDIAN_VAULT_PATH || 'D:\\EDİTH\\EDİTH',
       },
     });
     this.startedAt = new Date().toISOString();
@@ -102,6 +113,37 @@ export class CryptoService {
     };
   }
 
+  async startObserver(reason = 'Manual observer start from EDITH Crypto view'): Promise<CryptoAgentStatus> {
+    let current = await this.status();
+    if (!current.healthy) {
+      current = await this.start(reason);
+      await this.waitForServiceReady();
+    }
+    const response = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/crypto/start-observer`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      return { ...(await this.status()), error: body || `Observer start failed: ${response.status}` };
+    }
+    this.audit('crypto.observer_start', reason, 'success');
+    return this.status();
+  }
+
+  async stopObserver(reason = 'Manual observer stop from EDITH Crypto view'): Promise<CryptoAgentStatus> {
+    const current = await this.status();
+    if (!current.healthy) return current;
+    const response = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/crypto/stop-observer`, {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      return { ...(await this.status()), error: body || `Observer stop failed: ${response.status}` };
+    }
+    this.audit('crypto.observer_stop', reason, 'success');
+    return this.status();
+  }
+
   stop(reason = 'EDITH server shutdown'): CryptoAgentStatus {
     if (this.child) {
       this.child.kill();
@@ -116,7 +158,7 @@ export class CryptoService {
       projectPath: PROJECT_PATH,
       healthy: false,
       managedProcessRunning: Boolean(this.child),
-      autoStartEnabled: process.env.EDITH_CRYPTO_AUTOSTART !== 'false',
+      autoStartEnabled: process.env.EDITH_CRYPTO_AUTOSTART === 'true',
       pythonPath: PYTHON_PATH,
       scriptPath: SCRIPT_PATH,
       logPath: LOG_PATH,
@@ -142,13 +184,26 @@ export class CryptoService {
     });
   }
 
-  private async fetchWithTimeout(url: string): Promise<Response> {
+  private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
     try {
-      return await fetch(url, { signal: controller.signal });
+      return await fetch(url, { ...init, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  private async waitForServiceReady(): Promise<void> {
+    const deadline = Date.now() + 12000;
+    while (Date.now() < deadline) {
+      try {
+        const response = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`);
+        if (response.ok) return;
+      } catch {
+        // Service is still starting.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600));
     }
   }
 

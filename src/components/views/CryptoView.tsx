@@ -35,6 +35,26 @@ interface CryptoStatus {
       total_return_pct?: number;
     };
   };
+  runtime?: {
+    state?: string;
+    observerRunning?: boolean;
+    runtimeMode?: string;
+    ollamaAvailable?: boolean;
+    marketDataAvailable?: boolean | null;
+    obsidianAvailable?: boolean;
+    lastStartedAt?: string;
+    lastStoppedAt?: string;
+    lastObservationAt?: string;
+    currentSymbol?: string | null;
+    watchedSymbols?: string[];
+    safetyStatus?: {
+      status?: string;
+      message?: string;
+    };
+    tradingEnabled?: boolean;
+    paperTradingEnabled?: boolean;
+    liveTradingEnabled?: boolean;
+  };
   error?: string;
 }
 
@@ -78,6 +98,8 @@ export const CryptoView: React.FC = () => {
   };
 
   const dashboardUrl = status?.dashboardUrl ?? 'http://localhost:5000';
+  const runtime = status?.runtime;
+  const observerRunning = Boolean(runtime?.observerRunning);
   const portfolio = status?.overview?.portfolio;
   const performance = status?.overview?.performance;
 
@@ -89,10 +111,10 @@ export const CryptoView: React.FC = () => {
             <TrendingUp className="w-5 h-5 text-amber-300" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-wide">Crypto Agent</h2>
+            <h2 className="text-base font-semibold tracking-wide">Crypto Market Observer</h2>
             <div className="mt-1 flex items-center gap-2 text-[11px] font-mono text-slate-500">
               <span className={status?.healthy ? 'text-emerald-300' : 'text-amber-300'}>
-                {status?.healthy ? 'dashboard online' : 'dashboard offline'}
+                {status?.healthy ? `service ${runtime?.state ?? 'online'}` : 'service offline'}
               </span>
               <span className="w-1 h-1 rounded-full bg-slate-700" />
               <span className="truncate">{dashboardUrl}</span>
@@ -103,19 +125,19 @@ export const CryptoView: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => runAction('start')}
-            disabled={actionLoading !== null || status?.healthy || status?.managedProcessRunning}
+            disabled={actionLoading !== null || observerRunning}
             className="px-3 py-2 rounded-lg border border-emerald-500/35 bg-emerald-500/10 text-xs text-emerald-100 hover:border-emerald-400 disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <Play className="w-4 h-4" />
-            Başlat
+            Start Market Observer
           </button>
           <button
             onClick={() => runAction('stop')}
-            disabled={actionLoading !== null || !status?.managedProcessRunning}
+            disabled={actionLoading !== null || !observerRunning}
             className="px-3 py-2 rounded-lg border border-slate-800 bg-slate-900/80 text-xs text-slate-200 hover:border-rose-500/45 disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2"
           >
             <Square className="w-4 h-4" />
-            Durdur
+            Stop Market Observer
           </button>
           <button
             onClick={loadStatus}
@@ -145,8 +167,12 @@ export const CryptoView: React.FC = () => {
             </div>
             <div className="mt-4 space-y-2 text-xs">
               <StatusLine label="Dashboard" value={status?.healthy ? 'Online' : 'Offline'} good={Boolean(status?.healthy)} />
-              <StatusLine label="Auto Start" value={status?.autoStartEnabled === false ? 'Kapalı' : 'Açık'} good={status?.autoStartEnabled !== false} />
-              <StatusLine label="EDITH Process" value={status?.managedProcessRunning ? 'Çalışıyor' : 'Yok'} good={Boolean(status?.managedProcessRunning)} />
+              <StatusLine label="Auto Start" value={status?.autoStartEnabled ? 'Açık' : 'Kapalı'} good={!status?.autoStartEnabled} />
+              <StatusLine label="Observer" value={runtime?.state ?? 'STOPPED'} good={observerRunning} />
+              <StatusLine label="Ollama" value={runtime?.ollamaAvailable ? 'Online' : 'Offline'} good={Boolean(runtime?.ollamaAvailable)} />
+              <StatusLine label="Obsidian" value={runtime?.obsidianAvailable ? 'Ready' : 'Unavailable'} good={Boolean(runtime?.obsidianAvailable)} />
+              <StatusLine label="Runtime" value={runtime?.runtimeMode ?? '-'} />
+              <StatusLine label="Current" value={runtime?.currentSymbol ?? '-'} />
               <StatusLine label="Balance" value={`${Number(portfolio?.balance ?? 0).toFixed(2)} USDT`} />
               <StatusLine label="Equity" value={`${Number(portfolio?.equity ?? 0).toFixed(2)} USDT`} />
               <StatusLine label="Positions" value={String(portfolio?.positions?.length ?? 0)} />
@@ -158,10 +184,10 @@ export const CryptoView: React.FC = () => {
             <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-4 text-xs text-amber-100">
               <div className="flex items-center gap-2 font-semibold">
                 <AlertTriangle className="w-4 h-4 text-amber-300" />
-                Dashboard çalışmıyor
+                Crypto service çalışmıyor
               </div>
               <p className="mt-2 text-amber-100/80 leading-relaxed">
-                EDITH açılırken crypto agent'ı otomatik başlatmayı dener. Çalışmıyorsa yukarıdaki Başlat düğmesini veya aşağıdaki komutu yedek olarak kullan.
+                Start Market Observer düğmesi önce güvenli Python servisini açar, sonra observer döngüsünü başlatır. Trading kilitli kalır.
               </p>
             </div>
           )}
@@ -176,14 +202,16 @@ export const CryptoView: React.FC = () => {
 .\\.venv\\Scripts\\python.exe run_agent.py`}
             </pre>
             <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
-              Sistem paper trading modundadır; gerçek para işlemi yapmaz. EDITH Ollama server başlatmaz. Dashboard agent çalışınca bu ekranda gömülü görünür.
+              Sistem OBSERVER_ONLY modundadır; gerçek veya sanal al/sat işlemi yapmaz. EDITH Ollama server başlatmaz. Observer sadece düğmeyle başlar.
             </p>
           </div>
 
           <div className="rounded-lg border border-slate-800 bg-slate-900/65 p-4">
             <div className="text-sm font-semibold text-slate-100">Çalışma Bilgisi</div>
             <div className="mt-4 space-y-2 text-xs">
-              <StatusLine label="Started" value={status?.startedAt ? new Date(status.startedAt).toLocaleString() : '-'} />
+              <StatusLine label="Started" value={runtime?.lastStartedAt ? new Date(runtime.lastStartedAt).toLocaleString() : status?.startedAt ? new Date(status.startedAt).toLocaleString() : '-'} />
+              <StatusLine label="Stopped" value={runtime?.lastStoppedAt ? new Date(runtime.lastStoppedAt).toLocaleString() : '-'} />
+              <StatusLine label="Observed" value={runtime?.lastObservationAt ? new Date(runtime.lastObservationAt).toLocaleString() : '-'} />
               <StatusLine label="Last Exit" value={status?.lastExit ? `${status.lastExit.code ?? status.lastExit.signal ?? 'unknown'}` : '-'} />
               <StatusLine label="Log" value={status?.logPath ?? '-'} />
             </div>
@@ -193,7 +221,7 @@ export const CryptoView: React.FC = () => {
         <section className="min-w-0 min-h-0 bg-slate-950">
           {status?.healthy ? (
             <iframe
-              title="Crypto Agent Dashboard"
+              title="Crypto Market Observer Dashboard"
               src={dashboardUrl}
               className="w-full h-full border-0 bg-slate-950"
             />
@@ -201,9 +229,9 @@ export const CryptoView: React.FC = () => {
             <div className="h-full flex items-center justify-center p-6">
               <div className="max-w-lg rounded-lg border border-slate-800 bg-slate-900/70 p-6 text-center shadow-xl">
                 <TrendingUp className="w-10 h-10 text-amber-300 mx-auto" />
-                <h3 className="mt-4 text-lg font-semibold text-slate-100">Crypto dashboard bekleniyor</h3>
+                <h3 className="mt-4 text-lg font-semibold text-slate-100">Crypto observer bekleniyor</h3>
                 <p className="mt-2 text-sm text-slate-400">
-                  EDITH crypto agent'ı başlatınca `http://localhost:5000` online olacak ve dashboard burada açılacak.
+                  Start Market Observer seçildiğinde güvenli servis açılır, OBSERVER_ONLY izleme başlar ve dashboard burada görünür.
                 </p>
                 {status?.error && <p className="mt-3 text-xs text-amber-300 font-mono">{status.error}</p>}
               </div>

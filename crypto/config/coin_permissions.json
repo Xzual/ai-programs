@@ -1,0 +1,165 @@
+{
+  "mode": "OBSERVER_ONLY",
+  "defaultPolicy": {
+    "category": "custom",
+    "watchEnabled": false,
+    "paperTradingEnabled": false,
+    "liveTradingEnabled": false,
+    "decisionEnabled": false,
+    "maxPositionUSDT": 0,
+    "maxPortfolioAllocationPct": 0,
+    "riskLevel": "high",
+    "requiresApproval": true,
+    "notes": "Default deny: unknown symbols are not watched, analyzed, or traded."
+  },
+  "categoryRules": {
+    "majors": {
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "maxPositionUSDT": 2000,
+      "maxPortfolioAllocationPct": 20,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "layer1": {
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "maxPositionUSDT": 1200,
+      "maxPortfolioAllocationPct": 12,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "exchange": {
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "maxPositionUSDT": 1000,
+      "maxPortfolioAllocationPct": 10,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "meme": {
+      "watchEnabled": true,
+      "paperTradingEnabled": false,
+      "liveTradingEnabled": false,
+      "decisionEnabled": false,
+      "maxPositionUSDT": 0,
+      "maxPortfolioAllocationPct": 0,
+      "riskLevel": "high",
+      "requiresApproval": true,
+      "notes": "Meme coins are monitor-only by default."
+    },
+    "stablecoin": {
+      "watchEnabled": true,
+      "paperTradingEnabled": false,
+      "liveTradingEnabled": false,
+      "decisionEnabled": false,
+      "maxPositionUSDT": 0,
+      "maxPortfolioAllocationPct": 0,
+      "riskLevel": "low",
+      "requiresApproval": true,
+      "notes": "Stablecoins are monitoring-only; no trading decisions."
+    },
+    "high_volatility": {
+      "watchEnabled": true,
+      "paperTradingEnabled": false,
+      "liveTradingEnabled": false,
+      "decisionEnabled": false,
+      "maxPositionUSDT": 0,
+      "maxPortfolioAllocationPct": 0,
+      "riskLevel": "high",
+      "requiresApproval": true
+    }
+  },
+  "symbolRules": {
+    "BTC/USDT": {
+      "category": "majors",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false,
+      "notes": "Major coin paper trading allowed."
+    },
+    "ETH/USDT": {
+      "category": "majors",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "SOL/USDT": {
+      "category": "layer1",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "BNB/USDT": {
+      "category": "exchange",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "XRP/USDT": {
+      "category": "majors",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "DOGE/USDT": {
+      "category": "meme",
+      "watchEnabled": true,
+      "paperTradingEnabled": false,
+      "liveTradingEnabled": false,
+      "decisionEnabled": false,
+      "riskLevel": "high",
+      "requiresApproval": true,
+      "notes": "Watch-only; meme category trading disabled."
+    },
+    "ADA/USDT": {
+      "category": "layer1",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "AVAX/USDT": {
+      "category": "layer1",
+      "watchEnabled": true,
+      "paperTradingEnabled": true,
+      "liveTradingEnabled": false,
+      "decisionEnabled": true,
+      "riskLevel": "medium",
+      "requiresApproval": false
+    },
+    "USDT/USDC": {
+      "category": "stablecoin",
+      "watchEnabled": true,
+      "paperTradingEnabled": false,
+      "liveTradingEnabled": false,
+      "decisionEnabled": false,
+      "riskLevel": "low",
+      "requiresApproval": true,
+      "notes": "Stablecoin monitoring only."
+    }
+  }
+}

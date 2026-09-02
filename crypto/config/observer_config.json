@@ -1,0 +1,22 @@
+{
+  "mode": "OBSERVER_ONLY",
+  "watchlist": [
+    "BTC/USDT",
+    "ETH/USDT",
+    "SOL/USDT",
+    "BNB/USDT",
+    "XRP/USDT",
+    "DOGE/USDT",
+    "ADA/USDT",
+    "AVAX/USDT"
+  ],
+  "ignoredSymbols": [
+    "PEPE/USDT",
+    "SHIB/USDT"
+  ],
+  "analysisEnabled": true,
+  "tradingEnabled": false,
+  "paperTradingEnabled": false,
+  "liveTradingEnabled": false,
+  "obsidianExportEnabled": true
+}

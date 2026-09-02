@@ -44,7 +44,9 @@
     "tauri:dev": "node scripts/tauri-dev-preflight.mjs",
     "tauri:build": "tauri build",
     "vite:dev": "vite",
-    "vite:build": "vite build"
+    "vite:build": "vite build",
+    "crypto:observer": "cd crypto && .venv\\Scripts\\python.exe run_agent.py",
+    "crypto:status": "node -e \"fetch('http://localhost:5000/api/health').then(r=>r.json()).then(j=>console.log(JSON.stringify(j,null,2))).catch(e=>{console.error('Crypto observer offline:', e.message); process.exit(1)})\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

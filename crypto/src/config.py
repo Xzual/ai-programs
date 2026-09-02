@@ -4,8 +4,10 @@ All tunable parameters live here.
 """
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Dict
 
+CRYPTO_ROOT = Path(__file__).resolve().parents[1]
 
 @dataclass
 class Config:
@@ -67,9 +69,28 @@ class Config:
 
     # --- Agent Loop ---
     LOOP_INTERVAL_MINUTES: int = 1  # how often the full cycle runs
-    TRADING_MODE: str = os.getenv("TRADING_MODE", "PAPER").strip().upper()
+    TRADING_MODE: str = os.getenv("TRADING_MODE", os.getenv("CRYPTO_MODE", "OBSERVER_ONLY")).strip().upper()
     ENABLE_LIVE_TRADING: bool = os.getenv("ENABLE_LIVE_TRADING", "false").strip().lower() == "true"
+    CRYPTO_TRADING_ENABLED: bool = os.getenv("CRYPTO_TRADING_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_PAPER_TRADING_ENABLED: bool = os.getenv("CRYPTO_PAPER_TRADING_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_LIVE_TRADING_ENABLED: bool = os.getenv("CRYPTO_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
     ALLOWED_ACTIONS: List[str] = field(default_factory=lambda: ["BUY", "SELL", "HOLD", "NO TRADE"])
+    BINANCE_READ_ONLY: bool = os.getenv("BINANCE_READ_ONLY", "true").strip().lower() == "true"
+    BINANCE_TRADING_ENABLED: bool = os.getenv("BINANCE_TRADING_ENABLED", "false").strip().lower() == "true"
+    PERMISSIONS_CONFIG_PATH: str = os.getenv(
+        "CRYPTO_PERMISSIONS_CONFIG",
+        str(CRYPTO_ROOT / "config" / "coin_permissions.json"),
+    )
+    OBSERVER_CONFIG_PATH: str = os.getenv(
+        "CRYPTO_OBSERVER_CONFIG",
+        str(CRYPTO_ROOT / "config" / "observer_config.json"),
+    )
+    EDITH_OBSIDIAN_VAULT_PATH: str = os.getenv("EDITH_OBSIDIAN_VAULT_PATH", r"D:\EDİTH\EDİTH").strip()
+    CRYPTO_OBSIDIAN_ENABLED: bool = os.getenv("CRYPTO_OBSIDIAN_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_OBSIDIAN_FOLDER: str = "Trading/Crypto Market Learning"
+    CRYPTO_ALLOW_MARKET_DATA_ONLY_WHEN_OLLAMA_OFFLINE: bool = (
+        os.getenv("CRYPTO_ALLOW_MARKET_DATA_ONLY_WHEN_OLLAMA_OFFLINE", "true").strip().lower() == "true"
+    )
 
     # --- Paths ---
     DATA_DIR: str = os.getenv("CRYPTO_DATA_DIR", "data")
@@ -77,13 +98,38 @@ class Config:
     DB_PATH: str = os.getenv("CRYPTO_DB_PATH", "data/agent_memory.db")
 
     def __post_init__(self):
-        if self.TRADING_MODE not in ("PAPER", "LIVE"):
-            self.TRADING_MODE = "PAPER"
-        self.PAPER_TRADING = self.TRADING_MODE != "LIVE"
+        aliases = {"PAPER": "PAPER_TRADING", "LIVE": "LIVE_TRADING_LOCKED"}
+        self.TRADING_MODE = aliases.get(self.TRADING_MODE, self.TRADING_MODE)
+        if self.TRADING_MODE not in ("OBSERVER_ONLY", "PAPER_TRADING", "READ_ONLY_ACCOUNT", "LIVE_TRADING_LOCKED"):
+            self.TRADING_MODE = "OBSERVER_ONLY"
+        if not self.CRYPTO_TRADING_ENABLED:
+            self.TRADING_MODE = "OBSERVER_ONLY"
+        self.PAPER_TRADING = (
+            self.TRADING_MODE == "PAPER_TRADING"
+            and self.CRYPTO_TRADING_ENABLED
+            and self.CRYPTO_PAPER_TRADING_ENABLED
+        )
 
     @property
     def live_trading_active(self) -> bool:
-        return self.TRADING_MODE == "LIVE" and self.ENABLE_LIVE_TRADING
+        return (
+            self.TRADING_MODE == "LIVE_TRADING_LOCKED"
+            and self.ENABLE_LIVE_TRADING
+            and self.CRYPTO_TRADING_ENABLED
+            and self.CRYPTO_LIVE_TRADING_ENABLED
+        )
+
+    @property
+    def binance_connection_mode(self) -> str:
+        has_key = bool(os.getenv(self.EXCHANGE_API_KEY_ENV))
+        has_secret = bool(os.getenv(self.EXCHANGE_API_SECRET_ENV))
+        if self.BINANCE_TRADING_ENABLED or self.live_trading_active:
+            return "LIVE_LOCKED"
+        if has_key or has_secret:
+            if has_key and has_secret and self.BINANCE_READ_ONLY:
+                return "READ_ONLY_ACCOUNT"
+            return "CREDENTIALS_INCOMPLETE"
+        return "PUBLIC_MARKET_DATA"
 
 
 # Singleton

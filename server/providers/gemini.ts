@@ -5,9 +5,21 @@ import { ProviderError } from "./types";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro"];
+let runtimeGeminiApiKey: string | undefined;
+
+export function setGeminiRuntimeApiKey(apiKey: string): void {
+  const normalized = apiKey.trim();
+  if (!normalized || normalized === "MY_GEMINI_API_KEY") {
+    runtimeGeminiApiKey = undefined;
+    delete process.env.GEMINI_API_KEY;
+    return;
+  }
+  runtimeGeminiApiKey = normalized;
+  process.env.GEMINI_API_KEY = normalized;
+}
 
 function readGeminiConfig() {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = runtimeGeminiApiKey ?? process.env.GEMINI_API_KEY;
   const defaultModel = process.env.GEMINI_DEFAULT_MODEL || DEFAULT_MODEL;
   const apiBaseUrl = process.env.GEMINI_API_BASE_URL;
   const configured = Boolean(apiKey && apiKey !== "MY_GEMINI_API_KEY");

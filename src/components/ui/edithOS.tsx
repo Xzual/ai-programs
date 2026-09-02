@@ -119,7 +119,7 @@ function useInteractionSafetySnapshot(): InteractionSafetySnapshot | null {
   React.useEffect(() => {
     let cancelled = false;
     fetch('/api/edith/interaction-safety')
-      .then((response) => response.ok ? response.json() : undefined)
+      .then((response) => response.ok ? readJsonResponse(response) : undefined)
       .then((payload) => {
         if (!cancelled && payload?.success) setSnapshot(payload.snapshot);
       })
@@ -132,6 +132,16 @@ function useInteractionSafetySnapshot(): InteractionSafetySnapshot | null {
   }, []);
 
   return snapshot;
+}
+
+async function readJsonResponse(response: Response): Promise<Record<string, any>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as Record<string, any>;
+  } catch {
+    throw new Error(`JSON bekleniyordu ama endpoint farklı/boş cevap döndürdü: ${response.status}`);
+  }
 }
 
 export function OSPanel({
@@ -905,37 +915,752 @@ export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?
   );
 }
 
+type CryptoServiceStatus = {
+  dashboardUrl?: string;
+  projectPath?: string;
+  healthy?: boolean;
+  managedProcessRunning?: boolean;
+  autoStartEnabled?: boolean;
+  startedAt?: string;
+  error?: string;
+  overview?: Record<string, any>;
+  runtime?: {
+    state?: string;
+    observerRunning?: boolean;
+    runtimeMode?: string;
+    ollamaAvailable?: boolean;
+    marketDataAvailable?: boolean | null;
+    obsidianAvailable?: boolean;
+    lastStartedAt?: string;
+    lastStoppedAt?: string;
+    lastObservationAt?: string;
+    currentSymbol?: string | null;
+    watchedSymbols?: string[];
+    tradingEnabled?: boolean;
+    paperTradingEnabled?: boolean;
+    liveTradingEnabled?: boolean;
+    safetyStatus?: {
+      status?: string;
+      message?: string;
+    };
+  };
+};
+
+type CryptoSymbolPermission = {
+  symbol: string;
+  category: string;
+  watch: boolean;
+  decision: boolean;
+  paper: boolean;
+  live: boolean;
+  risk: 'Low' | 'Medium' | 'High' | 'Critical';
+  approvalRequired?: boolean;
+};
+
+type MarketObservation = {
+  title: string;
+  detail: string;
+  signal?: string;
+  source?: string;
+  timestamp?: string;
+};
+
+type LearningNote = {
+  title: string;
+  detail?: string;
+  path?: string;
+  timestamp?: string;
+};
+
+const SAFE_SYMBOL_PERMISSIONS: CryptoSymbolPermission[] = [
+  { symbol: 'BTC/USDT', category: 'Majors', watch: true, decision: true, paper: false, live: false, risk: 'Medium' },
+  { symbol: 'ETH/USDT', category: 'Majors', watch: true, decision: true, paper: false, live: false, risk: 'Medium' },
+  { symbol: 'DOGE/USDT', category: 'Meme', watch: true, decision: false, paper: false, live: false, risk: 'High', approvalRequired: true },
+  { symbol: 'USDC/USDT', category: 'Stablecoins', watch: true, decision: false, paper: false, live: false, risk: 'Low' },
+];
+
+const SAFE_CATEGORY_RULES = [
+  ['Majors', 'Watch enabled', 'Paper trading allowed', 'Live locked'],
+  ['Meme', 'Watch enabled', 'Decision disabled', 'Paper blocked, approval required'],
+  ['Stablecoins', 'Watch only', 'Trading blocked', 'Live locked'],
+] as const;
+
+const SAFE_DECISIONS = [
+  { symbol: 'BTC/USDT', decision: 'HOLD', provider: 'backend not connected', confidence: '-', riskResult: 'Pending', reason: 'No connected decision feed. Safe placeholder only.' },
+  { symbol: 'DOGE/USDT', decision: 'SKIPPED', provider: 'backend not connected', confidence: '-', riskResult: 'Rejected', reason: 'WATCH_ONLY / DECISION_DISABLED' },
+] as const;
+
+const SAFE_OBSERVATIONS: MarketObservation[] = [
+  { title: 'Market radar standing by', detail: 'Observer service is offline, so no live market observations are being displayed.', signal: 'PLACEHOLDER', source: 'safe-ui' },
+  { title: 'Execution layer locked', detail: 'No order actions are exposed in this cockpit. Live trading remains disabled.', signal: 'SAFETY', source: 'safe-ui' },
+  { title: 'Learning stream paused', detail: 'Start the crypto observer service to sync fresh notes into the Obsidian learning path.', signal: 'PENDING', source: 'safe-ui' },
+];
+
+const SAFE_LEARNING_NOTES: LearningNote[] = [
+  { title: 'No live learning notes connected', detail: 'This is a placeholder until /api/learning-notes or /api/obsidian-status responds.' },
+];
+
+async function optionalCryptoEndpoint(path: string): Promise<Record<string, any> | undefined> {
+  try {
+    const response = await fetch(path);
+    if (!response.ok) return undefined;
+    return await readJsonResponse(response);
+  } catch {
+    return undefined;
+  }
+}
+
+function asArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function money(value: unknown, fallback = 'not connected'): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`;
+}
+
+function pct(value: unknown, fallback = 'not connected'): string {
+  if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
+  return `${value.toFixed(2)}%`;
+}
+
+function cryptoRisk(value: unknown): CryptoSymbolPermission['risk'] {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized.includes('critical')) return 'Critical';
+  if (normalized.includes('high') || normalized === '4' || normalized === '5') return 'High';
+  if (normalized.includes('low') || normalized === '1') return 'Low';
+  return 'Medium';
+}
+
+function displayTime(value: unknown): string {
+  if (!value) return 'not reported';
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+type ObserverState = 'STOPPED' | 'STARTING' | 'OBSERVING' | 'PAUSED' | 'STOPPING' | 'ERROR';
+
+function observerStateFromRuntime(runtime: CryptoServiceStatus['runtime'], serviceOnline: boolean, action: 'start' | 'stop' | null, hasError: boolean): ObserverState {
+  if (action === 'start') return 'STARTING';
+  if (action === 'stop') return 'STOPPING';
+  if (hasError && serviceOnline) return 'ERROR';
+  const rawState = String(runtime?.state ?? '').toLowerCase();
+  if (rawState.includes('pause')) return 'PAUSED';
+  if (runtime?.observerRunning || rawState.includes('observ') || rawState.includes('run')) return 'OBSERVING';
+  return 'STOPPED';
+}
+
+function observerTone(state: ObserverState): 'success' | 'warning' | 'danger' | 'muted' | 'info' {
+  if (state === 'OBSERVING') return 'success';
+  if (state === 'STARTING' || state === 'STOPPING' || state === 'PAUSED') return 'warning';
+  if (state === 'ERROR') return 'danger';
+  return 'muted';
+}
+
 export function TradingScreen({ integrations = [], tools = [], logs = [] }: { integrations?: IntegrationConfig[]; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
-  const financeTools = tools.filter((tool) => tool.category === 'finance');
-  const financeIntegrations = integrations.filter((integration) => integration.id.includes('finance') || integration.id.includes('trading'));
+  const [serviceStatus, setServiceStatus] = React.useState<CryptoServiceStatus | null>(null);
+  const [cryptoData, setCryptoData] = React.useState<Record<string, any>>({});
+  const [loading, setLoading] = React.useState(false);
+  const [observerAction, setObserverAction] = React.useState<'start' | 'stop' | null>(null);
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [lastCheckedAt, setLastCheckedAt] = React.useState<Date | null>(null);
+  const financeTools = tools.filter((tool) => tool.category === 'finance' || tool.permissions.includes('trading:execute'));
+  const financeIntegrations = integrations.filter((integration) => integration.id.includes('finance') || integration.id.includes('trading') || integration.id.includes('binance'));
+  const financeLogs = logs.filter((log) => financeTools.some((tool) => tool.id === log.toolId));
+
+  const loadCryptoCockpit = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const statusResponse = await optionalCryptoEndpoint('/api/edith/crypto/status');
+      const status = statusResponse?.success ? statusResponse.status as CryptoServiceStatus : undefined;
+      let nextData: Record<string, any> = {};
+      if (status?.healthy) {
+        const [
+          permissions,
+          symbols,
+          categories,
+          watchlist,
+          risk,
+          mode,
+          overview,
+          trades,
+          decisions,
+          markets,
+          analysis,
+          observations,
+          learningNotes,
+          obsidianStatus,
+        ] = await Promise.all([
+          optionalCryptoEndpoint('/api/permissions'),
+          optionalCryptoEndpoint('/api/symbols'),
+          optionalCryptoEndpoint('/api/categories'),
+          optionalCryptoEndpoint('/api/watchlist'),
+          optionalCryptoEndpoint('/api/risk'),
+          optionalCryptoEndpoint('/api/mode'),
+          optionalCryptoEndpoint('/api/overview'),
+          optionalCryptoEndpoint('/api/trades'),
+          optionalCryptoEndpoint('/api/decisions'),
+          optionalCryptoEndpoint('/api/markets'),
+          optionalCryptoEndpoint('/api/analysis'),
+          optionalCryptoEndpoint('/api/observations'),
+          optionalCryptoEndpoint('/api/learning-notes'),
+          optionalCryptoEndpoint('/api/obsidian-status'),
+        ]);
+        nextData = { permissions, symbols, categories, watchlist, risk, mode, overview, trades, decisions, markets, analysis, observations, learningNotes, obsidianStatus };
+      }
+      setServiceStatus(status ?? {
+        healthy: false,
+        dashboardUrl: 'http://localhost:5000',
+        error: statusResponse?.error ?? 'Crypto observer service is not running.',
+      });
+      setCryptoData(nextData);
+      setLastCheckedAt(new Date());
+      setActionError(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void loadCryptoCockpit();
+  }, [loadCryptoCockpit]);
+
+  const runObserverAction = React.useCallback(async (action: 'start' | 'stop') => {
+    setObserverAction(action);
+    setActionError(null);
+    try {
+      const response = await fetch(`/api/edith/crypto/${action}`, { method: 'POST' });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data?.success) {
+        throw new Error(String(data?.error ?? `Observer ${action} failed with ${response.status}`));
+      }
+      if (data?.success && data.status) {
+        setServiceStatus(data.status as CryptoServiceStatus);
+      }
+      window.setTimeout(() => {
+        void loadCryptoCockpit();
+      }, 1200);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setObserverAction(null);
+    }
+  }, [loadCryptoCockpit]);
+
+  const overview = cryptoData.overview ?? serviceStatus?.overview ?? {};
+  const portfolio = overview.portfolio ?? {};
+  const performance = overview.performance ?? {};
+  const endpointConnected = Object.values(cryptoData).some(Boolean);
+  const serviceOnline = Boolean(serviceStatus?.healthy);
+  const runtime = serviceStatus?.runtime;
+  const observerState = observerStateFromRuntime(runtime, serviceOnline, observerAction, Boolean(actionError));
+  const observerRunning = observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'PAUSED';
+  const ollamaOnline = Boolean(runtime?.ollamaAvailable);
+  const obsidianReady = Boolean(runtime?.obsidianAvailable ?? cryptoData.obsidianStatus?.writable);
+  const pauseResumeSupported = Boolean(runtime && 'supportsPauseResume' in runtime && (runtime as Record<string, any>).supportsPauseResume);
+  const canStartObserver = serviceOnline && (observerState === 'STOPPED' || observerState === 'PAUSED') && !observerAction && ollamaOnline;
+  const canStopObserver = serviceOnline && ['OBSERVING', 'STARTING', 'PAUSED'].includes(observerState) && !observerAction;
+  const marketOnline = Boolean(runtime?.marketDataAvailable ?? cryptoData.markets?.online ?? cryptoData.markets?.available ?? cryptoData.overview?.marketDataOnline ?? false);
+  const symbolsFromBackend = asArray(cryptoData.symbols?.symbols ?? cryptoData.watchlist?.symbols ?? cryptoData.permissions?.symbols);
+  const symbolRows: CryptoSymbolPermission[] = symbolsFromBackend.length
+    ? symbolsFromBackend.map((item) => ({
+        symbol: String(item.symbol ?? item.pair ?? 'UNKNOWN'),
+        category: String(item.category ?? 'Uncategorized'),
+        watch: Boolean(item.watch ?? item.watchEnabled ?? item.watch_only ?? true),
+        decision: Boolean(item.decision ?? item.decisionEnabled ?? item.aiDecision ?? false),
+        paper: Boolean(serviceOnline && (item.paper ?? item.paperAllowed ?? item.paperTradingAllowed ?? false)),
+        live: false,
+        risk: cryptoRisk(item.risk ?? item.riskLevel),
+        approvalRequired: Boolean(item.approvalRequired ?? item.requiresApproval),
+      }))
+    : SAFE_SYMBOL_PERMISSIONS;
+  const decisions = asArray(cryptoData.decisions?.decisions ?? cryptoData.analysis?.decisions);
+  const trades = asArray(cryptoData.trades?.trades ?? overview.trades);
+  const openPositions = asArray(portfolio.positions);
+  const risk = cryptoData.risk ?? {};
+  const modeLabel = String(runtime?.mode ?? cryptoData.mode?.trading_mode ?? cryptoData.mode?.mode ?? overview.mode ?? 'observer_only').replaceAll('_', ' ').toUpperCase();
+  const paperTradingEnabled = Boolean(runtime?.paperTradingEnabled);
+  const observations = asArray(cryptoData.observations?.observations ?? cryptoData.analysis?.observations);
+  const learningNotes = asArray(cryptoData.learningNotes?.notes ?? cryptoData.obsidianStatus?.notes ?? cryptoData.obsidianStatus?.recentNotes);
+  const obsidianStatus = cryptoData.obsidianStatus ?? {};
+  const serviceUrl = serviceStatus?.dashboardUrl ?? 'http://localhost:5000';
+  const lastChecked = lastCheckedAt ? lastCheckedAt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending';
+  const startupCommand = 'npm run crypto:observer';
+  const watchedSymbols = Array.isArray(runtime?.watchedSymbols) ? runtime.watchedSymbols : symbolRows.filter((symbol) => symbol.watch).map((symbol) => symbol.symbol);
+  const ignoredSymbols = symbolRows.filter((symbol) => !symbol.watch || symbol.approvalRequired).map((symbol) => symbol.symbol);
+  const lastLearningNote = learningNotes[0]?.title ?? learningNotes[0]?.path ?? 'not connected';
+
   return (
-    <ScreenFrame title="Finance / Trading" icon={<TrendingUp className="h-5 w-5" />} subtitle="Professional, cautious trading cockpit with separate AI decision and Risk Engine">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
-        <OSPanel title="Market Decision" eyebrow="PAPER MODE" icon={<TrendingUp className="h-4 w-4" />}>
-          <div className="mb-4 flex flex-wrap gap-2">
-            <StatusPill label="PAPER MODE" tone="success" />
-            <StatusPill label="LIVE MODE LOCKED" tone="danger" />
-            <RiskBadge level="MEDIUM" label="UI RISK REVIEW" />
+    <div className="edith-workspace overflow-y-auto bg-[#05070b] p-4 custom-scrollbar">
+      <div className="mx-auto max-w-[1540px] space-y-4">
+        <section className="relative overflow-hidden rounded-lg border border-cyan-300/18 bg-[radial-gradient(circle_at_18%_0%,rgba(14,165,233,0.17),transparent_34%),linear-gradient(135deg,rgba(8,13,23,0.96),rgba(2,6,12,0.98))] p-4 shadow-[0_0_42px_rgba(14,165,233,0.12)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-transparent" />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <StatusPill label="CRYPTO OBSERVER MODE" tone={serviceOnline ? 'success' : 'warning'} value={serviceOnline ? 'SERVICE READY' : 'OFFLINE'} />
+                <StatusPill label={`OBSERVER ${observerState}`} tone={observerTone(observerState)} />
+                <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
+                <StatusPill label="EXECUTION NO ACTION" tone="danger" />
+                <StatusPill label={paperTradingEnabled ? 'PAPER BACKEND ENABLED' : 'PAPER DISABLED'} tone={paperTradingEnabled ? 'warning' : 'muted'} />
+              </div>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div>
+                  <div className="edith-eyebrow">E.D.I.T.H. / MARKET INTELLIGENCE</div>
+                  <h1 className="mt-1 text-2xl font-semibold tracking-[0.16em] text-slate-100 sm:text-3xl">CRYPTO INTELLIGENCE COCKPIT</h1>
+                  <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
+                    Read-only market awareness, permission visibility, risk veto state and learning sync. This screen never exposes secrets and never places orders.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadCryptoCockpit}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-300/15"
+                >
+                  <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh Cockpit
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <CryptoMetric label="Mode" value={modeLabel} tone="cyan" />
+              <CryptoMetric label="Service" value={serviceOnline ? 'ONLINE' : 'OFFLINE'} tone={serviceOnline ? 'green' : 'amber'} />
+              <CryptoMetric label="Observer" value={observerState} tone={observerState === 'OBSERVING' ? 'green' : observerState === 'ERROR' ? 'amber' : 'slate'} />
+              <CryptoMetric label="Ollama" value={ollamaOnline ? 'ONLINE' : 'OFFLINE'} tone={ollamaOnline ? 'green' : 'amber'} />
+              <CryptoMetric label="Market Data" value={marketOnline ? 'AVAILABLE' : 'STANDBY'} tone={marketOnline ? 'green' : 'amber'} />
+              <CryptoMetric label="Last Check" value={lastChecked} tone="slate" />
+            </div>
           </div>
-          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-            <ActionRow label="Finance tools" value={String(financeTools.length)} />
-            <ActionRow label="Finance integrations" value={String(financeIntegrations.length)} />
-            <ActionRow label="Execution logs" value={String(logs.filter((log) => financeTools.some((tool) => tool.id === log.toolId)).length)} />
+        </section>
+
+        <CryptoPanel title="CRYPTO OBSERVER CONTROL" eyebrow="MISSION CONTROL / FRONTEND SAFE" icon={<RadioTower className="h-4 w-4" />}>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_auto]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <ControlReadout label="Status" value={observerState} tone={observerTone(observerState)} pulse={observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'STOPPING'} />
+              <ControlReadout label="Mode" value="OBSERVER_ONLY" tone="info" />
+              <ControlReadout label="Safety" value="ORDER EXECUTION BLOCKED" tone="danger" />
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+              <button
+                type="button"
+                onClick={() => void runObserverAction('start')}
+                disabled={!canStartObserver}
+                title={!serviceOnline ? 'Crypto service is offline.' : !ollamaOnline ? 'Ollama is offline. AI market analysis cannot start.' : canStartObserver ? 'Start observer loop only; trading remains locked.' : 'Start is available only when observer is stopped or paused.'}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Play className={`h-3.5 w-3.5 ${observerAction === 'start' ? 'animate-pulse' : ''}`} />
+                Start Market Observer
+              </button>
+              <button
+                type="button"
+                onClick={() => void runObserverAction('stop')}
+                disabled={!canStopObserver}
+                title={canStopObserver ? 'Stop observer loop; no destructive action.' : 'Stop is available only while observer is running, starting, or paused.'}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-red-300/30 bg-red-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-red-100 transition hover:bg-red-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Square className={`h-3.5 w-3.5 ${observerAction === 'stop' ? 'animate-pulse' : ''}`} />
+                Stop Observer
+              </button>
+              <button
+                type="button"
+                disabled={!pauseResumeSupported || observerState !== 'OBSERVING'}
+                title={pauseResumeSupported ? 'Pause observer loop.' : 'Pause endpoint is not exposed by the backend yet.'}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 transition hover:border-amber-300/35 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Pause className="h-3.5 w-3.5" />
+                Pause
+              </button>
+              <button
+                type="button"
+                disabled={!pauseResumeSupported || observerState !== 'PAUSED'}
+                title={pauseResumeSupported ? 'Resume observer loop.' : 'Resume endpoint is not exposed by the backend yet.'}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 transition hover:border-cyan-300/35 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Play className="h-3.5 w-3.5" />
+                Resume
+              </button>
+              <button
+                type="button"
+                onClick={loadCryptoCockpit}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-300/15"
+              >
+                <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Refresh Status
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {['BUY', 'SELL', 'HOLD', 'NO TRADE'].map((decision) => (
-              <div key={decision} className={`rounded-lg border p-4 text-center font-mono text-sm font-semibold ${decision === 'NO TRADE' ? 'border-emerald-400/35 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>{decision}</div>
-            ))}
+          <div className="mt-4 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+            <ActionRow label="Live trading" value="LOCKED" />
+            <ActionRow label="Paper trading" value="DISABLED" />
+            <ActionRow label="Order execution" value="BLOCKED" />
           </div>
-        </OSPanel>
-        <OSPanel title="Risk Engine" eyebrow="VETO LAYER" icon={<ShieldCheck className="h-4 w-4" />}>
-          <ActionRow label="Mode" value="UI shell only" />
-          <ActionRow label="Max loss" value="not connected" />
-          <ActionRow label="Live approval" value="required" />
-          <ActionRow label="Backend execution" value="not implemented here" />
-        </OSPanel>
+          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {!ollamaOnline && (
+              <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
+                Ollama is offline. AI market analysis cannot start.
+              </div>
+            )}
+            {!obsidianReady && (
+              <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
+                Obsidian export is not configured.
+              </div>
+            )}
+            {actionError && (
+              <div className="rounded-md border border-red-300/30 bg-red-300/10 p-3 text-xs font-semibold text-red-100">
+                {actionError}
+              </div>
+            )}
+          </div>
+        </CryptoPanel>
+
+        {!serviceOnline && (
+          <section className="rounded-lg border border-amber-300/28 bg-[linear-gradient(135deg,rgba(245,158,11,0.14),rgba(7,10,18,0.92))] p-4 shadow-[0_0_34px_rgba(245,158,11,0.1)]">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-amber-300/30 bg-amber-300/12 text-amber-200">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-lg font-semibold text-amber-100">Crypto Observer Offline</div>
+                  <p className="mt-1 max-w-3xl text-sm leading-relaxed text-amber-100/78">
+                    Observer service is not running, so live market feeds and learning notes are paused. Start Market Observer keeps all trading execution locked.
+                  </p>
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+                    <ActionRow label="Startup command" value={startupCommand} />
+                    <ActionRow label="Fallback command" value="python crypto/run_agent.py" />
+                    <ActionRow label="Expected service URL" value={serviceUrl} />
+                    <ActionRow label="Last checked" value={lastChecked} />
+                  </div>
+                  {serviceStatus?.error && <p className="mt-3 font-mono text-[11px] text-amber-100/70">{serviceStatus.error}</p>}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={loadCryptoCockpit}
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-amber-100 transition hover:bg-amber-300/15"
+              >
+                <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+                Retry
+              </button>
+            </div>
+          </section>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1fr_25rem]">
+          <div>
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
+              <CryptoPanel title="Market Radar" eyebrow={endpointConnected ? 'LIVE FEED' : 'SAFE PLACEHOLDER'} icon={<Radar className="h-4 w-4" />}>
+                <div className="relative mx-auto aspect-square max-w-[19rem] rounded-full border border-cyan-300/20 bg-[radial-gradient(circle,rgba(14,165,233,0.16)_0%,rgba(14,165,233,0.04)_38%,rgba(15,23,42,0.08)_70%)]">
+                  <div className="absolute inset-[13%] rounded-full border border-cyan-300/12" />
+                  <div className="absolute inset-[27%] rounded-full border border-cyan-300/12" />
+                  <div className="absolute inset-1/2 h-px w-[46%] origin-left bg-cyan-200/45" />
+                  <div className="absolute left-1/2 top-1/2 h-[47%] w-px origin-top bg-cyan-200/12" />
+                  <div className="absolute inset-0 animate-spin rounded-full [animation-duration:9s]">
+                    <div className="absolute left-1/2 top-1/2 h-[45%] w-px origin-top bg-gradient-to-b from-cyan-200/70 to-transparent" />
+                  </div>
+                  {symbolRows.slice(0, 5).map((symbol, index) => (
+                    <div
+                      key={symbol.symbol}
+                      className={`absolute h-2.5 w-2.5 rounded-full border ${symbol.live ? 'border-red-200 bg-red-300' : symbol.decision ? 'border-cyan-100 bg-cyan-300' : 'border-amber-100 bg-amber-300'} shadow-[0_0_16px_currentColor]`}
+                      style={{
+                        left: `${48 + Math.cos((index / 5) * Math.PI * 2) * (22 + index * 3)}%`,
+                        top: `${47 + Math.sin((index / 5) * Math.PI * 2) * (22 + index * 2)}%`,
+                      }}
+                      aria-label={`${symbol.symbol} radar node`}
+                    />
+                  ))}
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="rounded-lg border border-cyan-300/25 bg-black/55 px-3 py-2 text-center backdrop-blur">
+                      <div className="font-mono text-xs text-cyan-100">{observerRunning ? 'SCAN ACTIVE' : 'SCAN STOPPED'}</div>
+                      <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">Observer only</div>
+                    </div>
+                  </div>
+                </div>
+              </CryptoPanel>
+
+              <CryptoPanel title="Watchlist Matrix" eyebrow="SYMBOL CONTROL" icon={<Database className="h-4 w-4" />}>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {symbolRows.map((symbol) => (
+                    <div key={symbol.symbol} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-slate-100">{symbol.symbol}</div>
+                          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">Category: {symbol.category}</div>
+                        </div>
+                        <RiskBadge level={symbol.risk === 'Critical' ? 'CRITICAL' : symbol.risk === 'High' ? 'HIGH' : symbol.risk === 'Low' ? 'LOW' : 'MEDIUM'} label={`Risk ${symbol.risk}`} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <MiniFlag label="Watch" value={symbol.watch ? 'Enabled' : 'Disabled'} good={symbol.watch} />
+                        <MiniFlag label="Decision" value={symbol.decision ? 'Allowed' : 'Blocked'} good={symbol.decision} />
+                        <MiniFlag label="Paper" value={symbol.paper ? 'Backend enabled' : 'Disabled'} good={symbol.paper} />
+                        <MiniFlag label="Live" value="Locked" good={false} />
+                      </div>
+                      {symbol.approvalRequired && <p className="mt-2 text-[11px] text-amber-200">High-risk symbol requires approval before any backend action.</p>}
+                    </div>
+                  ))}
+                </div>
+              </CryptoPanel>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <CryptoPanel title="Market Observations" eyebrow={observations.length ? 'BACKEND FEED' : 'PLACEHOLDER'} icon={<Eye className="h-4 w-4" />}>
+                <div className="space-y-3">
+                  {(observations.length ? observations : SAFE_OBSERVATIONS).slice(0, 5).map((observation: any, index: number) => (
+                    <div key={`${observation.title ?? observation.symbol ?? 'observation'}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-100">{observation.title ?? observation.symbol ?? 'Market observation'}</div>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-400">{observation.detail ?? observation.summary ?? observation.reason ?? 'No detail reported.'}</p>
+                        </div>
+                        <StatusPill label={String(observation.signal ?? observation.type ?? 'INFO').toUpperCase()} tone={observations.length ? 'info' : 'muted'} />
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
+                        <span>Source: {observation.source ?? 'not reported'}</span>
+                        <span>Time: {displayTime(observation.timestamp ?? observation.createdAt)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CryptoPanel>
+
+              <CryptoPanel title="Decision Feed" eyebrow={decisions.length ? 'BACKEND FEED' : 'PLACEHOLDER'} icon={<Bot className="h-4 w-4" />}>
+                <div className="space-y-3">
+                {(decisions.length ? decisions : SAFE_DECISIONS).slice(0, 5).map((decision: any, index: number) => (
+                  <div key={`${decision.symbol}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-mono text-sm font-semibold text-slate-100">{decision.symbol ?? 'UNKNOWN'}</div>
+                        <div className="mt-1 text-[11px] text-slate-500">Provider: {decision.provider ?? decision.modelProvider ?? 'not reported'}</div>
+                      </div>
+                      <StatusPill label={String(decision.decision ?? 'NO DATA').toUpperCase()} tone={String(decision.decision ?? '').toUpperCase() === 'BUY' || String(decision.decision ?? '').toUpperCase() === 'SELL' ? 'warning' : 'muted'} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <ActionRow label="Confidence" value={typeof decision.confidence === 'number' ? `${Math.round(decision.confidence * 100)}%` : String(decision.confidence ?? '-')} />
+                      <ActionRow label="Risk result" value={String(decision.riskResult ?? decision.risk_result ?? 'not connected')} />
+                    </div>
+                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Reason: {decision.reason ?? 'No clean setup reported.'}</p>
+                  </div>
+                ))}
+                </div>
+              </CryptoPanel>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <CryptoPanel title="Learning Notes / Obsidian Sync" eyebrow={cryptoData.obsidianStatus ? 'BACKEND STATUS' : 'PLACEHOLDER'} icon={<Brain className="h-4 w-4" />}>
+                <div className="grid grid-cols-1 gap-2">
+                  <ActionRow label="Vault path" value={String(obsidianStatus.vaultPath ?? 'D:\\EDITH\\EDITH')} />
+                  <ActionRow label="Learning folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
+                  <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no / not reported'} />
+                  <ActionRow label="Sync status" value={String(obsidianStatus.status ?? (runtime?.obsidianAvailable ? 'ready' : 'paused / service offline'))} />
+                  <ActionRow label="Last sync" value={displayTime(obsidianStatus.lastSync ?? obsidianStatus.updatedAt ?? runtime?.lastObservationAt)} />
+                </div>
+                <div className="mt-3 space-y-2">
+                  {(learningNotes.length ? learningNotes : SAFE_LEARNING_NOTES).slice(0, 3).map((note: any, index: number) => (
+                    <div key={`${note.title ?? 'note'}-${index}`} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                      <div className="text-xs font-semibold text-slate-200">{note.title ?? 'Learning note'}</div>
+                      <div className="mt-1 text-[11px] text-slate-500">{note.detail ?? note.summary ?? note.path ?? 'No note detail connected.'}</div>
+                    </div>
+                  ))}
+                </div>
+              </CryptoPanel>
+
+              <CryptoPanel title="Paper Portfolio" eyebrow={paperTradingEnabled ? 'BACKEND ENABLED' : 'DISABLED / NOT LIVE'} icon={<TrendingUp className="h-4 w-4" />}>
+                <div className="grid grid-cols-1 gap-2">
+                  <ActionRow label="Starting balance" value={money(portfolio.startingBalance ?? portfolio.starting_balance)} />
+                  <ActionRow label="Current paper equity" value={money(portfolio.equity)} />
+                  <ActionRow label="Open paper positions" value={String(openPositions.length)} />
+                  <ActionRow label="Closed trades" value={String(trades.length)} />
+                  <ActionRow label="PnL" value={pct(performance.total_return_pct ?? performance.pnlPct)} />
+                  <ActionRow label="Trade journal" value={trades.length ? `${trades.length} entries` : 'not connected'} />
+                </div>
+                <p className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-100/75">
+                  Paper data is displayed only when reported by the backend. This UI does not represent live balances or execution authority.
+                </p>
+              </CryptoPanel>
+            </div>
+          </div>
+
+          <aside className="space-y-4">
+            <CryptoPanel title="Safety Lock Panel" eyebrow="ALWAYS ON" icon={<LockKeyhole className="h-4 w-4" />}>
+              <div className="space-y-2">
+                <SafetyLine label="Live trading disabled" />
+                <SafetyLine label="Paper trading disabled" />
+                <SafetyLine label="Buy/Sell execution blocked" />
+                <SafetyLine label="Execution buttons unavailable" />
+                <SafetyLine label="Binance API keys hidden" />
+                <SafetyLine label="Withdrawals unsupported / blocked" />
+                <SafetyLine label="High-risk symbols require approval" />
+                <SafetyLine label="Not financial advice" />
+                <ActionRow label="Mode" value="observer only" />
+                <ActionRow label="Safety status" value={runtime?.safetyStatus?.status ?? 'LOCKED'} />
+                <ActionRow label="Finance integrations" value={String(financeIntegrations.length)} />
+                <ActionRow label="Audit events" value={String(financeLogs.length)} />
+              </div>
+            </CryptoPanel>
+
+            <CryptoPanel title="Ollama Status" eyebrow="LOCAL AI DEPENDENCY" icon={<Cpu className="h-4 w-4" />}>
+              <div className="space-y-2">
+                <ActionRow label="Status" value={ollamaOnline ? 'Online' : 'Offline'} />
+                <ActionRow label="Model" value={String(runtime?.currentModel ?? runtime?.model ?? cryptoData.mode?.model ?? 'not reported')} />
+                <ActionRow label="Last checked" value={lastChecked} />
+                <ActionRow label="Error code" value={String(runtime?.ollamaErrorCode ?? runtime?.errorCode ?? (ollamaOnline ? 'none' : 'not reported'))} />
+              </div>
+              {!ollamaOnline && (
+                <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
+                  Ollama is offline. AI market analysis cannot start.
+                </p>
+              )}
+            </CryptoPanel>
+
+            <CryptoPanel title="Obsidian Status" eyebrow={obsidianReady ? 'WRITABLE' : 'CONFIGURATION REQUIRED'} icon={<Archive className="h-4 w-4" />}>
+              <div className="space-y-2">
+                <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDITH\\EDITH')} />
+                <ActionRow label="Folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
+                <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no'} />
+                <ActionRow label="Last export" value={displayTime(obsidianStatus.lastExport ?? obsidianStatus.lastSync ?? runtime?.lastObservationAt)} />
+              </div>
+              {!obsidianReady && (
+                <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
+                  Obsidian export is not configured.
+                </p>
+              )}
+            </CryptoPanel>
+
+            <CryptoPanel title="Binance Connection" eyebrow={endpointConnected ? 'SERVICE DATA' : 'SAFE PLACEHOLDER'} icon={<Network className="h-4 w-4" />}>
+              <div className="space-y-2">
+                <ActionRow label="Public market data" value={marketOnline ? 'available' : observerRunning ? 'checking' : 'standby'} />
+                <ActionRow label="Read-only account" value="not configured" />
+                <ActionRow label="Trading permission" value="disabled / locked" />
+                <ActionRow label="API key" value="never displayed" />
+              </div>
+              {!marketOnline && (
+                <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
+                  Market data unavailable. Backend must report Binance health before this cockpit can show real feeds.
+                </p>
+              )}
+            </CryptoPanel>
+
+            <CryptoPanel title="Risk Engine" eyebrow="VETO LAYER" icon={<ShieldCheck className="h-4 w-4" />}>
+              <div className="space-y-2">
+                <ActionRow label="Max open positions" value={String(risk.maxOpenPositions ?? risk.max_open_positions ?? 'not connected')} />
+                <ActionRow label="Max allocation" value={pct(risk.maxAllocationPct ?? risk.max_allocation_pct)} />
+                <ActionRow label="Max position size" value={pct(risk.maxPositionSizePct ?? risk.max_position_size_pct)} />
+                <ActionRow label="Stop-loss" value={pct(risk.stopLossPct ?? risk.stop_loss_pct)} />
+                <ActionRow label="Take-profit" value={pct(risk.takeProfitPct ?? risk.take_profit_pct)} />
+                <ActionRow label="Risk veto count" value={String(risk.vetoCount ?? risk.veto_count ?? 'not connected')} />
+                <ActionRow label="Last rejection" value={String(risk.lastRejectionReason ?? risk.last_rejection_reason ?? 'none reported')} />
+              </div>
+            </CryptoPanel>
+
+            <CryptoPanel title="Observer Progress" eyebrow="OBSERVER LIFECYCLE" icon={<RadioTower className="h-4 w-4" />}>
+              <div className="space-y-2">
+                {[
+                  ['Status', observerState],
+                  ['Current symbol', runtime?.currentSymbol ?? 'none'],
+                  ['Last observation', displayTime(runtime?.lastObservationAt)],
+                  ['Last learning note', lastLearningNote],
+                  ['Watched symbols', watchedSymbols.join(', ') || 'none'],
+                  ['Ignored symbols', ignoredSymbols.join(', ') || 'none'],
+                  ['Execution', 'locked'],
+                ].map(([label, value], index) => (
+                  <div key={label} className="flex items-center gap-3 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${observerState === 'OBSERVING' && index < 2 ? 'animate-pulse bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.9)]' : value === 'locked' ? 'bg-red-300' : 'bg-slate-500'}`} />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-200">{label}</div>
+                      <div className="truncate text-[11px] uppercase tracking-wide text-slate-500">{value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CryptoPanel>
+
+            <CryptoPanel title="Category Rules" eyebrow="PERMISSION CONFIG" icon={<ShieldAlert className="h-4 w-4" />}>
+              <div className="space-y-2">
+                {SAFE_CATEGORY_RULES.map(([category, watch, paper, live]) => (
+                  <div key={category} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                    <div className="font-semibold text-slate-100">{category}</div>
+                    <div className="mt-2 space-y-1 text-[11px] text-slate-400">
+                      <div>{watch}</div>
+                      <div>{paper}</div>
+                      <div>{live}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {!cryptoData.categories && (
+                <p className="mt-3 text-[11px] leading-relaxed text-amber-200/80">
+                  Coin permission config not connected. Safe defaults are shown.
+                </p>
+              )}
+            </CryptoPanel>
+          </aside>
+        </div>
       </div>
-    </ScreenFrame>
+    </div>
+  );
+}
+
+function CryptoPanel({
+  title,
+  eyebrow,
+  icon,
+  children,
+  className = '',
+}: {
+  title: string;
+  eyebrow?: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.74),rgba(2,6,12,0.88))] shadow-[0_18px_55px_rgba(0,0,0,0.24)] backdrop-blur-xl ${className}`}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/45 to-transparent" />
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {icon && <div className="edith-icon-cell">{icon}</div>}
+          <div className="min-w-0">
+            {eyebrow && <div className="edith-eyebrow">{eyebrow}</div>}
+            <h3 className="truncate text-sm font-semibold text-slate-100">{title}</h3>
+          </div>
+        </div>
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
+function CryptoMetric({ label, value, tone }: { label: string; value: string; tone: 'cyan' | 'green' | 'amber' | 'slate' }) {
+  const toneClass = {
+    cyan: 'border-cyan-300/22 bg-cyan-300/10 text-cyan-100',
+    green: 'border-emerald-300/22 bg-emerald-300/10 text-emerald-100',
+    amber: 'border-amber-300/24 bg-amber-300/10 text-amber-100',
+    slate: 'border-white/10 bg-white/[0.04] text-slate-200',
+  }[tone];
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-65">{label}</div>
+      <div className="mt-1 truncate font-mono text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function MiniFlag({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div className="rounded-md border border-white/10 bg-slate-950/45 px-2.5 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-1 font-mono text-[11px] ${good ? 'text-emerald-300' : 'text-amber-300'}`}>{value}</div>
+    </div>
+  );
+}
+
+function SafetyLine({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-xs text-slate-300">
+      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -969,21 +1694,21 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
       }
       try {
         const response = await fetch('/api/edith/tools/health');
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
         if (!cancelled) setToolsHealth(Array.isArray(payload.health) ? payload.health : []);
       } catch {
         if (!cancelled) setToolsHealth([]);
       }
       try {
         const response = await fetch('/api/edith/permissions/policy');
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
         if (!cancelled) setPermissionMode(payload?.policy?.mode ? String(payload.policy.mode).toUpperCase() : 'PENDING');
       } catch {
         if (!cancelled) setPermissionMode('PENDING');
       }
       try {
         const response = await fetch('/api/edith/kill-switch');
-        const payload = await response.json();
+        const payload = await readJsonResponse(response);
         if (!cancelled) setKillSwitchActive(Boolean(payload?.state?.active));
       } catch {
         if (!cancelled) setKillSwitchActive(null);
@@ -1120,6 +1845,12 @@ export function SettingsArchitectureScreen({
   const activeProvider = providerProfiles.find((profile) => profile.provider === settings?.aiProvider);
   const modelOptions = settings ? modelsForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel) : ['auto'];
   const canEdit = Boolean(settings && onUpdateSettings);
+  const [providerApiKeys, setProviderApiKeys] = React.useState<Record<string, string>>({});
+  const [providerKeyStatus, setProviderKeyStatus] = React.useState<Record<string, { tone: 'success' | 'warning' | 'danger'; text: string }>>({});
+  const apiKeyProviders = providerProfiles.filter((profile) =>
+    ['gemini', 'openai', 'anthropic', 'openrouter'].includes(profile.provider) ||
+    profile.requiredEnv.some((envName) => envName.endsWith('_API_KEY'))
+  );
 
   const handleProviderChange = (provider: AiProvider) => {
     if (!settings || !onUpdateSettings) return;
@@ -1129,6 +1860,46 @@ export function SettingsArchitectureScreen({
       aiProvider: provider,
       selectedModel: nextModels.includes(settings.selectedModel) ? settings.selectedModel : nextProfile?.defaultModel ?? 'auto',
     });
+  };
+
+  const handleProviderKeySave = async (provider: AiProvider) => {
+    const apiKey = providerApiKeys[provider]?.trim();
+    if (!apiKey) {
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: { tone: 'warning', text: 'API key boş olamaz.' },
+      }));
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/providers/dev-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey }),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error ?? `API key kaydedilemedi: ${response.status}`);
+      }
+      setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: {
+          tone: 'success',
+          text: `${payload.requiredEnv?.[0] ?? providerDisplayName(provider)} runtime oturumuna kaydedildi.`,
+        },
+      }));
+      onTestConnection?.();
+    } catch (error) {
+      setProviderKeyStatus((prev) => ({
+        ...prev,
+        [provider]: {
+          tone: 'danger',
+          text: error instanceof Error ? error.message : 'API key kaydedilemedi.',
+        },
+      }));
+    }
   };
 
   return (
@@ -1212,6 +1983,64 @@ export function SettingsArchitectureScreen({
                 onSelect={canEdit ? handleProviderChange : undefined}
               />
             ))}
+          </div>
+        </OSPanel>
+      </div>
+
+      <div className="mb-4">
+        <OSPanel title="Provider API Keys" eyebrow="DEV CONFIG" icon={<KeyRound className="h-4 w-4" />}>
+          <div className="mb-3 rounded-lg border border-amber-300/20 bg-amber-300/8 p-3 text-[11px] leading-relaxed text-amber-100/90">
+            API anahtarları localStorage'a kaydedilmez ve ekranda geri gösterilmez. Kaydet tuşundan sonra sadece çalışan backend oturumu için env olarak ayarlanır; sunucuyu yeniden başlatırsan tekrar girmen gerekir.
+          </div>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {apiKeyProviders.map((profile) => {
+              const status = providerKeyStatus[profile.provider];
+              return (
+                <div key={profile.provider} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-100">{profile.displayName}</div>
+                      <div className="mt-1 font-mono text-[10px] uppercase text-slate-500">
+                        {profile.requiredEnv.join(', ') || `${profile.provider.toUpperCase()}_API_KEY`}
+                      </div>
+                    </div>
+                    <StatusPill label={providerStatusLabel(profile.status)} tone={providerTone(profile.status)} />
+                  </div>
+                  <div className="flex flex-col gap-2 md:flex-row">
+                    <input
+                      type="password"
+                      value={providerApiKeys[profile.provider] ?? ''}
+                      onChange={(event) => setProviderApiKeys((prev) => ({ ...prev, [profile.provider]: event.target.value }))}
+                      placeholder={`${profile.displayName} API key gir`}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 text-xs font-mono text-slate-100 outline-none focus:border-[var(--assistant-primary)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleProviderKeySave(profile.provider)}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:border-amber-200/60"
+                    >
+                      <KeyRound className="h-3.5 w-3.5" />
+                      Kaydet
+                    </button>
+                  </div>
+                  {status && (
+                    <div className={`mt-2 text-[11px] font-mono ${
+                      status.tone === 'success' ? 'text-emerald-300' : status.tone === 'danger' ? 'text-red-300' : 'text-amber-300'
+                    }`}>
+                      {status.text}
+                    </div>
+                  )}
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    Provider seçimi ayrı, asistan personası ayrıdır. Bu key sadece provider bağlantısı içindir.
+                  </p>
+                </div>
+              );
+            })}
+            {!apiKeyProviders.length && (
+              <EmptyState icon={<KeyRound className="h-4 w-4" />} title="API key gerektiren provider yok" text="Backend provider listesi yüklendiğinde cloud sağlayıcıların anahtar alanları burada görünür." />
+            )}
           </div>
         </OSPanel>
       </div>

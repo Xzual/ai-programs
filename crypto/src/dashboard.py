@@ -11,10 +11,15 @@ from datetime import datetime
 from config import CONFIG
 from memory_manager import MemoryManager
 from risk_manager import RiskManager
+from coin_permissions import CoinPermissionManager
+from obsidian_exporter import ObsidianMarketExporter
+from runtime_controller import runtime_controller
 
 app = Flask(__name__, template_folder='../templates')
 memory = MemoryManager()
-risk_manager = RiskManager()
+permission_manager = CoinPermissionManager()
+risk_manager = RiskManager(permission_manager)
+obsidian_exporter = ObsidianMarketExporter(enabled=permission_manager.get_observer_config().get("obsidianExportEnabled"))
 
 # Suppress Flask access logs for cleaner console
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
@@ -43,7 +48,50 @@ def _db():
 
 @app.route('/health')
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify(_health_payload())
+
+
+@app.route('/api/health')
+def api_health():
+    return jsonify(_health_payload())
+
+
+def _last_observation_at():
+    try:
+        conn = _db()
+        c = conn.cursor()
+        c.execute("SELECT timestamp FROM market_observations ORDER BY id DESC LIMIT 1")
+        row = c.fetchone()
+        conn.close()
+        return row["timestamp"] if row else None
+    except Exception:
+        return None
+
+
+def _health_payload():
+    obsidian_status = obsidian_exporter.status()
+    runtime_status = runtime_controller.status()
+    return {
+        "service": "edith-crypto",
+        "running": True,
+        "healthy": True,
+        "runtime": runtime_status,
+        "state": runtime_status.get("state"),
+        "observerRunning": runtime_status.get("observerRunning"),
+        "mode": CONFIG.TRADING_MODE,
+        "tradingEnabled": CONFIG.CRYPTO_TRADING_ENABLED,
+        "paperTradingEnabled": CONFIG.PAPER_TRADING,
+        "liveTradingEnabled": CONFIG.live_trading_active,
+        "binanceMarketData": "unknown",
+        "binanceConnectionMode": CONFIG.binance_connection_mode,
+        "obsidianEnabled": obsidian_exporter.enabled,
+        "obsidianVaultPathConfigured": obsidian_status.get("configured", False),
+        "obsidianExportStatus": obsidian_status.get("status"),
+        "obsidianTargetPath": obsidian_status.get("target_path"),
+        "lastObservationAt": runtime_status.get("lastObservationAt") or _last_observation_at(),
+        "version": "observer-1",
+        "notFinancialAdvice": True,
+    }
 
 
 @app.route('/')
@@ -117,9 +165,11 @@ def api_overview():
             "model": CONFIG.LLM_MODEL,
             "loop_minutes": CONFIG.LOOP_INTERVAL_MINUTES,
             "watchlist": CONFIG.WATCHLIST,
+            "permission_watchlist": permission_manager.get_watchlist(),
             "paper_trading": CONFIG.PAPER_TRADING,
             "trading_mode": CONFIG.TRADING_MODE,
             "live_trading_active": CONFIG.live_trading_active,
+            "binance_connection_mode": CONFIG.binance_connection_mode,
         }
     })
 
@@ -186,7 +236,7 @@ def api_markets():
         conn = _db()
         c = conn.cursor()
         market_data = {}
-        for symbol in CONFIG.WATCHLIST:
+        for symbol in permission_manager.get_watchlist():
             c.execute(
                 "SELECT * FROM market_snapshots WHERE symbol=? ORDER BY id DESC LIMIT 1",
                 (symbol,)
@@ -266,16 +316,167 @@ def api_trading_status():
         "live_trading_active": CONFIG.live_trading_active,
         "live_execution_available": False,
         "exchange": CONFIG.EXCHANGE_ID,
+        "binance_connection_mode": CONFIG.binance_connection_mode,
         "allowed_decisions": CONFIG.ALLOWED_ACTIONS,
         "risk_engine_can_veto": True,
         "safety_locks": [
-            "Paper mode is the default",
-            "Authenticated exchange access is blocked",
-            "Paper engine refuses non-paper execution",
-            "Risk engine vetoes live-mode trades",
-            "NO TRADE is a valid decision",
+            "Observer-only mode is the default",
+            "BUY/SELL execution is bypassed in observer mode",
+            "Live trading is locked",
+            "Paper engine refuses non-paper-trading execution",
+            "NO_ACTION and HOLD are valid safe outcomes",
         ],
     })
+
+
+@app.route('/api/mode')
+def api_mode():
+    return jsonify({
+        "trading_mode": CONFIG.TRADING_MODE,
+        "paper_trading": CONFIG.PAPER_TRADING,
+        "live_trading_active": CONFIG.live_trading_active,
+        "live_execution_available": False,
+        "binance_connection_mode": CONFIG.binance_connection_mode,
+        "binance_read_only": CONFIG.BINANCE_READ_ONLY,
+        "binance_trading_enabled": False,
+        "obsidian": obsidian_exporter.status(),
+    })
+
+
+@app.route('/api/permissions')
+def api_permissions():
+    return jsonify(permission_manager.public_summary())
+
+
+@app.route('/api/symbols')
+def api_symbols():
+    return jsonify({"symbols": permission_manager.get_profiles()})
+
+
+@app.route('/api/categories')
+def api_categories():
+    return jsonify({"categories": permission_manager.get_category_rules()})
+
+
+@app.route('/api/watchlist')
+def api_watchlist():
+    summary = permission_manager.public_summary()
+    return jsonify({
+        "watchlist": summary["watchlist"],
+        "blocked_symbols": summary["blockedSymbols"],
+        "watch_only_symbols": summary["watchOnlySymbols"],
+        "paper_trading_allowed_symbols": summary["paperTradingAllowedSymbols"],
+        "live_trading_allowed_symbols": [],
+    })
+
+
+@app.route('/api/observations')
+def api_observations():
+    try:
+        symbol = request.args.get("symbol")
+        limit = int(request.args.get("limit", 50))
+        return jsonify({"observations": memory.get_recent_observations(symbol=symbol, limit=min(limit, 200))})
+    except Exception as e:
+        return jsonify({"observations": [], "error": str(e)})
+
+
+@app.route('/api/learning-notes')
+def api_learning_notes():
+    try:
+        rows = memory.get_recent_observations(limit=50)
+        notes = [
+            {
+                "timestamp": row.get("timestamp"),
+                "symbol": row.get("symbol"),
+                "market_regime": row.get("market_regime"),
+                "learning_note": row.get("learning_note"),
+                "risk_note": row.get("risk_note"),
+                "not_financial_advice": True,
+            }
+            for row in rows
+            if row.get("learning_note")
+        ]
+        return jsonify({"learning_notes": notes})
+    except Exception as e:
+        return jsonify({"learning_notes": [], "error": str(e)})
+
+
+@app.route('/api/obsidian-status')
+def api_obsidian_status():
+    return jsonify(obsidian_exporter.status())
+
+
+@app.route('/api/crypto/status')
+def api_crypto_status():
+    return jsonify(runtime_controller.status())
+
+
+@app.route('/api/crypto/start-observer', methods=['POST'])
+def api_crypto_start_observer():
+    result = runtime_controller.start_observer()
+    status_code = 200 if result.get("ok") else 409
+    return jsonify(result), status_code
+
+
+@app.route('/api/crypto/stop-observer', methods=['POST'])
+def api_crypto_stop_observer():
+    return jsonify(runtime_controller.stop_observer())
+
+
+@app.route('/api/crypto/pause-observer', methods=['POST'])
+def api_crypto_pause_observer():
+    result = runtime_controller.pause_observer()
+    status_code = 200 if result.get("ok") else 409
+    return jsonify(result), status_code
+
+
+@app.route('/api/crypto/resume-observer', methods=['POST'])
+def api_crypto_resume_observer():
+    result = runtime_controller.resume_observer()
+    status_code = 200 if result.get("ok") else 409
+    return jsonify(result), status_code
+
+
+@app.route('/api/crypto/ollama-status')
+def api_crypto_ollama_status():
+    return jsonify(runtime_controller.ollama_status())
+
+
+@app.route('/api/crypto/obsidian-status')
+def api_crypto_obsidian_status():
+    return jsonify(obsidian_exporter.status())
+
+
+@app.route('/api/crypto/latest-observations')
+def api_crypto_latest_observations():
+    try:
+        limit = int(request.args.get("limit", 20))
+    except Exception:
+        limit = 20
+    return jsonify(runtime_controller.latest_observations(limit=limit))
+
+
+@app.route('/api/crypto/market-data-status')
+def api_crypto_market_data_status():
+    return jsonify(runtime_controller.market_data_status())
+
+
+@app.route('/api/obsidian-export-test', methods=['POST'])
+def api_obsidian_export_test():
+    return jsonify(obsidian_exporter.write_export_test())
+
+
+@app.route('/api/permission-events')
+def api_permission_events():
+    try:
+        conn = _db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM permission_events ORDER BY id DESC LIMIT 100")
+        rows = [dict(r) for r in c.fetchall()]
+        conn.close()
+        return jsonify({"events": rows})
+    except Exception as e:
+        return jsonify({"events": [], "error": str(e)})
 
 
 @app.route('/api/market-sentiment')
@@ -287,7 +488,7 @@ def api_market_sentiment():
         c.execute("SELECT * FROM news_items ORDER BY id DESC LIMIT 25")
         news_rows = c.fetchall()
 
-        watchlist = CONFIG.WATCHLIST
+        watchlist = permission_manager.get_watchlist()
         symbols = []
         for symbol in watchlist:
             c.execute("SELECT * FROM market_snapshots WHERE symbol=? ORDER BY id DESC LIMIT 1", (symbol,))

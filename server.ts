@@ -1446,7 +1446,7 @@ async function startServer() {
   }
 
   obsidianVaultService.startWatcher();
-  if (process.env.EDITH_CRYPTO_AUTOSTART !== "false") {
+  if (process.env.EDITH_CRYPTO_AUTOSTART === "true") {
     cryptoService.start("EDITH server startup").then((status) => {
       const state = status.healthy || status.managedProcessRunning ? "online/starting" : "not started";
       console.log(`[EDITH Crypto] ${state}: ${status.dashboardUrl}${status.error ? ` (${status.error})` : ""}`);

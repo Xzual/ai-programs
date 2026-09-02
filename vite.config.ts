@@ -30,6 +30,12 @@ export default defineConfig((): UserConfig => {
         : process.env.DISABLE_HMR !== 'true',
 
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
     },
 
     // Production build çıktısı — Tauri bunu paketler
