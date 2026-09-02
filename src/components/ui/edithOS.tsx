@@ -1154,11 +1154,12 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const endpointConnected = Object.values(cryptoData).some(Boolean);
   const serviceOnline = Boolean(serviceStatus?.healthy);
   const runtime = serviceStatus?.runtime;
+  const runtimeMeta = runtime as Record<string, any> | undefined;
   const observerState = observerStateFromRuntime(runtime, serviceOnline, observerAction, Boolean(actionError));
   const observerRunning = observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'PAUSED';
   const ollamaOnline = Boolean(runtime?.ollamaAvailable);
   const obsidianReady = Boolean(runtime?.obsidianAvailable ?? cryptoData.obsidianStatus?.writable);
-  const pauseResumeSupported = Boolean(runtime && 'supportsPauseResume' in runtime && (runtime as Record<string, any>).supportsPauseResume);
+  const pauseResumeSupported = Boolean(runtimeMeta?.supportsPauseResume);
   const canStartObserver = serviceOnline && (observerState === 'STOPPED' || observerState === 'PAUSED') && !observerAction && ollamaOnline;
   const canStopObserver = serviceOnline && ['OBSERVING', 'STARTING', 'PAUSED'].includes(observerState) && !observerAction;
   const marketOnline = Boolean(runtime?.marketDataAvailable ?? cryptoData.markets?.online ?? cryptoData.markets?.available ?? cryptoData.overview?.marketDataOnline ?? false);
@@ -1322,10 +1323,16 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                   <AlertTriangle className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="text-lg font-semibold text-amber-100">Crypto Observer Offline</div>
+                  <div className="text-lg font-semibold text-amber-100">Crypto Service Offline</div>
                   <p className="mt-1 max-w-3xl text-sm leading-relaxed text-amber-100/78">
                     Observer service is not running, so live market feeds and learning notes are paused. Start Market Observer keeps all trading execution locked.
                   </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <StatusPill label="Observer stopped" tone="muted" />
+                    <StatusPill label="Live trading locked" tone="danger" />
+                    <StatusPill label="Paper trading disabled" tone="muted" />
+                    <StatusPill label="No decisions executed" tone="danger" />
+                  </div>
                   <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
                     <ActionRow label="Startup command" value={startupCommand} />
                     <ActionRow label="Fallback command" value="python crypto/run_agent.py" />
@@ -1449,7 +1456,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
               <CryptoPanel title="Learning Notes / Obsidian Sync" eyebrow={cryptoData.obsidianStatus ? 'BACKEND STATUS' : 'PLACEHOLDER'} icon={<Brain className="h-4 w-4" />}>
                 <div className="grid grid-cols-1 gap-2">
-                  <ActionRow label="Vault path" value={String(obsidianStatus.vaultPath ?? 'D:\\EDITH\\EDITH')} />
+                  <ActionRow label="Vault path" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
                   <ActionRow label="Learning folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
                   <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no / not reported'} />
                   <ActionRow label="Sync status" value={String(obsidianStatus.status ?? (runtime?.obsidianAvailable ? 'ready' : 'paused / service offline'))} />
@@ -1502,9 +1509,9 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
             <CryptoPanel title="Ollama Status" eyebrow="LOCAL AI DEPENDENCY" icon={<Cpu className="h-4 w-4" />}>
               <div className="space-y-2">
                 <ActionRow label="Status" value={ollamaOnline ? 'Online' : 'Offline'} />
-                <ActionRow label="Model" value={String(runtime?.currentModel ?? runtime?.model ?? cryptoData.mode?.model ?? 'not reported')} />
+                <ActionRow label="Model" value={String(runtimeMeta?.currentModel ?? runtimeMeta?.model ?? cryptoData.mode?.model ?? 'not reported')} />
                 <ActionRow label="Last checked" value={lastChecked} />
-                <ActionRow label="Error code" value={String(runtime?.ollamaErrorCode ?? runtime?.errorCode ?? (ollamaOnline ? 'none' : 'not reported'))} />
+                <ActionRow label="Error code" value={String(runtimeMeta?.ollamaErrorCode ?? runtimeMeta?.errorCode ?? (ollamaOnline ? 'none' : 'not reported'))} />
               </div>
               {!ollamaOnline && (
                 <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
@@ -1515,7 +1522,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
 
             <CryptoPanel title="Obsidian Status" eyebrow={obsidianReady ? 'WRITABLE' : 'CONFIGURATION REQUIRED'} icon={<Archive className="h-4 w-4" />}>
               <div className="space-y-2">
-                <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDITH\\EDITH')} />
+                <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
                 <ActionRow label="Folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
                 <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no'} />
                 <ActionRow label="Last export" value={displayTime(obsidianStatus.lastExport ?? obsidianStatus.lastSync ?? runtime?.lastObservationAt)} />
@@ -1642,6 +1649,35 @@ function CryptoMetric({ label, value, tone }: { label: string; value: string; to
     <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
       <div className="text-[10px] uppercase tracking-wide opacity-65">{label}</div>
       <div className="mt-1 truncate font-mono text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function ControlReadout({
+  label,
+  value,
+  tone,
+  pulse = false,
+}: {
+  label: string;
+  value: string;
+  tone: 'success' | 'warning' | 'danger' | 'muted' | 'info';
+  pulse?: boolean;
+}) {
+  const toneClass = {
+    info: 'border-cyan-300/25 bg-cyan-300/10 text-cyan-100',
+    success: 'border-emerald-300/25 bg-emerald-300/10 text-emerald-100',
+    warning: 'border-amber-300/30 bg-amber-300/10 text-amber-100',
+    danger: 'border-red-300/30 bg-red-300/10 text-red-100',
+    muted: 'border-white/10 bg-white/[0.04] text-slate-300',
+  }[tone];
+  return (
+    <div className={`rounded-lg border p-3 ${toneClass}`}>
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide opacity-70">
+        <span className={`h-2 w-2 rounded-full bg-current shadow-[0_0_10px_currentColor] ${pulse ? 'animate-pulse' : ''}`} />
+        {label}
+      </div>
+      <div className="mt-2 font-mono text-sm font-semibold">{value}</div>
     </div>
   );
 }
