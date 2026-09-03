@@ -9,6 +9,8 @@ export class MockProvider implements AIProviderAdapter {
       name: "EDITH Mock",
       configured: true,
       available: true,
+      healthy: true,
+      modelAvailable: true,
       status: "available",
       privacyMode: "offline",
       models: [{ id: DEFAULT_MODEL, name: "EDITH Mock" }],

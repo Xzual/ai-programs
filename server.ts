@@ -428,6 +428,26 @@ app.post("/api/chat", async (req, res) => {
     lastUserMessage,
   });
 
+  const providerSnapshots = await providerRegistry.health({
+    ollamaUrl,
+    timeoutMs: 2500,
+  });
+  const providerSnapshotById = new Map(providerSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const routerHealth = (providerId: "ollama" | "gemini" | "openai" | "anthropic" | "openrouter" | "local" | "mock") => {
+    const snapshot = providerSnapshotById.get(providerId);
+    if (!snapshot) return providerId === "mock" ? "available" : "unavailable";
+    return snapshot.available ? "available" : "unavailable";
+  };
+  const matchesProviderModel = (requestedModel: string, availableModel: string) =>
+    availableModel === requestedModel || availableModel === `${requestedModel}:latest`;
+  const resolveProviderModel = (providerId: "ollama" | "gemini" | "mock", selectedModel: string) => {
+    const snapshot = providerSnapshotById.get(providerId);
+    if (!snapshot) return selectedModel;
+    if (selectedModel === "auto") return snapshot.defaultModel;
+    const modelMatch = snapshot.models.find((candidate) => matchesProviderModel(selectedModel, candidate.id));
+    return modelMatch?.id ?? snapshot.defaultModel;
+  };
+
   const modelRoute = modelRouterService.route({
     requestedProvider: provider,
     model,
@@ -435,8 +455,8 @@ app.post("/api/chat", async (req, res) => {
     modality: "text",
     privacyPreference: provider === "mock" ? "offline_only" : "local_first",
     providerHealth: {
-      ollama: "unknown",
-      gemini: providerRegistry.get("gemini")?.metadata().configured ? "available" : "unavailable",
+      ollama: routerHealth("ollama"),
+      gemini: routerHealth("gemini"),
       openai: process.env.OPENAI_API_KEY ? "unknown" : "unavailable",
       anthropic: process.env.ANTHROPIC_API_KEY ? "unknown" : "unavailable",
       openrouter: process.env.OPENROUTER_API_KEY ? "unknown" : "unavailable",
@@ -444,17 +464,24 @@ app.post("/api/chat", async (req, res) => {
       mock: "available",
     },
   });
+  const initialResolvedModel = resolveProviderModel(modelRoute.selectedProvider as "ollama" | "gemini" | "mock", modelRoute.selectedModel);
+  const initialSnapshot = providerSnapshotById.get(modelRoute.selectedProvider);
   sendEvent({
     requestedProvider: provider,
     requestedModel: model,
     resolvedProvider: modelRoute.selectedProvider,
-    resolvedModel: modelRoute.selectedModel,
+    resolvedModel: initialResolvedModel,
     provider: modelRoute.selectedProvider,
-    model: modelRoute.selectedModel,
+    model: initialResolvedModel,
     fallbackUsed: modelRoute.selectedProvider !== provider,
     fallbackProvider: modelRoute.selectedProvider !== provider ? modelRoute.selectedProvider : undefined,
-    fallbackModel: modelRoute.selectedProvider !== provider ? modelRoute.selectedModel : undefined,
-    providerStatus: modelRoute.candidates.find((candidate) => candidate.provider === modelRoute.selectedProvider)?.health ?? "unknown",
+    fallbackModel: modelRoute.selectedProvider !== provider ? initialResolvedModel : undefined,
+    providerStatus: "pending",
+    configured: initialSnapshot?.configured,
+    available: initialSnapshot?.available,
+    healthy: initialSnapshot?.healthy,
+    modelAvailable: initialSnapshot?.modelAvailable,
+    errorCode: initialSnapshot?.errorCode,
   });
 
   const intent = intentService.understand(lastUserMessage);
@@ -510,7 +537,7 @@ app.post("/api/chat", async (req, res) => {
         fallbackUsed: provider !== "ollama",
         fallbackProvider: provider !== "ollama" ? "ollama" : undefined,
         fallbackModel: provider !== "ollama" ? selectedModel : undefined,
-        providerStatus: "unknown",
+        providerStatus: "attempting",
       });
 
       const startedAt = Date.now();
@@ -518,7 +545,7 @@ app.post("/api/chat", async (req, res) => {
         model: selectedModel,
         messages: providerMessages,
         temperature,
-        timeoutMs: 4000,
+        timeoutMs: 30000,
         ollamaUrl,
       })) {
         if (chunk.text) sendEvent({ text: chunk.text, done: false });
@@ -533,7 +560,7 @@ app.post("/api/chat", async (req, res) => {
         warning: "Ollama local API unreachable. Switch to Gemini/Mock mode or start Ollama service.",
         provider: "ollama",
         model: selectedModel,
-        providerStatus: "offline",
+        providerStatus: errorCode === "model_unavailable" ? "failed" : "unavailable",
         errorCode,
       });
       return false;
@@ -552,7 +579,7 @@ app.post("/api/chat", async (req, res) => {
         fallbackUsed: provider !== "gemini",
         fallbackProvider: provider !== "gemini" ? "gemini" : undefined,
         fallbackModel: provider !== "gemini" ? selectedModel : undefined,
-        providerStatus: "available",
+        providerStatus: "attempting",
       });
 
       const startedAt = Date.now();
@@ -573,7 +600,7 @@ app.post("/api/chat", async (req, res) => {
         warning: "Gemini provider unavailable. Falling back to mock/degraded mode.",
         provider: "gemini",
         model: selectedModel,
-        providerStatus: errorCode === "configuration_required" ? "configuration_required" : "unavailable",
+        providerStatus: errorCode === "configuration_required" ? "configuration_required" : "failed",
         errorCode,
       });
       return false;
@@ -582,8 +609,9 @@ app.post("/api/chat", async (req, res) => {
 
   for (const candidate of modelRoute.candidates) {
     if (candidate.skippedReason || candidate.provider === "mock") continue;
-    if (candidate.provider === "ollama" && await streamOllama(candidate.model)) return;
-    if (candidate.provider === "gemini" && await streamGemini(candidate.model)) return;
+    const candidateModel = resolveProviderModel(candidate.provider as "ollama" | "gemini" | "mock", candidate.model);
+    if (candidate.provider === "ollama" && await streamOllama(candidateModel)) return;
+    if (candidate.provider === "gemini" && await streamGemini(candidateModel)) return;
   }
 
   // Fallback 2: Intelligent Local AI Assistant Mock Engine
@@ -597,7 +625,7 @@ app.post("/api/chat", async (req, res) => {
     fallbackUsed: provider !== "mock",
     fallbackProvider: provider !== "mock" ? "mock" : undefined,
     fallbackModel: provider !== "mock" ? "edith-mock" : undefined,
-    providerStatus: "available",
+    providerStatus: "degraded",
   });
 
   for (let i = 0; i < mockResponses.length; i++) {
@@ -605,7 +633,7 @@ app.post("/api/chat", async (req, res) => {
     sendEvent({ text: mockResponses[i], done: false });
   }
 
-  sendEvent({ done: true });
+  sendEvent({ done: true, provider: "mock", model: "edith-mock", providerStatus: "degraded" });
   res.end();
 });
 

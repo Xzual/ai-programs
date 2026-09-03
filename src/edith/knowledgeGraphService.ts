@@ -135,8 +135,17 @@ export class KnowledgeGraphService {
     });
     const memoryHub = this.upsertNode({ id: 'memory:hub', title: 'Memory Engine', type: 'Memory', source: 'memory', importance: 0.9 });
     const ragHub = this.upsertNode({ id: 'note:rag-engine', title: 'RAG Engine', type: 'Note', source: 'rag', importance: 0.85 });
+    const obsidianVault = this.upsertNode({
+      id: 'vault:obsidian',
+      title: 'Obsidian Vault',
+      type: 'Vault',
+      source: 'obsidian',
+      importance: 0.92,
+      properties: { role: 'external_knowledge_vault' },
+    });
     this.upsertRelationship({ from: core.id, to: memoryHub.id, type: 'references', source: 'edith', evidence: 'EDITH uses Memory Engine.' });
     this.upsertRelationship({ from: core.id, to: ragHub.id, type: 'references', source: 'rag', evidence: 'EDITH uses RAG Engine.' });
+    this.upsertRelationship({ from: core.id, to: obsidianVault.id, type: 'synchronized_with', source: 'obsidian', evidence: 'EDITH indexes the configured Obsidian vault.' });
 
     for (const memory of memoryService.list({ includeSensitive: false }).slice(0, 200)) {
       const node = this.upsertNode({
@@ -158,6 +167,8 @@ export class KnowledgeGraphService {
     for (const task of getEdithPersistenceStore().listTasks().slice(0, 200)) {
       this.ingestTask(task, core.id);
     }
+
+    this.ingestObsidianStructure(obsidianVault.id);
 
     const health = new Map(getEdithToolHealth().map((tool) => [tool.toolId, tool]));
     for (const tool of edithToolRegistry.list()) {
@@ -184,6 +195,88 @@ export class KnowledgeGraphService {
       this.upsertRelationship({ from: core.id, to: node.id, type: 'participatesIn', source: 'agent', evidence: 'Agent registry.' });
       for (const toolId of agent.allowedTools) {
         this.upsertRelationship({ from: node.id, to: `tool:${toolId}`, type: 'references', source: 'agent', evidence: 'Agent allowed tool.' });
+      }
+    }
+  }
+
+  private ingestObsidianStructure(vaultId: string): void {
+    const index = getEdithPersistenceStore().listObsidianNoteIndex?.() ?? [];
+    const activeRecords = index.filter((record) => !record.deletedAt);
+    const folders = new Set<string>();
+    for (const record of activeRecords) {
+      const folderParts = record.folder.split('/').filter(Boolean);
+      let current = '';
+      for (const part of folderParts) {
+        current = current ? `${current}/${part}` : part;
+        folders.add(current);
+      }
+    }
+
+    for (const folder of folders) {
+      const folderNode = this.upsertNode({
+        id: `folder:${slugifyKnowledgeId(folder)}`,
+        title: folder,
+        type: 'Folder',
+        source: 'obsidian',
+        importance: 0.56,
+        recentActivityAt: now(),
+        properties: { path: folder, origin: 'obsidian' },
+      });
+      this.upsertRelationship({
+        from: folderNode.id,
+        to: vaultId,
+        type: 'inside_folder',
+        source: 'obsidian',
+        evidence: `Folder ${folder} exists in the indexed Obsidian vault.`,
+      });
+    }
+
+    for (const record of activeRecords) {
+      const noteId = record.entityId;
+      if (record.folder) {
+        this.upsertRelationship({
+          from: noteId,
+          to: `folder:${slugifyKnowledgeId(record.folder)}`,
+          type: 'inside_folder',
+          source: 'obsidian',
+          evidence: `${record.path} is inside ${record.folder}.`,
+        });
+      }
+      for (const tag of record.tags ?? []) {
+        const tagNode = this.upsertNode({
+          id: `tag:${slugifyKnowledgeId(tag)}`,
+          title: `#${tag}`,
+          type: 'Tag',
+          source: 'obsidian',
+          importance: 0.48,
+          recentActivityAt: record.indexedAt,
+          properties: { tag, origin: 'obsidian' },
+        });
+        this.upsertRelationship({
+          from: noteId,
+          to: tagNode.id,
+          type: 'tagged_with',
+          source: 'obsidian',
+          evidence: `${record.path} has tag #${tag}.`,
+        });
+      }
+      for (const attachment of record.attachments ?? []) {
+        const attachmentNode = this.upsertNode({
+          id: `attachment:${slugifyKnowledgeId(`${record.path}-${attachment}`)}`,
+          title: attachment,
+          type: 'File',
+          source: 'obsidian',
+          importance: 0.35,
+          recentActivityAt: record.indexedAt,
+          properties: { attachment: true, sourcePath: record.path },
+        });
+        this.upsertRelationship({
+          from: noteId,
+          to: attachmentNode.id,
+          type: 'embeds',
+          source: 'obsidian',
+          evidence: `${record.path} embeds ${attachment}.`,
+        });
       }
     }
   }

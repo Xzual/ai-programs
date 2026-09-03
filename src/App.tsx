@@ -19,7 +19,7 @@ import { ThemeTransition } from './components/effects/ThemeTransition';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { invokeDesktopCommand } from './edith/desktopShell';
-import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles } from './edith/providerService';
+import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles, selectValidModelForProvider } from './edith/providerService';
 import {
   AgentsScreen,
   AutomationsMissionScreen,
@@ -191,7 +191,16 @@ export default function App() {
         });
       }
     }
-    handleSaveSettings({ ...settings, ...updates });
+    const mergedSettings = { ...settings, ...updates };
+    if (updates.aiProvider || updates.selectedModel) {
+      mergedSettings.selectedModel = selectValidModelForProvider(
+        mergedSettings.aiProvider,
+        providerProfiles,
+        availableModels,
+        mergedSettings.selectedModel
+      );
+    }
+    handleSaveSettings(mergedSettings);
   };
 
   const handleAuthenticated = (session: EdithAuthSession) => {
@@ -228,8 +237,7 @@ export default function App() {
       setOllamaConnected(health.ollamaConnected);
       setAvailableModels(health.availableModels || []);
       const profiles = health.providers?.length ? health.providers : await fetchProviderProfiles(health.ollamaConnected);
-      setProviderProfiles(
-        profiles.map((profile) => {
+      const normalizedProfiles = profiles.map((profile) => {
           if (profile.provider === 'ollama') {
             const reported = health.providers?.find((candidate) => candidate.provider === 'ollama');
             return {
@@ -249,8 +257,12 @@ export default function App() {
             };
           }
           return profile;
-        })
-      );
+        });
+      setProviderProfiles(normalizedProfiles);
+      const validModel = selectValidModelForProvider(settings.aiProvider, normalizedProfiles, health.availableModels || [], settings.selectedModel);
+      if (validModel !== settings.selectedModel) {
+        handleSaveSettings({ ...settings, selectedModel: validModel });
+      }
     } catch (e) {
       setOllamaConnected(false);
       setProviderHealth({
@@ -318,6 +330,7 @@ export default function App() {
       ...(typeof data.fallbackModel === 'string' ? { fallbackModel: data.fallbackModel } : {}),
       ...(providerStatus ? { providerStatus } : {}),
       ...(typeof data.errorCode === 'string' ? { errorCode: data.errorCode } : {}),
+      ...(data.error === true ? { error: true } : {}),
     };
   };
 
@@ -492,6 +505,7 @@ export default function App() {
         }),
       });
 
+      if (!response.ok) throw new Error(`Chat endpoint returned ${response.status}`);
       if (!response.body) throw new Error('Yayın yanıtı alınamadı');
 
       const reader = response.body.getReader();
@@ -608,6 +622,7 @@ export default function App() {
         }),
       });
 
+      if (!response.ok) throw new Error(`Chat endpoint returned ${response.status}`);
       if (!response.body) throw new Error('Kod chat yayın yanıtı alınamadı');
 
       const reader = response.body.getReader();
@@ -1101,7 +1116,7 @@ export default function App() {
       <OllamaGuideModal
         isOpen={showOllamaModal}
         onClose={() => setShowOllamaModal(false)}
-        onSwitchToGemini={() => handleSaveSettings({ ...settings, aiProvider: 'gemini' })}
+        onSwitchToGemini={() => updateSettings({ aiProvider: 'gemini' })}
       />
     </div>
   );

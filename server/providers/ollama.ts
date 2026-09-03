@@ -7,6 +7,21 @@ const FALLBACK_MODELS = ["llama3.2:latest", "qwen2.5:latest", "mistral:latest", 
 
 interface OllamaProviderOptions {
   ollamaUrl?: string;
+  model?: string;
+  timeoutMs?: number;
+}
+
+function modelMatches(requestedModel: string, availableModel: string): boolean {
+  return availableModel === requestedModel || availableModel === `${requestedModel}:latest`;
+}
+
+function resolveAvailableModel(requestedModel: string | undefined, models: ProviderMetadata["models"]): string {
+  if (!models.length) return requestedModel && requestedModel !== "auto" ? requestedModel : DEFAULT_MODEL;
+  if (requestedModel && requestedModel !== "auto") {
+    const matchingModel = models.find((model) => modelMatches(requestedModel, model.id));
+    if (matchingModel) return matchingModel.id;
+  }
+  return models.find((model) => modelMatches(DEFAULT_MODEL, model.id))?.id ?? models[0].id;
 }
 
 export class OllamaProvider implements AIProviderAdapter {
@@ -16,6 +31,8 @@ export class OllamaProvider implements AIProviderAdapter {
       name: "Ollama",
       configured: true,
       available: false,
+      healthy: false,
+      modelAvailable: false,
       status: "unknown",
       privacyMode: "local",
       models: FALLBACK_MODELS.map((model) => ({ id: model, name: model })),
@@ -30,10 +47,11 @@ export class OllamaProvider implements AIProviderAdapter {
   async healthCheck(options: OllamaProviderOptions = {}): Promise<ProviderHealth> {
     const startedAt = Date.now();
     const ollamaUrl = options.ollamaUrl || DEFAULT_OLLAMA_URL;
+    const requestedModel = options.model && options.model !== "auto" ? options.model : undefined;
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), options.timeoutMs ?? 2500);
       const response = await fetch(`${ollamaUrl}/api/tags`, { signal: controller.signal });
       clearTimeout(timeoutId);
 
@@ -43,13 +61,25 @@ export class OllamaProvider implements AIProviderAdapter {
 
       const data = (await response.json()) as { models?: Array<{ name: string }> };
       const models = (data.models || []).map((model) => ({ id: model.name, name: model.name }));
+      const resolvedModel = resolveAvailableModel(requestedModel, models);
+      const modelAvailable = requestedModel
+        ? models.some((model) => modelMatches(requestedModel, model.id))
+        : models.length > 0;
       return {
         ...this.metadata(),
         available: true,
-        status: "available",
+        healthy: true,
+        modelAvailable,
+        status: models.length ? "available" : "degraded",
         models: models.length ? models : this.metadata().models,
+        defaultModel: resolvedModel,
         checkedAt: new Date().toISOString(),
+        checkedModel: requestedModel,
         latencyMs: Date.now() - startedAt,
+        errorCode: modelAvailable ? undefined : "model_unavailable",
+        error: modelAvailable ? undefined : requestedModel
+          ? `Ollama model is not installed: ${requestedModel}`
+          : "Ollama is reachable but no local models are installed.",
       };
     } catch (error) {
       const code = error instanceof Error && error.name === "AbortError" ? "timeout" : "network_error";
@@ -93,7 +123,12 @@ export class OllamaProvider implements AIProviderAdapter {
     }
 
     if (!response.ok || !response.body) {
-      throw new ProviderError("provider_unavailable", `Ollama returned HTTP ${response.status}`, 502);
+      const body = await response.text().catch(() => "");
+      const lower = body.toLowerCase();
+      const code = response.status === 404 || lower.includes("not found") || lower.includes("model")
+        ? "model_unavailable"
+        : "provider_unavailable";
+      throw new ProviderError(code, body || `Ollama returned HTTP ${response.status}`, code === "model_unavailable" ? 404 : 502);
     }
 
     const reader = response.body.getReader();
@@ -125,6 +160,8 @@ export class OllamaProvider implements AIProviderAdapter {
     return {
       ...this.metadata(),
       available: false,
+      healthy: false,
+      modelAvailable: false,
       status: "offline",
       checkedAt: new Date().toISOString(),
       latencyMs,

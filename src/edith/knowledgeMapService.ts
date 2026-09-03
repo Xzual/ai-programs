@@ -17,7 +17,16 @@ export type KnowledgeMapNodeType =
   | 'file'
   | 'event'
   | 'trade'
-  | 'conversation';
+  | 'conversation'
+  | 'vault'
+  | 'folder'
+  | 'tag'
+  | 'provider'
+  | 'decision'
+  | 'system'
+  | 'concept'
+  | 'automation'
+  | 'security';
 
 export interface KnowledgeMapNode {
   id: string;
@@ -60,10 +69,20 @@ export interface KnowledgeMapSnapshot {
 
 const legacyType = (node: KnowledgeGraphNode): KnowledgeMapNodeType => {
   if (node.id === 'core:edith') return 'core';
+  if (node.type === 'Vault') return 'vault';
+  if (node.type === 'Folder') return 'folder';
+  if (node.type === 'Tag') return 'tag';
   if (node.type === 'Memory') return 'memory';
   if (node.type === 'Tool') return 'tool';
   if (node.type === 'Task') return 'task';
   if (node.type === 'Agent') return 'agent';
+  if (node.type === 'Model') return 'model';
+  if (node.type === 'Provider') return 'provider';
+  if (node.type === 'Decision') return 'decision';
+  if (node.type === 'System') return 'system';
+  if (node.type === 'Concept') return 'concept';
+  if (node.type === 'Automation') return 'automation';
+  if (node.type === 'SecurityEvent') return 'security';
   if (node.type === 'Project') return 'project';
   if (node.type === 'Person') return 'person';
   if (node.type === 'Organization') return 'organization';

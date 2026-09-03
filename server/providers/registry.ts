@@ -33,6 +33,14 @@ export class ProviderRegistry {
     return this.list().map((provider) => ({ ...provider, provider: provider.id }));
   }
 
+  async snapshot(options: Record<string, unknown> = {}): Promise<ProviderHealth[]> {
+    return this.health(options);
+  }
+
+  async modelSnapshot(options: Record<string, unknown> = {}): Promise<Array<ProviderHealth & { provider: AiProvider }>> {
+    return (await this.snapshot(options)).map((provider) => ({ ...provider, provider: provider.id }));
+  }
+
   resolve(requestedProvider: AiProvider | "auto" | string | undefined, requestedModel?: string): {
     provider: AIProviderAdapter;
     requestedProvider: AiProvider | "auto";

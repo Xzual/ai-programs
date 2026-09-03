@@ -6,35 +6,24 @@ export function createHealthRouter(): Router {
 
   router.get("/api/health", async (req, res) => {
     const ollamaUrl = (req.query.ollamaUrl as string) || "http://localhost:11434";
-    let ollamaConnected = false;
-    let availableModels: string[] = [];
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const response = await fetch(`${ollamaUrl}/api/tags`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = (await response.json()) as { models?: Array<{ name: string }> };
-        ollamaConnected = true;
-        availableModels = (data.models || []).map((m) => m.name);
-      }
-    } catch {
-      ollamaConnected = false;
-    }
-
-    const gemini = providerRegistry.get("gemini")?.metadata();
+    const providers = await providerRegistry.health({
+      ollamaUrl,
+      model: typeof req.query.model === "string" ? req.query.model : undefined,
+      timeoutMs: 2500,
+    });
+    const ollama = providers.find((provider) => provider.id === "ollama");
+    const gemini = providers.find((provider) => provider.id === "gemini");
+    const availableModels = ollama?.models.map((model) => model.id) ?? [];
 
     res.json({
       status: "ok",
-      ollamaConnected,
+      ollamaConnected: Boolean(ollama?.available),
+      ollamaHealthy: Boolean(ollama?.healthy),
       ollamaUrl,
       availableModels,
-      geminiAvailable: Boolean(gemini?.configured),
-      providers: providerRegistry.list(),
+      geminiAvailable: Boolean(gemini?.available),
+      geminiConfigured: Boolean(gemini?.configured),
+      providers,
       timestamp: Date.now(),
     });
   });

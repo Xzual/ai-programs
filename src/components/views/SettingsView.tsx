@@ -16,9 +16,11 @@ import {
 import { UserSettings, AiProvider, ProviderProfile, ProviderRuntimeStatus } from '../../types';
 import {
   fetchProviderProfiles,
+  modelDisabledReason,
   modelsForProvider,
   providerStatusLabel,
   providerTone,
+  selectValidModelForProvider,
 } from '../../edith/providerService';
 
 interface SettingsViewProps {
@@ -115,18 +117,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleProviderChange = (provider: AiProvider) => {
-    const nextModels = modelsForProvider(provider, providerProfiles, availableModels);
+    const selectedModel = selectValidModelForProvider(provider, providerProfiles, availableModels, form.selectedModel);
     const updated = {
       ...form,
       aiProvider: provider,
-      selectedModel: nextModels.includes(form.selectedModel) ? form.selectedModel : 'auto',
+      selectedModel,
     };
     setForm(updated);
     onSaveSettings(updated);
   };
 
   const activeProviderProfile = providerProfiles.find((profile) => profile.provider === form.aiProvider);
-  const modelOptions = modelsForProvider(form.aiProvider, providerProfiles, availableModels, form.selectedModel);
+  const modelOptions = modelsForProvider(form.aiProvider, providerProfiles, availableModels);
+  const selectedModel = selectValidModelForProvider(form.aiProvider, providerProfiles, availableModels, form.selectedModel);
+  useEffect(() => {
+    if (selectedModel !== form.selectedModel) {
+      handleChange('selectedModel', selectedModel);
+    }
+  }, [selectedModel, form.selectedModel]);
   const geminiProfile = providerProfiles.find((profile) => profile.provider === 'gemini');
   const geminiStatus = geminiProfile?.status ?? 'configuration_required';
   const geminiNeedsSetup = geminiStatus !== 'available';
@@ -246,13 +254,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 onChange={(e) => handleProviderChange(e.target.value as AiProvider)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-purple-500 font-sans"
               >
-                <option value="ollama">Yerel Ollama API (Önerilen - %100 Yerel)</option>
-                <option value="gemini">Google Gemini API (Bulut / Dev Preview)</option>
-                <option value="openai">OpenAI API (Adapter Hazırlık)</option>
-                <option value="anthropic">Anthropic Claude API (Adapter Hazırlık)</option>
-                <option value="openrouter">OpenRouter Gateway (Adapter Hazırlık)</option>
-                <option value="local">Yerel Provider Slotu (Gelecek Runtime)</option>
-                <option value="mock">EDITH Yerel Mock Motoru (Çevrimdışı Test)</option>
+                {providerProfiles.map((profile) => (
+                  <option key={profile.provider} value={profile.provider}>
+                    {profile.displayName} ({providerStatusLabel(profile.status)})
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -282,15 +288,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div>
               <label className="block text-slate-400 mb-1.5 font-medium">Model Seçimi</label>
               <select
-                value={form.selectedModel}
+                value={selectedModel}
                 onChange={(e) => handleChange('selectedModel', e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-slate-200 focus:outline-none focus:border-purple-500 font-mono"
               >
-                {modelOptions.map((model) => (
-                  <option key={model} value={model}>
-                    {model === 'auto' ? 'AUTO' : model}
+                {modelOptions.map((model) => {
+                  const disabledReason = modelDisabledReason(form.aiProvider, model, providerProfiles, availableModels);
+                  return (
+                  <option key={model} value={model} disabled={Boolean(disabledReason)}>
+                    {model === 'auto' ? 'AUTO' : model}{disabledReason ? ` (${disabledReason})` : ''}
                   </option>
-                ))}
+                );})}
               </select>
             </div>
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-obsidian-knowledge-test-'));
 const originalCwd = process.cwd();
-const vaultPath = path.join(tempRoot, 'Vault');
+const vaultPath = path.join(tempRoot, 'EDİTH', 'EDİTH');
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,7 +30,10 @@ async function removeTempRoot(): Promise<void> {
 try {
   process.chdir(tempRoot);
   process.env.EDITH_PERSISTENCE = 'json';
-  process.env.EDITH_OBSIDIAN_VAULT_PATH = vaultPath;
+  process.env.OBSIDIAN_VAULT_PATH = vaultPath;
+  process.env.EDITH_OBSIDIAN_ENABLED = 'true';
+  process.env.EDITH_OBSIDIAN_MODE = 'read_write_safe';
+  process.env.EDITH_KNOWLEDGE_MAP_OBSIDIAN = 'true';
 
   fs.mkdirSync(path.join(vaultPath, '.obsidian'), { recursive: true });
   for (const folder of ['Projects', 'People', 'Organizations', 'Research', 'Tasks', 'Meetings', 'Trading', 'Memory', 'Conversations', 'Attachments']) {
@@ -105,13 +108,21 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   const reindex = obsidianVaultService.reindex();
   assert.equal(reindex.success, true);
   assert.equal(reindex.indexed >= 4, true);
+  assert.equal(obsidianVaultService.getSettings().vaultPath, vaultPath);
+  assert.equal(obsidianVaultService.getSettings().vaultPath.includes('EDİTH'), true);
+  assert.equal(fs.existsSync(path.join(vaultPath, 'E.D.I.T.H. Index.md')), true);
 
   const graph = knowledgeGraphService.snapshot({ limit: 100 });
   const titles = new Set(graph.nodes.map((node) => node.title));
   assert.equal(titles.has('Water Literacy'), true);
   assert.equal(titles.has('Apostolos'), true);
+  assert.equal(titles.has('Obsidian Vault'), true);
+  assert.equal(titles.has('Projects'), true);
+  assert.equal(titles.has('#project'), true);
   assert.equal(graph.relationships.some((edge) => edge.type === 'references'), true);
   assert.equal(graph.relationships.some((edge) => edge.type === 'belongsTo'), true);
+  assert.equal(graph.relationships.some((edge) => edge.type === 'inside_folder'), true);
+  assert.equal(graph.relationships.some((edge) => edge.type === 'tagged_with'), true);
 
   const retrieval = ragService.retrieve('budget workshop Apostolos');
   assert.equal(retrieval.embeddingStatus, 'embedding_provider_required');
@@ -127,6 +138,7 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   const memoryNote = obsidianVaultService.writeMemoryNote(memory);
   assert.equal(fs.existsSync(path.join(vaultPath, memoryNote)), true);
   assert.equal(memoryNote.startsWith('Memory/'), true);
+  assert.equal(fs.readFileSync(path.join(vaultPath, memoryNote), 'utf8').includes('api_key='), false);
 
   const task = taskService.createTask({
     title: 'Obsidian sync task',
@@ -146,6 +158,15 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(agentNoteResult.success, true);
   assert.ok(edithToolRegistry.get('obsidian_save_note'));
 
+  const secretExport = obsidianVaultService.writeResearchNote({
+    topic: 'Secret redaction regression',
+    summary: 'Never store api_key=AIza123456789012345678901234567890 or password=supersecretvaluehere.',
+  });
+  assert.equal(secretExport.exported, true);
+  assert.equal(secretExport.redacted, true);
+  assert.equal(secretExport.errorCode, 'SECRET_DETECTED');
+  assert.equal(fs.readFileSync(path.join(vaultPath, secretExport.notePath ?? ''), 'utf8').includes('supersecretvaluehere'), false);
+
   fs.renameSync(path.join(vaultPath, 'People', 'Apostolos.md'), path.join(vaultPath, 'People', 'Apostolos Renamed.md'));
   obsidianVaultService.syncPath('People/Apostolos.md', 'manual');
   obsidianVaultService.syncPath('People/Apostolos Renamed.md', 'manual');
@@ -160,6 +181,11 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
 
   const status = obsidianVaultService.status();
   assert.equal(status.vaultExists, true);
+  assert.equal(status.connectionStatus === 'connected' || status.connectionStatus === 'synced' || status.connectionStatus === 'partial', true);
+  assert.equal(status.vaultPathConfigured, true);
+  assert.equal(status.vaultFound, true);
+  assert.equal(status.readable, true);
+  assert.equal(status.writable, true);
   assert.equal(status.obsidianConfigExists, true);
   assert.equal(status.chunks > 0, true);
 
@@ -172,7 +198,11 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
       'markdown_wikilinks_tags_properties_attachments',
       'canvas_relationships',
       'vault_reindex',
+      'turkish_uppercase_i_path',
+      'edith_index_note',
+      'vault_folder_tag_nodes',
       'project_sections',
+      'secret_redaction',
       'rag_chunks_and_lexical_retrieval',
       'memory_writes_obsidian_note',
       'task_writes_obsidian_note',

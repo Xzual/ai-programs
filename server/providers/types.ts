@@ -15,6 +15,8 @@ export interface ProviderMetadata {
   name: string;
   configured: boolean;
   available: boolean;
+  healthy: boolean;
+  modelAvailable: boolean;
   status: ProviderRuntimeStatus;
   privacyMode: "local" | "cloud" | "offline";
   models: ProviderModelInfo[];
@@ -28,6 +30,7 @@ export interface ProviderMetadata {
 export interface ProviderHealth extends ProviderMetadata {
   checkedAt: string;
   latencyMs: number;
+  checkedModel?: string;
   errorCode?: ProviderErrorCode;
   error?: string;
 }

@@ -1,6 +1,6 @@
 {
-  "name": "AURA - Yerel AI Chatbot & Asistan",
-  "description": "Futuristik 3D parçacık çekirdekli, sesli etkileşimli, yerel Ollama LLM destekli ve kişisel bellekli AI asistan dashboard'u.",
+  "name": "E.D.I.T.H. - Personal AI Operating System",
+  "description": "Local-first, provider-aware, voice-capable personal AI operating system with Ollama/Gemini support and visible safety states.",
   "requestFramePermissions": [
     "microphone"
   ],

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request } from "express";
 import type { AiProvider } from "../../src/types";
 import { setGeminiRuntimeApiKey } from "../providers/gemini";
 import { providerRegistry } from "../providers/registry";
@@ -45,25 +46,37 @@ function toLegacyHealth(providers: ProviderHealth[]) {
   const gemini = providers.find((provider) => provider.id === "gemini");
   return {
     ollamaConnected: Boolean(ollama?.available),
-    geminiAvailable: Boolean(gemini?.configured),
+    ollamaHealthy: Boolean(ollama?.healthy),
+    geminiAvailable: Boolean(gemini?.available),
+    geminiConfigured: Boolean(gemini?.configured),
     availableModels: ollama?.models.map((model) => model.id) ?? [],
+  };
+}
+
+function providerSnapshotOptions(req: Request) {
+  return {
+    ollamaUrl: typeof req.query.ollamaUrl === "string" ? req.query.ollamaUrl : undefined,
+    model: typeof req.query.model === "string" ? req.query.model : undefined,
+    timeoutMs: 2500,
   };
 }
 
 export function createProvidersRouter(): Router {
   const router = Router();
 
-  router.get("/api/providers", (_req, res) => {
+  router.get("/api/providers", async (req, res) => {
+    const providers = await providerRegistry.snapshot(providerSnapshotOptions(req));
     res.json({
       success: true,
-      providers: providerRegistry.list().map(toProviderPayload),
+      providers: providers.map(toProviderPayload),
+      ...toLegacyHealth(providers),
+      timestamp: Date.now(),
+      checkedAt: Date.now(),
     });
   });
 
   router.get("/api/providers/health", async (req, res) => {
-    const health = await providerRegistry.health({
-      ollamaUrl: typeof req.query.ollamaUrl === "string" ? req.query.ollamaUrl : undefined,
-    });
+    const health = await providerRegistry.health(providerSnapshotOptions(req));
     res.json({
       success: true,
       providers: health.map(toProviderPayload),
@@ -105,11 +118,12 @@ export function createProvidersRouter(): Router {
     });
   });
 
-  router.get("/api/models", (_req, res) => {
-    const providers = providerRegistry.models();
+  router.get("/api/models", async (req, res) => {
+    const providers = await providerRegistry.modelSnapshot(providerSnapshotOptions(req));
     res.json({
       success: true,
       providers,
+      ...toLegacyHealth(providers),
       models: providers.flatMap((provider) =>
         provider.models.map((model) => ({
           id: model.id,

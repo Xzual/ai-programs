@@ -34,7 +34,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
-import { modelsForProvider, providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
+import { modelDisabledReason, modelsForProvider, providerDisplayName, providerStatusLabel, providerTone, selectValidModelForProvider } from '../../edith/providerService';
 import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
 
 export interface AssistantTheme {
@@ -300,12 +300,19 @@ export function TransmissionCard({
   const fallbackLabel = message.fallbackUsed
     ? `${providerDisplayName(message.fallbackProvider ?? providerUsed)}${message.fallbackModel ? ` / ${message.fallbackModel}` : ''}`
     : undefined;
+  const degradedRuntime = message.fallbackUsed || providerUsed === 'mock' || providerStatus === 'degraded';
   const responseStatusLabel = message.error
     ? 'FAILED'
     : message.isStreaming
     ? 'STREAMING'
+    : degradedRuntime
+    ? message.fallbackUsed
+      ? 'FALLBACK USED'
+      : providerUsed === 'mock'
+      ? 'MOCK RESPONSE'
+      : 'DEGRADED'
     : providerStatus === 'available'
-    ? 'VERIFIED'
+    ? 'PROVIDER OK'
     : providerStatusLabel(providerStatus);
   return (
     <article className={`edith-transmission ${user ? 'edith-transmission-user' : ''}`}>
@@ -325,7 +332,7 @@ export function TransmissionCard({
           <StatusPill label="Model" value={modelUsed === 'auto' ? 'AUTO' : modelUsed} tone={modelUsed === 'auto' ? 'info' : 'muted'} />
           <StatusPill label="Provider" value={providerDisplayName(providerUsed as AiProvider)} tone={providerTone(providerStatus)} />
           {fallbackLabel && <StatusPill label="Fallback" value={fallbackLabel} tone="warning" />}
-          <StatusPill label={responseStatusLabel} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : providerStatus === 'available' ? 'success' : providerTone(providerStatus)} />
+          <StatusPill label={responseStatusLabel} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : degradedRuntime ? 'warning' : providerStatus === 'available' ? 'success' : providerTone(providerStatus)} />
           {message.errorCode && <StatusPill label="Error" value={message.errorCode} tone="danger" />}
         </div>
       )}
@@ -1191,6 +1198,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const watchedSymbols = Array.isArray(runtime?.watchedSymbols) ? runtime.watchedSymbols : symbolRows.filter((symbol) => symbol.watch).map((symbol) => symbol.symbol);
   const ignoredSymbols = symbolRows.filter((symbol) => !symbol.watch || symbol.approvalRequired).map((symbol) => symbol.symbol);
   const lastLearningNote = learningNotes[0]?.title ?? learningNotes[0]?.path ?? 'not connected';
+  const portfolioDataLabel = paperTradingEnabled && serviceOnline ? 'PAPER BACKEND DATA' : serviceOnline ? 'PAPER DISABLED' : 'STALE / DEMO MEMORY';
 
   return (
     <div className="edith-workspace overflow-y-auto bg-[#05070b] p-4 custom-scrollbar">
@@ -1472,17 +1480,22 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                 </div>
               </CryptoPanel>
 
-              <CryptoPanel title="Paper Portfolio" eyebrow={paperTradingEnabled ? 'BACKEND ENABLED' : 'DISABLED / NOT LIVE'} icon={<TrendingUp className="h-4 w-4" />}>
+              <CryptoPanel title="Paper Portfolio" eyebrow={portfolioDataLabel} icon={<TrendingUp className="h-4 w-4" />}>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <StatusPill label={portfolioDataLabel} tone={paperTradingEnabled ? 'warning' : 'muted'} />
+                  <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
+                  <StatusPill label="NOT LIVE PERFORMANCE" tone="warning" />
+                </div>
                 <div className="grid grid-cols-1 gap-2">
                   <ActionRow label="Starting balance" value={money(portfolio.startingBalance ?? portfolio.starting_balance)} />
                   <ActionRow label="Current paper equity" value={money(portfolio.equity)} />
                   <ActionRow label="Open paper positions" value={String(openPositions.length)} />
                   <ActionRow label="Closed trades" value={String(trades.length)} />
-                  <ActionRow label="PnL" value={pct(performance.total_return_pct ?? performance.pnlPct)} />
+                  <ActionRow label="Paper / stored PnL" value={pct(performance.total_return_pct ?? performance.pnlPct)} />
                   <ActionRow label="Trade journal" value={trades.length ? `${trades.length} entries` : 'not connected'} />
                 </div>
                 <p className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-100/75">
-                  Paper data is displayed only when reported by the backend. This UI does not represent live balances or execution authority.
+                  These values are secondary observer context. Latest observations are the primary signal; this UI does not present live account performance or execution authority.
                 </p>
               </CryptoPanel>
             </div>
@@ -1879,7 +1892,13 @@ export function SettingsArchitectureScreen({
   isTestingConnection?: boolean;
 }) {
   const activeProvider = providerProfiles.find((profile) => profile.provider === settings?.aiProvider);
-  const modelOptions = settings ? modelsForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel) : ['auto'];
+  const modelOptions = settings ? modelsForProvider(settings.aiProvider, providerProfiles, availableModels) : ['auto'];
+  const selectedModel = settings ? selectValidModelForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel) : 'auto';
+  React.useEffect(() => {
+    if (settings && selectedModel !== settings.selectedModel) {
+      onUpdateSettings?.({ selectedModel });
+    }
+  }, [onUpdateSettings, selectedModel, settings]);
   const canEdit = Boolean(settings && onUpdateSettings);
   const [providerApiKeys, setProviderApiKeys] = React.useState<Record<string, string>>({});
   const [providerKeyStatus, setProviderKeyStatus] = React.useState<Record<string, { tone: 'success' | 'warning' | 'danger'; text: string }>>({});
@@ -1890,11 +1909,10 @@ export function SettingsArchitectureScreen({
 
   const handleProviderChange = (provider: AiProvider) => {
     if (!settings || !onUpdateSettings) return;
-    const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
-    const nextModels = modelsForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
+    const nextModel = selectValidModelForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
     onUpdateSettings({
       aiProvider: provider,
-      selectedModel: nextModels.includes(settings.selectedModel) ? settings.selectedModel : nextProfile?.defaultModel ?? 'auto',
+      selectedModel: nextModel,
     });
   };
 
@@ -1944,7 +1962,7 @@ export function SettingsArchitectureScreen({
         <ActionRow label="Assistant" value={assistant?.name ?? settings?.assistantPersona ?? 'unknown'} />
         <ActionRow label="Memory namespace" value={assistant?.memoryNamespace ?? 'not configured'} />
         <ActionRow label="Provider" value={activeProvider?.displayName ?? settings?.aiProvider ?? 'unknown'} />
-        <ActionRow label="Model" value={settings?.selectedModel === 'auto' ? 'AUTO' : settings?.selectedModel ?? 'auto'} />
+        <ActionRow label="Model" value={selectedModel === 'auto' ? 'AUTO' : selectedModel} />
         <ActionRow label="Configured integrations" value={String(integrations.length)} />
         <ActionRow label="Provider source" value={providerHealth?.source === 'backend' ? 'backend endpoint' : 'frontend placeholder'} />
       </div>
@@ -1963,7 +1981,7 @@ export function SettingsArchitectureScreen({
               >
                 {providerProfiles.map((profile) => (
                   <option key={profile.provider} value={profile.provider} className="bg-slate-950 text-slate-100">
-                    {profile.displayName}
+                    {profile.displayName} ({providerStatusLabel(profile.status)})
                   </option>
                 ))}
               </select>
@@ -1972,23 +1990,25 @@ export function SettingsArchitectureScreen({
               <label className="mb-1.5 block text-[10px] font-mono uppercase tracking-wide text-slate-500" htmlFor="settings-model-selector">Model</label>
               <select
                 id="settings-model-selector"
-                value={settings?.selectedModel ?? 'auto'}
+                value={selectedModel}
                 disabled={!canEdit}
                 onChange={(event) => onUpdateSettings?.({ selectedModel: event.target.value })}
                 className="w-full rounded-lg border border-white/10 bg-slate-950/75 px-3 py-2 text-xs text-slate-100 outline-none focus:border-[var(--assistant-primary)]"
               >
-                {modelOptions.map((model) => (
-                  <option key={model} value={model} className="bg-slate-950 text-slate-100">
-                    {model === 'auto' ? 'AUTO' : model}
+                {modelOptions.map((model) => {
+                  const disabledReason = settings ? modelDisabledReason(settings.aiProvider, model, providerProfiles, availableModels) : undefined;
+                  return (
+                  <option key={model} value={model} disabled={Boolean(disabledReason)} className="bg-slate-950 text-slate-100">
+                    {model === 'auto' ? 'AUTO' : model}{disabledReason ? ` (${disabledReason})` : ''}
                   </option>
-                ))}
+                );})}
               </select>
             </div>
             <div className="rounded-lg border border-cyan-300/20 bg-cyan-300/8 p-3">
               <div className="flex flex-wrap gap-1.5">
                 <StatusPill label="Assistant" value={assistant?.name ?? 'Persona'} tone="info" />
                 <StatusPill label="Provider" value={activeProvider?.displayName ?? 'Unknown'} tone={providerTone(activeProvider?.status ?? 'unknown')} />
-                <StatusPill label="Model" value={settings?.selectedModel === 'auto' ? 'AUTO ROUTED' : settings?.selectedModel ?? 'AUTO'} tone={settings?.selectedModel === 'auto' ? 'info' : 'muted'} />
+                <StatusPill label="Model" value={selectedModel === 'auto' ? 'AUTO ROUTED' : selectedModel} tone={selectedModel === 'auto' ? 'info' : 'muted'} />
               </div>
               <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
                 Assistant persona, model and provider are separate. Selecting Gemini or Ollama here does not change {assistant?.name ?? 'the active assistant'}.

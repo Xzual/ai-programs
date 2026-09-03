@@ -45,14 +45,48 @@ assert.equal(configuredGeminiMetadata.configured, true);
 assert.equal(configuredGeminiMetadata.status, "unknown");
 assert.equal(JSON.stringify(configuredGeminiMetadata).includes("test-runtime-gemini-key"), false);
 
+setGeminiRuntimeApiKey("MY_GEMINI_API_KEY");
 const app = express();
 app.use(express.json());
 app.use(createProvidersRouter());
 const server = app.listen(0);
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.includes("127.0.0.1:11434/api/tags")) {
+    return new Response(JSON.stringify({
+      models: [
+        { name: "qwen3.5:0.8b" },
+        { name: "llama3.2:latest" },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return originalFetch(input, init);
+};
 try {
   const address = server.address();
   assert.ok(address && typeof address === "object");
   const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const providerListPayload = await (await fetch(`${baseUrl}/api/providers?ollamaUrl=http://127.0.0.1:11434`)).json();
+  const providerListOllama = providerListPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
+  assert.equal(providerListOllama.available, true);
+  assert.equal(providerListOllama.healthy, true);
+  assert.equal(providerListOllama.defaultModel, "llama3.2:latest");
+  assert.equal(providerListOllama.models.some((model: { id: string }) => model.id === "qwen3.5:0.8b"), true);
+  assert.equal(providerListPayload.geminiAvailable, false);
+  assert.equal(providerListPayload.geminiConfigured, false);
+
+  const providerHealthPayload = await (await fetch(`${baseUrl}/api/providers/health?ollamaUrl=http://127.0.0.1:11434&model=qwen3.5:0.8b`)).json();
+  const providerHealthOllama = providerHealthPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
+  assert.equal(providerHealthOllama.available, true);
+  assert.equal(providerHealthOllama.modelAvailable, true);
+  assert.equal(providerHealthPayload.availableModels.includes("qwen3.5:0.8b"), true);
+
+  const modelsPayload = await (await fetch(`${baseUrl}/api/models?ollamaUrl=http://127.0.0.1:11434`)).json();
+  const modelsOllama = modelsPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
+  assert.equal(modelsOllama.available, true);
+  assert.equal(modelsPayload.models.some((model: { id: string; provider: string }) => model.provider === "ollama" && model.id === "qwen3.5:0.8b"), true);
 
   const devKeyResponse = await fetch(`${baseUrl}/api/providers/dev-key`, {
     method: "POST",
@@ -62,13 +96,8 @@ try {
   assert.equal(devKeyResponse.ok, true);
   const devKeyPayload = await devKeyResponse.json();
   assert.equal(JSON.stringify(devKeyPayload).includes("test-runtime-route-key"), false);
-
-  const providersPayload = await (await fetch(`${baseUrl}/api/providers`)).json();
-  assert.equal(JSON.stringify(providersPayload).includes("test-runtime-route-key"), false);
-
-  const modelsPayload = await (await fetch(`${baseUrl}/api/models`)).json();
-  assert.equal(JSON.stringify(modelsPayload).includes("test-runtime-route-key"), false);
 } finally {
+  globalThis.fetch = originalFetch;
   await new Promise<void>((resolve, reject) => {
     server.close((error) => error ? reject(error) : resolve());
   });
@@ -100,6 +129,9 @@ console.log(JSON.stringify({
     "gemini_runtime_key_sets_configured_without_exposing_secret",
     "gemini_runtime_key_route_does_not_return_secret",
     "provider_and_model_routes_do_not_return_secret",
+    "provider_routes_share_dynamic_ollama_availability",
+    "provider_routes_share_dynamic_ollama_models",
+    "gemini_available_means_health_available",
     "mock_provider_is_explicit",
     "provider_resolution_keeps_provider_separate_from_persona",
   ],

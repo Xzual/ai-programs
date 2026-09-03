@@ -3,20 +3,24 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   Activity,
+  AlertTriangle,
   Bot,
   Briefcase,
   Building2,
   CheckSquare,
   Clock,
+  Copy,
   Database,
   FileText,
   Focus,
   Home,
+  LockKeyhole,
   Maximize2,
   MessageCircle,
   Network,
   RefreshCw,
   Search,
+  ShieldCheck,
   Users,
   Zap,
 } from 'lucide-react';
@@ -29,6 +33,9 @@ interface KnowledgeMapViewProps {
 }
 
 type NodeType =
+  | 'Vault'
+  | 'Folder'
+  | 'Tag'
   | 'Person'
   | 'Organization'
   | 'Project'
@@ -41,7 +48,14 @@ type NodeType =
   | 'Memory'
   | 'Tool'
   | 'Event'
-  | 'Trade';
+  | 'Trade'
+  | 'Model'
+  | 'Provider'
+  | 'Decision'
+  | 'System'
+  | 'Concept'
+  | 'Automation'
+  | 'SecurityEvent';
 
 interface GraphNode {
   id: string;
@@ -55,6 +69,12 @@ interface GraphNode {
   importance: number;
   recentActivityAt: string;
   properties: Record<string, unknown>;
+  summary?: string;
+  backlinks?: string[];
+  outgoingLinks?: string[];
+  status?: string;
+  riskLevel?: number;
+  confidence?: number;
 }
 
 interface GraphRelationship {
@@ -85,7 +105,28 @@ interface ObsidianStatus {
   indexedNotes: number;
   chunks: number;
   settings: { vaultPath: string };
+  connectionStatus?: 'connected' | 'synced' | 'syncing' | 'configuration_required' | 'disabled' | 'read_failed' | 'write_failed' | 'partial';
+  mode?: string;
+  obsidianEnabled?: boolean;
+  vaultPathConfigured?: boolean;
+  vaultFound?: boolean;
+  readable?: boolean;
+  writable?: boolean;
+  nodeCount?: number;
+  edgeCount?: number;
+  lastError?: string;
+  indexedFolders?: string[];
   recentEvents: Array<{ id: string; action: string; path: string; status: string; createdAt: string }>;
+}
+
+interface KnowledgeActivity {
+  generatedAt: string;
+  mode: 'polling';
+  realtime: 'polling';
+  auditEvents: Array<{ id: string; action: string; toolId: string; result: string; timestamp: string; message?: string }>;
+  syncEvents: Array<{ id: string; action: string; path: string; status: string; createdAt: string }>;
+  toolRuns: Array<{ id: string; toolId: string; toolName: string; status: string; timestamp: number; result?: string }>;
+  tasks: Array<{ id: string; title: string; status: string; updatedAt: string }>;
 }
 
 type PositionedNode = GraphNode & {
@@ -96,9 +137,14 @@ type PositionedNode = GraphNode & {
   isHub: boolean;
 };
 
-const nodeTypes: NodeType[] = ['Person', 'Organization', 'Project', 'Task', 'Note', 'Conversation', 'Website', 'File', 'Agent', 'Memory', 'Tool', 'Event', 'Trade'];
+type GraphMode = 'OVERVIEW' | 'ACTIVITY' | 'MEMORY' | 'OBSIDIAN' | 'TASK' | 'AGENT' | 'SOURCE' | 'SECURITY';
+
+const nodeTypes: NodeType[] = ['Vault', 'Folder', 'Tag', 'Person', 'Organization', 'Project', 'Task', 'Note', 'Conversation', 'Website', 'File', 'Agent', 'Memory', 'Tool', 'Event', 'Trade', 'Model', 'Provider', 'Decision', 'System', 'Concept', 'Automation', 'SecurityEvent'];
 
 const typeLabels: Record<NodeType, string> = {
+  Vault: 'OBSIDIAN VAULT',
+  Folder: 'FOLDERS',
+  Tag: 'TAGS',
   Person: 'PEOPLE',
   Organization: 'ORGANIZATIONS',
   Project: 'PROJECTS',
@@ -112,10 +158,20 @@ const typeLabels: Record<NodeType, string> = {
   Tool: 'TOOLS',
   Event: 'EVENTS',
   Trade: 'TRADING',
+  Model: 'MODELS',
+  Provider: 'PROVIDERS',
+  Decision: 'DECISIONS',
+  System: 'SYSTEM',
+  Concept: 'CONCEPTS',
+  Automation: 'AUTOMATIONS',
+  SecurityEvent: 'SECURITY',
 };
 
 const glyphFor = (type: NodeType) => {
   switch (type) {
+    case 'Vault': return 'V';
+    case 'Folder': return 'DIR';
+    case 'Tag': return '#';
     case 'Person': return 'P';
     case 'Organization': return 'O';
     case 'Project': return 'W';
@@ -128,6 +184,13 @@ const glyphFor = (type: NodeType) => {
     case 'Tool': return 'X';
     case 'Event': return 'E';
     case 'Trade': return '$';
+    case 'Model': return 'AI';
+    case 'Provider': return 'P';
+    case 'Decision': return 'D';
+    case 'System': return 'S';
+    case 'Concept': return '*';
+    case 'Automation': return 'RUN';
+    case 'SecurityEvent': return '!';
     case 'Note':
     default: return 'N';
   }
@@ -135,6 +198,9 @@ const glyphFor = (type: NodeType) => {
 
 const colorFor = (type: NodeType) => {
   switch (type) {
+    case 'Vault': return '#8b5cf6';
+    case 'Folder': return '#c4b5fd';
+    case 'Tag': return '#a78bfa';
     case 'Person': return '#20c9ff';
     case 'Organization': return '#35e879';
     case 'Project': return '#a855f7';
@@ -147,6 +213,13 @@ const colorFor = (type: NodeType) => {
     case 'Tool': return '#ff4fc3';
     case 'Event': return '#facc15';
     case 'Trade': return '#ff8a3d';
+    case 'Model': return '#7dd3fc';
+    case 'Provider': return '#5eead4';
+    case 'Decision': return '#fb7185';
+    case 'System': return '#ffffff';
+    case 'Concept': return '#c4b5fd';
+    case 'Automation': return '#22d3ee';
+    case 'SecurityEvent': return '#fb7185';
     case 'Note':
     default: return '#f05ab2';
   }
@@ -182,7 +255,9 @@ function positionNodes(nodes: GraphNode[], relationships: GraphRelationship[]): 
     const scoreB = (degrees.get(b.id) ?? 0) * 1.8 + b.importance;
     return scoreB - scoreA;
   });
-  const hubId = ranked[0]?.id;
+  const hubId = ranked.find((node) => node.id === 'core:edith')?.id
+    ?? ranked.find((node) => node.type === 'Vault')?.id
+    ?? ranked[0]?.id;
   const clusterKeys = Array.from(new Set(ranked.filter((node) => node.id !== hubId).map((node) => node.type)));
   const clusterCount = Math.max(clusterKeys.length, 1);
   const clusterCenters = new Map<string, THREE.Vector3>();
@@ -306,6 +381,9 @@ const iconForType = (type: NodeType) => {
   const className = 'w-4 h-4';
   switch (type) {
     case 'Person': return <Users className={className} />;
+    case 'Vault': return <Database className={className} />;
+    case 'Folder': return <FileText className={className} />;
+    case 'Tag': return <Network className={className} />;
     case 'Organization': return <Building2 className={className} />;
     case 'Project': return <Briefcase className={className} />;
     case 'Task': return <CheckSquare className={className} />;
@@ -314,9 +392,40 @@ const iconForType = (type: NodeType) => {
     case 'Agent': return <Bot className={className} />;
     case 'Memory': return <Database className={className} />;
     case 'Event': return <Clock className={className} />;
+    case 'Model':
+    case 'Provider':
+    case 'System':
+      return <ShieldCheck className={className} />;
+    case 'Decision':
+      return <Zap className={className} />;
+    case 'Automation':
+      return <Activity className={className} />;
+    case 'SecurityEvent':
+      return <ShieldCheck className={className} />;
     default: return <Network className={className} />;
   }
 };
+
+function connectionTone(status?: ObsidianStatus['connectionStatus']): string {
+  if (status === 'connected' || status === 'synced') return 'text-emerald-300';
+  if (status === 'partial' || status === 'syncing') return 'text-amber-300';
+  return 'text-red-300';
+}
+
+function connectionLabel(status?: ObsidianStatus['connectionStatus']): string {
+  if (!status) return 'UNKNOWN';
+  return status.replace(/_/g, ' ').toUpperCase();
+}
+
+async function readJsonResponse(response: Response): Promise<Record<string, any>> {
+  const text = await response.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text) as Record<string, any>;
+  } catch {
+    throw new Error(`Expected JSON from Knowledge API, received ${response.status}.`);
+  }
+}
 
 export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, tools, logs }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -339,6 +448,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   const relationshipsRef = useRef<GraphRelationship[]>([]);
   const nodeByIdRef = useRef(new Map<string, PositionedNode>());
   const clustersRef = useRef<Array<[NodeType, number]>>([]);
+  const activeNodeIdsRef = useRef(new Set<string>());
   const [graph, setGraph] = useState<KnowledgeGraphSnapshot | null>(null);
   const [status, setStatus] = useState<ObsidianStatus | null>(null);
   const [query, setQuery] = useState('');
@@ -347,9 +457,12 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   const [relationshipType, setRelationshipType] = useState('');
   const [folder, setFolder] = useState('');
   const [tag, setTag] = useState('');
-  const [source, setSource] = useState('obsidian');
+  const [source, setSource] = useState('');
+  const [graphMode, setGraphMode] = useState<GraphMode>('OVERVIEW');
   const [autoLayout, setAutoLayout] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [graphError, setGraphError] = useState('');
+  const [activity, setActivity] = useState<KnowledgeActivity | null>(null);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
@@ -367,13 +480,21 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
     if (folder) params.set('folder', folder);
     if (tag) params.set('tag', tag);
     if (source) params.set('source', source);
+    if (graphMode === 'OBSIDIAN') params.set('source', 'obsidian');
+    if (graphMode === 'MEMORY') params.set('nodeType', 'Memory');
+    if (graphMode === 'TASK') params.set('nodeType', 'Task');
+    if (graphMode === 'AGENT') params.set('nodeType', 'Agent');
+    if (graphMode === 'SECURITY') params.set('query', query || 'security audit permission denied');
     params.set('limit', '1000');
     const [graphResponse, statusResponse] = await Promise.all([
-      fetch(`/api/edith/knowledge/graph?${params.toString()}`),
-      fetch('/api/edith/obsidian/status'),
+      fetch(`/api/knowledge/graph?${params.toString()}`),
+      fetch('/api/knowledge/status'),
     ]);
-    const graphData = await graphResponse.json();
-    const statusData = await statusResponse.json();
+    const graphData = await readJsonResponse(graphResponse);
+    const statusData = await readJsonResponse(statusResponse);
+    if (!graphResponse.ok || !statusResponse.ok) {
+      throw new Error(String(graphData.error ?? statusData.error ?? 'Knowledge API unavailable.'));
+    }
     if (graphData.success) {
       const signature = JSON.stringify({
         nodes: graphData.graph.nodes.map((node: GraphNode) => [node.id, node.title, node.type, node.path, node.recentActivityAt, node.importance, node.tags]),
@@ -388,25 +509,40 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
       }
     }
     if (statusData.success) setStatus(statusData.status);
-  }, [folder, nodeType, query, relationshipType, source, tag]);
+    setGraphError('');
+  }, [folder, graphMode, nodeType, query, relationshipType, source, tag]);
 
   const reindex = useCallback(async () => {
     setLoading(true);
     try {
-      await fetch('/api/edith/obsidian/sync-now', { method: 'POST' });
+      await fetch('/api/knowledge/sync', { method: 'POST' });
       await loadGraph();
+    } catch (error) {
+      setGraphError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoading(false);
     }
   }, [loadGraph]);
 
+  const loadActivity = useCallback(async () => {
+    const response = await fetch('/api/knowledge-graph/activity');
+    const payload = await readJsonResponse(response);
+    if (payload.success) setActivity(payload.activity as KnowledgeActivity);
+  }, []);
+
   useEffect(() => {
-    reindex().catch(() => setGraph(null));
+    reindex().catch((error) => {
+      setGraph(null);
+      setGraphError(error instanceof Error ? error.message : String(error));
+    });
   }, []);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      loadGraph().catch(() => setGraph(null));
+      loadGraph().catch((error) => {
+        setGraph(null);
+        setGraphError(error instanceof Error ? error.message : String(error));
+      });
     }, 220);
     return () => window.clearTimeout(id);
   }, [loadGraph]);
@@ -414,9 +550,14 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   useEffect(() => {
     const id = window.setInterval(() => {
       loadGraph().catch(() => undefined);
+      loadActivity().catch(() => undefined);
     }, 10000);
     return () => window.clearInterval(id);
-  }, [loadGraph]);
+  }, [loadActivity, loadGraph]);
+
+  useEffect(() => {
+    loadActivity().catch(() => undefined);
+  }, [loadActivity]);
 
   const positionedNodes = useMemo(() => positionNodes(graph?.nodes ?? [], graph?.relationships ?? []), [graph]);
   const nodeById = useMemo(() => new Map(positionedNodes.map((node) => [node.id, node])), [positionedNodes]);
@@ -432,14 +573,30 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
     for (const node of positionedNodes) counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [positionedNodes]);
+  const activeNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const event of activity?.auditEvents ?? []) {
+      if (event.toolId) ids.add(`tool:${event.toolId}`);
+      if (event.action.includes('memory')) ids.add('memory:hub');
+      if (event.action.includes('task')) ids.add('core:edith');
+    }
+    for (const run of activity?.toolRuns ?? []) ids.add(`tool:${run.toolId}`);
+    for (const event of activity?.syncEvents ?? []) {
+      ids.add('vault:obsidian');
+      const folder = event.path.includes('/') ? event.path.split('/').slice(0, -1).join('/') : '';
+      if (folder) ids.add(`folder:${folder.toLocaleLowerCase('tr-TR').replace(/[^a-z0-9ğüşıöçİĞÜŞÖÇ]+/gi, '-')}`);
+    }
+    return ids;
+  }, [activity]);
 
   useEffect(() => {
     positionedNodesRef.current = positionedNodes;
     relationshipsRef.current = relationships;
     nodeByIdRef.current = nodeById;
     clustersRef.current = clusters;
+    activeNodeIdsRef.current = activeNodeIds;
     scheduleGraphRenderRef.current();
-  }, [clusters, nodeById, positionedNodes, relationships]);
+  }, [activeNodeIds, clusters, nodeById, positionedNodes, relationships]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -545,7 +702,43 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
       const currentRelationships = relationshipsRef.current;
       const currentNodeById = nodeByIdRef.current;
       const currentClusters = clustersRef.current;
+      const currentActiveNodeIds = activeNodeIdsRef.current;
       const activeNode = currentNodeById.get(selectedIdRef.current) ?? currentPositionedNodes[0];
+      const coreNode = currentNodeById.get('core:edith') ?? currentPositionedNodes.find((node) => node.isHub);
+
+      if (coreNode) {
+        const coreGroup = new THREE.Group();
+        coreGroup.position.copy(coreNode.position);
+        coreGroup.userData.baseScale = 1;
+        const inner = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(28, coreNode.radius * 1.65), 32, 18),
+          new THREE.MeshBasicMaterial({ color: '#7dd3fc', transparent: true, opacity: 0.22, depthWrite: false })
+        );
+        const aura = new THREE.Mesh(
+          new THREE.SphereGeometry(Math.max(52, coreNode.radius * 2.45), 32, 18),
+          new THREE.MeshBasicMaterial({ color: '#38bdf8', transparent: true, opacity: 0.075, depthWrite: false, blending: THREE.AdditiveBlending })
+        );
+        coreGroup.add(aura, inner);
+        for (let ringIndex = 0; ringIndex < 3; ringIndex += 1) {
+          const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(56 + ringIndex * 16, 0.55, 8, 96),
+            new THREE.MeshBasicMaterial({ color: ringIndex === 1 ? '#a78bfa' : '#67e8f9', transparent: true, opacity: 0.36 - ringIndex * 0.06, depthWrite: false })
+          );
+          ring.rotation.x = Math.PI / (2.25 + ringIndex * 0.3);
+          ring.rotation.y = ringIndex * 0.65;
+          ring.userData.baseScale = 1 + ringIndex * 0.03;
+          coreGroup.add(ring);
+          pulseObjects.push(ring);
+        }
+        for (let filament = 0; filament < 18; filament += 1) {
+          const angle = (Math.PI * 2 * filament) / 18;
+          const start = new THREE.Vector3(Math.cos(angle) * 18, Math.sin(angle * 1.7) * 15, Math.sin(angle) * 18);
+          const end = new THREE.Vector3(Math.cos(angle) * 82, Math.sin(angle * 1.7) * 40, Math.sin(angle) * 82);
+          coreGroup.add(makeLine([start, start.clone().lerp(end, 0.55).add(new THREE.Vector3(0, 10, 0)), end], filament % 3 === 0 ? '#c4b5fd' : '#67e8f9', 0.22));
+        }
+        group.add(coreGroup);
+        pulseObjects.push(coreGroup);
+      }
 
       for (const [type] of currentClusters) {
         const nodes = currentPositionedNodes.filter((node) => node.type === type && !node.isHub);
@@ -572,7 +765,8 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
         const from = currentNodeById.get(edge.from);
         const to = currentNodeById.get(edge.to);
         if (!from || !to) continue;
-        const focused = activeNode && (edge.from === activeNode.id || edge.to === activeNode.id);
+        const edgeActive = currentActiveNodeIds.has(edge.from) || currentActiveNodeIds.has(edge.to);
+        const focused = Boolean(activeNode && (edge.from === activeNode.id || edge.to === activeNode.id)) || edgeActive;
         const edgeColor = focused ? '#a5f3fc' : from.color;
         const midpoint = from.position.clone().lerp(to.position, 0.5);
         midpoint.z += 28 + edge.strength * 22;
@@ -593,7 +787,8 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
       }
 
       for (const node of currentPositionedNodes) {
-        const active = node.id === activeNode?.id;
+        const liveActive = currentActiveNodeIds.has(node.id);
+        const active = node.id === activeNode?.id || liveActive;
         const scale = node.radius * (active ? 3.55 : node.isHub ? 3.25 : 2.75);
         const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
           map: createNodeTexture(node, active),
@@ -723,15 +918,23 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
               <Network className="w-5 h-5 text-violet-100" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-semibold">Knowledge Map</h2>
+              <h2 className="text-base font-semibold">E.D.I.T.H. Knowledge Map</h2>
               <div className="mt-1 flex items-center gap-2 text-[11px] font-mono text-slate-500">
-                <span>Real-time knowledge graph powered by Obsidian</span>
+                <span>Obsidian-powered living brain</span>
                 <span className="w-1 h-1 rounded-full bg-slate-700" />
-                <span className={status?.watcherActive ? 'text-emerald-300' : 'text-amber-300'}>
-                  {status?.watcherActive ? 'Live' : 'Watcher idle'}
+                <span className={connectionTone(status?.connectionStatus)}>
+                  {connectionLabel(status?.connectionStatus)}
                 </span>
               </div>
             </div>
+          </div>
+
+          <div className="hidden xl:flex items-center gap-2 min-w-0 text-[11px] font-mono">
+            <StatusChip label="Vault" value={status?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'} />
+            <StatusChip label="Notes" value={String(status?.indexedNotes ?? 0)} />
+            <StatusChip label="Nodes" value={String(status?.nodeCount ?? positionedNodesRef.current.length)} />
+            <StatusChip label="Edges" value={String(status?.edgeCount ?? relationshipsRef.current.length)} />
+            <StatusChip label="Mode" value={String(status?.mode ?? 'READ_WRITE_SAFE').toUpperCase()} />
           </div>
 
           <div className="hidden lg:flex items-center gap-2 min-w-0">
@@ -752,14 +955,42 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
           <div ref={mountRef} className="absolute inset-0" />
 
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(88,28,135,0.22),transparent_34%),radial-gradient(circle_at_18%_22%,rgba(14,165,233,0.13),transparent_24%),radial-gradient(circle_at_80%_76%,rgba(16,185,129,0.1),transparent_25%)]" />
-          <div className="absolute left-5 top-5 max-w-xs rounded-xl border border-sky-300/10 bg-slate-950/58 backdrop-blur-xl p-4 shadow-[0_0_32px_rgba(15,23,42,0.42)]">
+          {(graphError || status?.connectionStatus === 'configuration_required' || status?.connectionStatus === 'read_failed' || status?.connectionStatus === 'write_failed' || status?.connectionStatus === 'disabled') && (
+            <div className="absolute inset-x-5 top-5 z-10 max-w-2xl rounded-xl border border-red-300/20 bg-slate-950/88 p-4 shadow-[0_0_44px_rgba(248,113,113,0.14)] backdrop-blur-xl">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-red-300/25 bg-red-500/12 text-red-200">
+                  <AlertTriangle className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-slate-100">
+                    {status?.connectionStatus === 'configuration_required' ? 'Obsidian Vault Not Connected' : 'Knowledge Graph Needs Attention'}
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-400">
+                    {graphError || status?.lastError || 'E.D.I.T.H. could not fully read or sync the configured Obsidian vault.'}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                    <span className="rounded-md border border-white/10 bg-slate-900/80 px-2 py-1 text-slate-300">Expected: D:\EDİTH\EDİTH</span>
+                    <button onClick={reindex} className="rounded-md border border-cyan-300/20 bg-cyan-400/10 px-2 py-1 text-cyan-100">Retry Sync</button>
+                    <button onClick={() => navigator.clipboard?.writeText(status?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH')} className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-1 text-slate-200">Copy Path</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div className={`absolute left-5 ${graphError || status?.connectionStatus === 'configuration_required' || status?.connectionStatus === 'read_failed' || status?.connectionStatus === 'write_failed' || status?.connectionStatus === 'disabled' ? 'top-44' : 'top-5'} max-w-xs rounded-xl border border-sky-300/10 bg-slate-950/58 backdrop-blur-xl p-4 shadow-[0_0_32px_rgba(15,23,42,0.42)]`}>
             <div className="text-xs font-semibold text-slate-100">KNOWLEDGE MAP</div>
             <div className="mt-1 text-[11px] text-slate-500">Obsidian ile eşitlenen canlı bilgi ağı</div>
+            <div className={`mt-3 text-[11px] font-mono ${connectionTone(status?.connectionStatus)}`}>{connectionLabel(status?.connectionStatus)}</div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <MiniStat label="Nodes" value={positionedNodes.length} />
               <MiniStat label="Connections" value={relationships.length} />
               <MiniStat label="Notes" value={status?.indexedNotes ?? 0} />
               <MiniStat label="Chunks" value={status?.chunks ?? 0} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {(status?.indexedFolders ?? []).slice(0, 5).map((item) => (
+                <span key={item} className="rounded-md border border-cyan-300/10 bg-cyan-300/5 px-2 py-1 text-[10px] text-cyan-100/80">{item}</span>
+              ))}
             </div>
           </div>
 
@@ -776,15 +1007,29 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
             </button>
           </div>
 
+          <div className="absolute right-5 top-20 hidden 2xl:grid w-52 grid-cols-2 gap-2 rounded-xl border border-sky-300/10 bg-slate-950/62 p-2 backdrop-blur-xl">
+            {(['OVERVIEW', 'ACTIVITY', 'MEMORY', 'OBSIDIAN', 'TASK', 'AGENT', 'SOURCE', 'SECURITY'] as GraphMode[]).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setGraphMode(mode)}
+                className={`rounded-lg border px-2 py-2 text-[10px] font-mono transition ${graphMode === mode ? 'border-cyan-300/45 bg-cyan-300/12 text-cyan-100' : 'border-white/10 bg-slate-950/45 text-slate-400 hover:border-cyan-300/25'}`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
           <div className="absolute left-5 bottom-5 right-5 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between pointer-events-none">
             <div className="pointer-events-auto rounded-xl border border-sky-300/10 bg-slate-950/72 backdrop-blur-xl px-4 py-3 flex flex-wrap items-center gap-3 text-[11px] text-slate-400 shadow-[0_0_30px_rgba(0,0,0,0.35)]">
               <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.9)]" /> Live</span>
+              <span>Transport: {activity?.realtime ?? 'polling'}</span>
               <span>{positionedNodes.length} Nodes</span>
               <span>{relationships.length} Connections</span>
               <span>Last sync: {formatRelative(status?.lastSyncAt)}</span>
-              <span className="hidden md:inline">Sol tuş döndürür, wheel zoom yapar, node seçilebilir.</span>
+              <span className="hidden md:inline">Recent: {activity?.auditEvents?.[0]?.action ?? status?.recentEvents?.[0]?.action ?? 'no activity yet'}</span>
             </div>
-            <div className="pointer-events-auto rounded-xl border border-sky-300/10 bg-slate-950/72 backdrop-blur-xl p-2 grid grid-cols-2 md:grid-cols-6 gap-2 xl:w-[740px]">
+            <div className="pointer-events-auto rounded-xl border border-sky-300/10 bg-slate-950/72 backdrop-blur-xl p-2 grid grid-cols-2 md:grid-cols-7 gap-2 xl:w-[840px]">
+              <SelectFilter value={graphMode} onChange={(value) => setGraphMode((value || 'OVERVIEW') as GraphMode)} options={['OVERVIEW', 'ACTIVITY', 'MEMORY', 'OBSIDIAN', 'TASK', 'AGENT', 'SOURCE', 'SECURITY']} placeholder="Mode" />
               <FilterInput value={query} onChange={setQuery} placeholder="Arama" />
               <SelectFilter value={nodeType} onChange={setNodeType} options={nodeTypes} placeholder="Node" />
               <SelectFilter value={relationshipType} onChange={setRelationshipType} options={relationshipTypes} placeholder="İlişki" />
@@ -831,6 +1076,19 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
               {selectedNode.path ?? 'Obsidian node'}
             </div>
 
+            {selectedNode.properties?.edith_secret_redacted === true && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-300/10 p-3 text-[11px] leading-relaxed text-amber-100">
+                <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Secret-like content was redacted before this node entered the graph.
+              </div>
+            )}
+
+            {(selectedNode.summary || typeof selectedNode.properties?.summary === 'string') && (
+              <div className="mt-4 rounded-lg border border-sky-300/10 bg-slate-950/45 p-3 text-xs leading-relaxed text-slate-300">
+                {selectedNode.summary ?? String(selectedNode.properties.summary)}
+              </div>
+            )}
+
             <div className="mt-5 grid grid-cols-[90px_1fr] gap-y-2 text-[11px]">
               <span className="text-slate-500">Source</span>
               <span className="text-right text-slate-300">{selectedNode.source}</span>
@@ -842,6 +1100,10 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
               <span className="text-right text-slate-300">{selectedRelationships.length}</span>
               <span className="text-slate-500">Activity</span>
               <span className="text-right text-slate-300">{formatRelative(selectedNode.recentActivityAt)}</span>
+              <span className="text-slate-500">Confidence</span>
+              <span className="text-right text-slate-300">{typeof selectedNode.confidence === 'number' ? selectedNode.confidence.toFixed(2) : '-'}</span>
+              <span className="text-slate-500">Risk</span>
+              <span className="text-right text-slate-300">{selectedNode.riskLevel ?? selectedNode.properties?.riskLevel?.toString() ?? '-'}</span>
             </div>
 
             {selectedNode.tags.length > 0 && (
@@ -854,6 +1116,17 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
                 </div>
               </div>
             )}
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button disabled={!selectedNode.path} onClick={() => selectedNode.path && navigator.clipboard?.writeText(`${status?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'}\\${selectedNode.path.replace(/\//g, '\\')}`)} className="flex items-center justify-center gap-2 rounded-lg border border-sky-300/10 bg-slate-950/55 px-3 py-2 text-[11px] text-slate-200 disabled:opacity-40">
+                <Copy className="h-3.5 w-3.5" />
+                Copy Path
+              </button>
+              <button onClick={reindex} className="flex items-center justify-center gap-2 rounded-lg border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-[11px] text-cyan-100">
+                <RefreshCw className="h-3.5 w-3.5" />
+                Refresh
+              </button>
+            </div>
           </section>
         ) : (
           <section className="p-4 border-b border-sky-300/10 text-xs text-slate-500">Node seçilmedi.</section>
@@ -899,9 +1172,24 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
         <section className="p-4 border-b border-sky-300/10">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
             <span className="flex items-center gap-2"><Activity className="w-4 h-4 text-cyan-200" /> ACTIVITY</span>
-            <span className={status?.watcherActive ? 'text-emerald-300' : 'text-amber-300'}>{status?.watcherActive ? 'Live' : 'Idle'}</span>
+            <span className={status?.watcherActive ? 'text-emerald-300' : 'text-amber-300'}>{activity?.realtime ?? 'polling'}</span>
           </div>
           <div className="mt-3 space-y-2">
+            {(activity?.auditEvents ?? []).slice(0, 4).map((event) => (
+              <div key={event.id} className="rounded-lg border border-sky-300/10 bg-slate-950/45 p-2 text-[11px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-slate-300">{event.action}</span>
+                  <span className={event.result === 'success' ? 'text-emerald-300' : event.result === 'denied' ? 'text-red-300' : 'text-amber-300'}>{event.result}</span>
+                </div>
+                <div className="mt-1 truncate font-mono text-[10px] text-slate-500">{event.toolId}</div>
+              </div>
+            ))}
+            {(activity?.toolRuns ?? []).slice(0, 3).map((run) => (
+              <div key={run.id} className="flex items-center justify-between gap-3 text-[11px]">
+                <span className="truncate text-cyan-100/80">Tool: {run.toolName}</span>
+                <span className={run.status === 'success' ? 'text-emerald-300' : 'text-amber-300'}>{run.status}</span>
+              </div>
+            ))}
             {(status?.recentEvents ?? []).slice(0, 6).map((event) => (
               <div key={event.id} className="flex items-center justify-between gap-3 text-[11px]">
                 <span className="truncate text-slate-400">{event.action}: {event.path}</span>
@@ -947,5 +1235,12 @@ const MiniStat: React.FC<{ label: string; value: number }> = ({ label, value }) 
   <div className="rounded-lg border border-sky-300/10 bg-slate-950/50 px-3 py-2">
     <div className="text-base font-semibold text-slate-100">{value}</div>
     <div className="text-[10px] text-slate-500">{label}</div>
+  </div>
+);
+
+const StatusChip: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="max-w-[18rem] rounded-lg border border-sky-300/10 bg-slate-950/55 px-3 py-2">
+    <div className="text-[9px] uppercase tracking-wide text-slate-500">{label}</div>
+    <div className="truncate text-[11px] text-slate-200">{value}</div>
   </div>
 );

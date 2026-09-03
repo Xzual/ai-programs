@@ -95,7 +95,9 @@ export class GeminiProvider implements AIProviderAdapter {
       id: "gemini",
       name: "Google Gemini",
       configured,
-      available: configured,
+      available: false,
+      healthy: false,
+      modelAvailable: configured,
       status: configured ? "unknown" : "configuration_required",
       privacyMode: "cloud",
       models: Array.from(new Set([defaultModel, ...DEFAULT_MODELS])).map((model) => ({ id: model, name: model })),
@@ -107,33 +109,56 @@ export class GeminiProvider implements AIProviderAdapter {
     };
   }
 
-  async healthCheck(): Promise<ProviderHealth> {
+  async healthCheck(options: Record<string, unknown> = {}): Promise<ProviderHealth> {
     const startedAt = Date.now();
     const meta = this.metadata();
+    const checkedModel = typeof options.model === "string" && options.model !== "auto" ? options.model : undefined;
+    const modelAvailable = checkedModel ? meta.models.some((model) => model.id === checkedModel) : meta.modelAvailable;
     if (!meta.configured) {
       return {
         ...meta,
         available: false,
+        healthy: false,
+        modelAvailable: false,
         status: "configuration_required",
         checkedAt: new Date().toISOString(),
+        checkedModel,
         latencyMs: 0,
         errorCode: "configuration_required",
         error: "GEMINI_API_KEY is not configured.",
       };
     }
 
+    if (!modelAvailable) {
+      return {
+        ...meta,
+        available: false,
+        healthy: false,
+        modelAvailable: false,
+        status: "unavailable",
+        checkedAt: new Date().toISOString(),
+        checkedModel,
+        latencyMs: 0,
+        errorCode: "model_unavailable",
+        error: `Gemini model is not available in EDITH metadata: ${checkedModel}`,
+      };
+    }
+
     try {
       await this.generate({
-        model: meta.defaultModel,
+        model: checkedModel ?? meta.defaultModel,
         messages: [{ role: "user", content: "Reply with OK." }],
         temperature: 0,
-        timeoutMs: 8000,
+        timeoutMs: typeof options.timeoutMs === "number" ? options.timeoutMs : 8000,
       });
       return {
         ...meta,
         available: true,
+        healthy: true,
+        modelAvailable: true,
         status: "available",
         checkedAt: new Date().toISOString(),
+        checkedModel,
         latencyMs: Date.now() - startedAt,
       };
     } catch (error) {
@@ -141,8 +166,11 @@ export class GeminiProvider implements AIProviderAdapter {
       return {
         ...meta,
         available: false,
+        healthy: false,
+        modelAvailable: providerError.code !== "model_unavailable",
         status: providerError.code === "rate_limited" ? "rate_limited" : "unavailable",
         checkedAt: new Date().toISOString(),
+        checkedModel,
         latencyMs: Date.now() - startedAt,
         errorCode: providerError.code,
         error: providerError.message,

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Activity, AlertTriangle, Bot, CheckCircle2, ChevronDown, Cloud, LogOut, PlusCircle, Power, RotateCcw, Server, UserRound, Volume2, VolumeX } from 'lucide-react';
 import { AiProvider, AssistantProfile, EdithAuthSession, ProviderHealthSnapshot, ProviderProfile, UserSettings } from '../../types';
 import { StatusPill } from '../ui/edithOS';
-import { modelsForProvider, providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
+import { modelDisabledReason, modelsForProvider, providerDisplayName, providerStatusLabel, providerTone, selectValidModelForProvider } from '../../edith/providerService';
 
 interface HeaderProps {
   settings: UserSettings;
@@ -47,15 +47,17 @@ export const Header: React.FC<HeaderProps> = ({
   const ollamaProvider = providerProfiles.find((profile) => profile.provider === 'ollama');
   const activeProviderStatus = activeProvider?.status ?? 'unknown';
   const providerOptions = providerProfiles.length ? providerProfiles : [];
-  const modelOptions = modelsForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel);
+  const modelOptions = modelsForProvider(settings.aiProvider, providerProfiles, availableModels);
+  const selectedModel = selectValidModelForProvider(settings.aiProvider, providerProfiles, availableModels, settings.selectedModel);
+  React.useEffect(() => {
+    if (selectedModel !== settings.selectedModel) {
+      onUpdateSettings({ selectedModel });
+    }
+  }, [onUpdateSettings, selectedModel, settings.selectedModel]);
 
   const handleProviderChange = (provider: AiProvider) => {
-    const nextModels = modelsForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
-    const nextProfile = providerProfiles.find((profile) => profile.provider === provider);
-    const selectedModel = nextModels.includes(settings.selectedModel)
-      ? settings.selectedModel
-      : nextProfile?.defaultModel ?? 'auto';
-    onUpdateSettings({ aiProvider: provider, selectedModel });
+    const nextModel = selectValidModelForProvider(provider, providerProfiles, availableModels, settings.selectedModel);
+    onUpdateSettings({ aiProvider: provider, selectedModel: nextModel });
   };
 
   return (
@@ -127,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             {providerOptions.map((profile) => (
               <option key={profile.provider} value={profile.provider} className="bg-slate-950 text-slate-100">
-                {profile.displayName}
+                {profile.displayName} ({providerStatusLabel(profile.status)})
               </option>
             ))}
           </select>
@@ -138,16 +140,18 @@ export const Header: React.FC<HeaderProps> = ({
           <label className="hidden text-slate-500 2xl:inline" htmlFor="edith-model-selector">Model</label>
           <select
             id="edith-model-selector"
-            value={settings.selectedModel || 'auto'}
+            value={selectedModel || 'auto'}
             onChange={(event) => onUpdateSettings({ selectedModel: event.target.value })}
             className="min-w-0 flex-1 bg-transparent text-[var(--assistant-primary)] outline-none"
             title="Select model without changing assistant persona"
           >
-            {modelOptions.map((model) => (
-              <option key={model} value={model} className="bg-slate-950 text-slate-100">
-                {model === 'auto' ? 'AUTO' : model}
+            {modelOptions.map((model) => {
+              const disabledReason = modelDisabledReason(settings.aiProvider, model, providerProfiles, availableModels);
+              return (
+              <option key={model} value={model} disabled={Boolean(disabledReason)} className="bg-slate-950 text-slate-100">
+                {model === 'auto' ? 'AUTO' : model}{disabledReason ? ` (${disabledReason})` : ''}
               </option>
-            ))}
+            );})}
           </select>
         </div>
 

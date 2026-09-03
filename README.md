@@ -1,6 +1,6 @@
-# AURA — Yerel AI Chatbot & Futuristik Asistan Dashboard'u
+# E.D.I.T.H. — Yerel Öncelikli Kişisel AI İşletim Sistemi
 
-**AURA** (Automated Universal Responsive Assistant), yerel makinenizde %100 gizlilik odağıyla çalışan, futuristik 3D parçacık çekirdeğine sahip, sesli etkileşimli, kişisel bellekli ve güvenli otomasyon araçlarına sahip bir AI asistan uygulamasıdır.
+**E.D.I.T.H.**, yerel makinenizde gizlilik odağıyla çalışan, provider/model ayrımı net, sesli etkileşimli, kişisel bellekli ve güvenli otomasyon araçlarına sahip bir kişisel AI işletim sistemi arayüzüdür.
 
 ---
 
@@ -59,7 +59,7 @@ Uygulamanız varsayılan olarak `http://localhost:3000` adresinde açılacaktır
 
 ## 🦙 Ollama Kurulumu ve Model Yükleme
 
-AURA'yı tamamen çevrimdışı ve yerel çalıştırmak için Ollama'yı kurun:
+E.D.I.T.H.'i tamamen çevrimdışı ve yerel çalıştırmak için Ollama'yı kurun:
 
 ### 1. Ollama İndirme & Kurulum
 
@@ -104,13 +104,13 @@ OLLAMA_ORIGINS="*" ollama serve
 | **16 GB RAM / GTX 1660 / RTX 3050 (4-6 GB VRAM)** | `llama3.2:latest` / `qwen2.5:7b` | Çok hızlı yanıt süresi, yüksek Türkçe başarısı |
 | **32 GB+ RAM / RTX 3080+ (8 GB+ VRAM)** | `mistral:7b` / `gemma2:9b` | Üst düzey yaratıcılık ve karmaşık kodlama |
 
-*AURA'nın 3D parçacık çekirdeği Ayarlar ekranından `Düşük`, `Orta` veya `Yüksek` olarak ayarlanabilir. Düşük donanımlı sistemlerde `Düşük (1.800 parçacık)` seçeneği önerilir.*
+*E.D.I.T.H.'in 3D parçacık çekirdeği Ayarlar ekranından `Düşük`, `Orta` veya `Yüksek` olarak ayarlanabilir. Düşük donanımlı sistemlerde `Düşük (1.800 parçacık)` seçeneği önerilir.*
 
 ---
 
 ## 📦 Masaüstü Uygulaması Olarak Paketleme (Tauri / Electron)
 
-AURA masaüstü uygulaması olarak paketlenmeye hazır mimaridedir.
+E.D.I.T.H. masaüstü uygulaması olarak paketlenmeye hazır mimaridedir.
 
 ### Tauri ile Paketleme (Tavsiye Edilen - Hafif & Hızlı)
 
@@ -129,7 +129,7 @@ npx tauri build
 
 ## 🛡️ Güvenlik ve Gizlilik İlkeleri
 
-- **API Anahtarları:** AURA ön yüz kodlarında API anahtarlarını saklamaz.
+- **API Anahtarları:** E.D.I.T.H. ön yüz kodlarında API anahtarlarını saklamaz.
 - **Yerel Depolama:** Tüm sohbet geçmişi ve bellek kayıtları tarayıcınızın veya masaüstü uygulamanızın yerel depolama alanında (IndexedDB/LocalStorage) saklanır.
 - **İzinler:** Dosya okuma ve zamanlayıcı oluşturma gibi dış dünyada yan etkisi olan her araç çalıştırmadan önce açık kullanıcı onayı ister.
 

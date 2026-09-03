@@ -468,8 +468,48 @@ export async function fetchProviderProfiles(ollamaConnected: boolean): Promise<P
   }
 }
 
-export function modelsForProvider(provider: AiProvider, providerProfiles: ProviderProfile[], availableModels: string[], selectedModel?: string): string[] {
+function providerModels(provider: AiProvider, providerProfiles: ProviderProfile[], availableModels: string[]): string[] {
   const profile = providerProfiles.find((candidate) => candidate.provider === provider);
-  const models = provider === 'ollama' && availableModels.length ? availableModels : profile?.models ?? profile?.modelExamples ?? [];
-  return Array.from(new Set(['auto', selectedModel, ...models, profile?.defaultModel].filter(Boolean) as string[]));
+  if (provider === 'ollama' && availableModels.length) return availableModels;
+  return profile?.models ?? profile?.modelExamples ?? [];
+}
+
+export function modelsForProvider(provider: AiProvider, providerProfiles: ProviderProfile[], availableModels: string[]): string[] {
+  const profile = providerProfiles.find((candidate) => candidate.provider === provider);
+  const models = providerModels(provider, providerProfiles, availableModels);
+  return Array.from(new Set(['auto', ...models, profile?.defaultModel].filter(Boolean) as string[]));
+}
+
+export function selectValidModelForProvider(
+  provider: AiProvider,
+  providerProfiles: ProviderProfile[],
+  availableModels: string[],
+  currentModel?: string
+): string {
+  const profile = providerProfiles.find((candidate) => candidate.provider === provider);
+  const models = providerModels(provider, providerProfiles, availableModels).filter((model) => model !== 'auto');
+  if (provider === 'ollama' && !availableModels.length && profile?.status !== 'available') return 'auto';
+  if (currentModel && currentModel !== 'auto' && models.includes(currentModel)) return currentModel;
+  if (profile?.defaultModel && models.includes(profile.defaultModel)) return profile.defaultModel;
+  return models[0] ?? 'auto';
+}
+
+export function modelDisabledReason(
+  provider: AiProvider,
+  model: string,
+  providerProfiles: ProviderProfile[],
+  availableModels: string[]
+): string | undefined {
+  if (model === 'auto') return undefined;
+  const profile = providerProfiles.find((candidate) => candidate.provider === provider);
+  const status = profile?.status ?? 'unknown';
+  if (status === 'configuration_required') return 'configuration required';
+  if (status === 'offline') return 'provider offline';
+  if (status === 'unavailable' || status === 'error') return 'provider unavailable';
+  if (status === 'rate_limited') return 'provider rate limited';
+  if (status === 'unknown') return 'provider status unknown';
+  if (provider === 'ollama' && availableModels.length > 0 && !availableModels.includes(model)) return 'model unavailable';
+  const models = providerModels(provider, providerProfiles, availableModels);
+  if (models.length > 0 && !models.includes(model)) return 'model unavailable';
+  return undefined;
 }

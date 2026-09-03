@@ -17,11 +17,14 @@ export type AiProvider = 'ollama' | 'gemini' | 'openai' | 'anthropic' | 'openrou
 export type AssistantPersona = 'jarvis' | 'friday' | 'ultron' | 'karen' | 'alfred' | 'homer';
 export type ProviderRuntimeStatus =
   | 'available'
+  | 'pending'
+  | 'attempting'
   | 'unavailable'
   | 'configuration_required'
   | 'rate_limited'
   | 'offline'
   | 'degraded'
+  | 'failed'
   | 'error'
   | 'unknown';
 
