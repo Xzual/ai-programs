@@ -1,0 +1,467 @@
+Window: "E.D.I.T.H. - Personal AI System", App: edith.exe.
+	0 pencere E.D.I.T.H. - Personal AI System Secondary Actions: Raise
+		1 bölme TAURI_DRAG_RESIZE_WINDOW
+		2 bölme
+			3 bölme E.D.I.T.H.
+				4 bölme (disabled)
+				5 bölge E.D.I.T.H. - Web içeriği
+					6 bölge
+						7 bölge
+						8 bölge
+							9 bölge
+								10 belge E.D.I.T.H. ID: RootWebArea
+									11 grup
+										12 grup ID: root
+											13 düğme E.D.I.T.H. Personal AI System / JARVIS Computer READ ONLY Desktop 1.0.0 Description: Drag E.D.I.T.H. window
+											14 düğme Stop Description: Emergency stop: stops speech/streaming state only
+											15 düğme Minimize Description: Minimize
+											16 düğme Maximize Description: Maximize
+											17 düğme Toggle fullscreen Description: Toggle fullscreen
+											18 düğme Close Description: Close
+											19 tamamlayıcı
+												20 başlık E.D.I.T.H.
+												21 metin PERSONAL AI OS
+												22 gezinme
+													23 düğme Command Center Description: Command Center
+													24 düğme Chat Description: Chat
+													25 düğme Agents Description: Agents
+													26 düğme Tasks Description: Tasks
+													27 düğme Computer Use Description: Computer Use
+													28 düğme Browser Description: Browser
+													29 düğme Memory Description: Memory
+													30 düğme Knowledge Graph Description: Knowledge Graph
+													31 düğme Automations Description: Automations
+													32 düğme Files Description: Files
+													33 düğme Coding Description: Coding
+													34 düğme Trading Description: Trading
+													35 düğme Tools / MCP Description: Tools / MCP
+													36 düğme Voice Description: Voice
+													37 düğme Integrations Description: Integrations
+													38 düğme Security Description: Security
+													39 düğme System Description: System
+													40 düğme Settings Description: Settings
+												41 metin Ollama
+												42 metin qwen2.5:3b
+												43 metin /
+												44 metin ONLINE
+											45 üst bilgi
+												46 düğme Assistant: JARVIS
+												47 birleşik giriş kutusu Select model provider without changing assistant persona Description: Select model provider without changing assistant persona ID: edith-provider-selector
+												48 birleşik giriş kutusu Select model without changing assistant persona Description: Select model without changing assistant persona ID: edith-model-selector
+												49 düğme Ollama ONLINE Description: Provider status
+												50 düğme Otomatik Seslendirme Kapalı Description: Otomatik Seslendirme Kapalı
+												51 düğme Sohbeti Temizle Description: Sohbeti Temizle
+												52 düğme Yeni Sohbet
+												53 düğme Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur Description: Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur
+												54 düğme Çıkış Yap Description: Çıkış Yap
+											55 ana
+												510 metin CRYPTO OBSERVER MODE
+												511 metin OFFLINE
+												512 metin OBSERVER STOPPED
+												513 metin LIVE TRADING LOCKED
+												514 metin EXECUTION NO ACTION
+												515 metin PAPER DISABLED
+												516 metin E.D.I.T.H. / MARKET INTELLIGENCE
+												517 başlık CRYPTO INTELLIGENCE COCKPIT
+												518 metin Read-only market awareness, permission visibility, risk veto state and learning sync. This screen never exposes secrets and never places orders.
+												519 düğme REFRESH COCKPIT
+												520 metin MODE
+												521 metin OBSERVER ONLY
+												522 metin SERVICE
+												523 metin OFFLINE
+												524 metin OBSERVER
+												525 metin STOPPED
+												526 metin OLLAMA
+												527 metin OFFLINE
+												528 metin MARKET DATA
+												529 metin STANDBY
+												530 metin LAST CHECK
+												531 metin 14:14:41
+												532 metin MISSION CONTROL / FRONTEND SAFE
+												533 başlık CRYPTO OBSERVER CONTROL
+												534 metin STATUS
+												535 metin STOPPED
+												536 metin MODE
+												537 metin OBSERVER_ONLY
+												538 metin SAFETY
+												539 metin ORDER EXECUTION BLOCKED
+												540 düğme (disabled) START MARKET OBSERVER Description: Crypto service is offline.
+												541 düğme (disabled) STOP OBSERVER Description: Stop is available only while observer is running, starting, or paused.
+												542 düğme (disabled) PAUSE Description: Pause endpoint is not exposed by the backend yet.
+												543 düğme (disabled) RESUME Description: Resume endpoint is not exposed by the backend yet.
+												544 düğme REFRESH STATUS
+												545 metin Live trading
+												546 metin LOCKED
+												547 metin Paper trading
+												548 metin DISABLED
+												549 metin Order execution
+												550 metin BLOCKED
+												551 metin Ollama is offline. AI market analysis cannot start.
+												552 metin Obsidian export is not configured.
+												553 metin Crypto Service Offline
+												554 metin Observer service is not running, so live market feeds and learning notes are paused. Start Market Observer keeps all trading execution locked.
+												555 metin OBSERVER STOPPED
+												556 metin LIVE TRADING LOCKED
+												557 metin PAPER TRADING DISABLED
+												558 metin NO DECISIONS EXECUTED
+												559 metin Startup command
+												560 metin npm run crypto:observer
+												561 metin Fallback command
+												562 metin python crypto/run_agent.py
+												563 metin Expected service URL
+												564 metin http://localhost:5000
+												565 düğme RETRY
+								112 bölge
+		113 başlık çubuğu
+			114 menü çubuğu Sistem ID: MenuBar
+				115 menü öğesi Sistem
+			116 düğme Simge Durumuna Küçült
+			117 düğme Ekranı Kapla
+			118 düğme Kapat
+
+Document text: ```
+E.D.I.T.H.
+Personal AI System
+/
+JARVIS
+Computer READ ONLY
+Desktop 1.0.0
+Stop
+￼
+￼
+￼
+￼
+￼
+E.D.I.T.H.
+PERSONAL AI OS
+Command Center
+Chat
+Agents
+Tasks
+Computer Use
+Browser
+Memory
+Knowledge Graph
+Automations
+Files
+Coding
+Trading
+Tools / MCP
+Voice
+Integrations
+Security
+System
+Settings
+Ollama
+qwen2.5:3b / ONLINE
+Assistant:
+JARVIS
+￼
+￼
+Ollama
+ONLINE
+￼
+￼
+Yeni Sohbet
+￼
+￼
+￼
+CRYPTO OBSERVER MODE
+OFFLINE
+OBSERVER STOPPED
+LIVE TRADING LOCKED
+EXECUTION NO ACTION
+PAPER DISABLED
+E.D.I.T.H. / MARKET INTELLIGENCE
+CRYPTO INTELLIGENCE COCKPIT
+Read-only market awareness, permission visibility, risk veto state and learning sync. This screen never exposes secrets and never places orders.
+REFRESH COCKPIT
+MODE
+OBSERVER ONLY
+SERVICE
+OFFLINE
+OBSERVER
+STOPPED
+OLLAMA
+OFFLINE
+MARKET DATA
+STANDBY
+LAST CHECK
+14:14:41
+￼
+MISSION CONTROL / FRONTEND SAFE
+CRYPTO OBSERVER CONTROL
+STATUS
+STOPPED
+MODE
+OBSERVER_ONLY
+SAFETY
+ORDER EXECUTION BLOCKED
+START MARKET OBSERVER
+STOP OBSERVER
+PAUSE
+RESUME
+REFRESH STATUS
+Live trading
+LOCKED
+Paper trading
+DISABLED
+Order execution
+BLOCKED
+Ollama is offline. AI market analysis cannot start.
+Obsidian export is not configured.
+Crypto Service Offline
+Observer service is not running, so live market feeds and learning notes are paused. Start Market Observer keeps all trading execution locked.
+OBSERVER STOPPED
+LIVE TRADING LOCKED
+PAPER TRADING DISABLED
+NO DECISIONS EXECUTED
+Startup command
+npm run crypto:observer
+Fallback command
+python crypto/run_agent.py
+Expected service URL
+http://localhost:5000
+Last checked
+14:14:41
+Crypto dashboard henüz yanıt vermiyor; agent başlatılıyor olabilir.
+RETRY
+￼
+SAFE PLACEHOLDER
+Market Radar
+￼
+￼
+￼
+￼
+￼
+BTC/USDT radar node
+ETH/USDT radar node
+DOGE/USDT radar node
+USDC/USDT radar node
+SCAN STOPPED
+OBSERVER ONLY
+￼
+SYMBOL CONTROL
+Watchlist Matrix
+BTC/USDT
+CATEGORY: MAJORS
+RISK MEDIUM
+WATCH
+Enabled
+DECISION
+Allowed
+PAPER
+Disabled
+LIVE
+Locked
+ETH/USDT
+CATEGORY: MAJORS
+RISK MEDIUM
+WATCH
+Enabled
+DECISION
+Allowed
+PAPER
+Disabled
+LIVE
+Locked
+DOGE/USDT
+CATEGORY: MEME
+RISK HIGH
+WATCH
+Enabled
+DECISION
+Blocked
+PAPER
+Disabled
+LIVE
+Locked
+High-risk symbol requires approval before any backend action.
+USDC/USDT
+CATEGORY: STABLECOINS
+RISK LOW
+WATCH
+Enabled
+DECISION
+Blocked
+PAPER
+Disabled
+LIVE
+Locked
+￼
+PLACEHOLDER
+Market Observations
+Market radar standing by
+Observer service is offline, so no live market observations are being displayed.
+PLACEHOLDER
+SOURCE: SAFE-UI
+TIME: NOT REPORTED
+Execution layer locked
+No order actions are exposed in this cockpit. Live trading remains disabled.
+SAFETY
+SOURCE: SAFE-UI
+TIME: NOT REPORTED
+Learning stream paused
+Start the crypto observer service to sync fresh notes into the Obsidian learning path.
+PENDING
+SOURCE: SAFE-UI
+TIME: NOT REPORTED
+￼
+PLACEHOLDER
+Decision Feed
+BTC/USDT
+Provider: backend not connected
+HOLD
+Confidence
+-
+Risk result
+Pending
+Reason: No connected decision feed. Safe placeholder only.
+DOGE/USDT
+Provider: backend not connected
+SKIPPED
+Confidence
+-
+Risk result
+Rejected
+Reason: WATCH_ONLY / DECISION_DISABLED
+￼
+PLACEHOLDER
+Learning Notes / Obsidian Sync
+Vault path
+D:\EDİTH\EDİTH
+Learning folder
+Trading/Crypto Market Learning
+Writable
+no / not reported
+Sync status
+paused / service offline
+Last sync
+not reported
+No live learning notes connected
+This is a placeholder until /api/learning-notes or /api/obsidian-status responds.
+￼
+STALE / DEMO MEMORY
+Paper Portfolio
+STALE / DEMO MEMORY
+LIVE TRADING LOCKED
+NOT LIVE PERFORMANCE
+Starting balance
+not connected
+Current paper equity
+not connected
+Open paper positions
+0
+Closed trades
+0
+Paper / stored PnL
+not connected
+Trade journal
+not connected
+These values are secondary observer context. Latest observations are the primary signal; this UI does not present live account performance or execution authority.
+￼
+ALWAYS ON
+Safety Lock Panel
+Live trading disabled
+Paper trading disabled
+Buy/Sell execution blocked
+Execution buttons unavailable
+Binance API keys hidden
+Withdrawals unsupported / blocked
+High-risk symbols require approval
+Not financial advice
+Mode
+observer only
+Safety status
+LOCKED
+Finance integrations
+1
+Audit events
+0
+￼
+LOCAL AI DEPENDENCY
+Ollama Status
+Status
+Offline
+Model
+not reported
+Last checked
+14:14:41
+Error code
+not reported
+Ollama is offline. AI market analysis cannot start.
+￼
+CONFIGURATION REQUIRED
+Obsidian Status
+Vault
+D:\EDİTH\EDİTH
+Folder
+Trading/Crypto Market Learning
+Writable
+no
+Last export
+not reported
+Obsidian export is not configured.
+￼
+SAFE PLACEHOLDER
+Binance Connection
+Public market data
+standby
+Read-only account
+not configured
+Trading permission
+disabled / locked
+API key
+never displayed
+Market data unavailable. Backend must report Binance health before this cockpit can show real feeds.
+￼
+VETO LAYER
+Risk Engine
+Max open positions
+not connected
+Max allocation
+not connected
+Max position size
+not connected
+Stop-loss
+not connected
+Take-profit
+not connected
+Risk veto count
+not connected
+Last rejection
+none reported
+￼
+OBSERVER LIFECYCLE
+Observer Progress
+Status
+STOPPED
+Current symbol
+NONE
+Last observation
+NOT REPORTED
+Last learning note
+NOT CONNECTED
+Watched symbols
+BTC/USDT, ETH/USDT, DOGE/USDT, USDC/USDT
+Ignored symbols
+DOGE/USDT
+Execution
+LOCKED
+￼
+PERMISSION CONFIG
+Category Rules
+Majors
+Watch enabled
+Paper trading allowed
+Live locked
+Meme
+Watch enabled
+Decision disabled
+Paper blocked, approval required
+Stablecoins
+Watch only
+Trading blocked
+Live locked
+Coin permission config not connected. Safe defaults are shown.
+```

@@ -1,0 +1,130 @@
+Window: "E.D.I.T.H. - Personal AI System", App: edith.exe.
+	0 pencere E.D.I.T.H. - Personal AI System Secondary Actions: Raise
+		1 bölme TAURI_DRAG_RESIZE_WINDOW
+		2 bölme
+			3 bölme E.D.I.T.H.
+				4 bölme (disabled)
+				5 bölge E.D.I.T.H. - Web içeriği
+					6 bölge
+						7 bölge
+						8 bölge
+							9 bölge
+								10 belge E.D.I.T.H. ID: RootWebArea
+									11 grup
+										12 grup ID: root
+											13 düğme E.D.I.T.H. Personal AI System / JARVIS Computer READ ONLY Desktop 1.0.0 Description: Drag E.D.I.T.H. window
+											14 düğme Stop Description: Emergency stop: stops speech/streaming state only
+											15 düğme Minimize Description: Minimize
+											16 düğme Maximize Description: Maximize
+											17 düğme Toggle fullscreen Description: Toggle fullscreen
+											18 düğme Close Description: Close
+											19 tamamlayıcı
+												20 başlık E.D.I.T.H.
+												21 metin PERSONAL AI OS
+												22 gezinme
+													23 düğme Command Center Description: Command Center
+													24 düğme Chat Description: Chat
+													25 düğme Agents Description: Agents
+													26 düğme Tasks Description: Tasks
+													27 düğme Computer Use Description: Computer Use
+													28 düğme Browser Description: Browser
+													29 düğme Memory Description: Memory
+													30 düğme Knowledge Graph Description: Knowledge Graph
+													31 düğme Automations Description: Automations
+													32 düğme Files Description: Files
+													33 düğme Coding Description: Coding
+													34 düğme Trading Description: Trading
+													35 düğme Tools / MCP Description: Tools / MCP
+													36 düğme Voice Description: Voice
+													37 düğme Integrations Description: Integrations
+													38 düğme Security Description: Security
+													39 düğme System Description: System
+													40 düğme Settings Description: Settings
+												41 metin Ollama
+												42 metin qwen2.5:3b
+												43 metin /
+												44 metin ONLINE
+											45 üst bilgi
+												46 düğme Assistant: JARVIS
+												47 birleşik giriş kutusu Select model provider without changing assistant persona Description: Select model provider without changing assistant persona ID: edith-provider-selector
+												48 birleşik giriş kutusu Select model without changing assistant persona Description: Select model without changing assistant persona ID: edith-model-selector
+												49 düğme Ollama ONLINE Description: Provider status
+												50 düğme Otomatik Seslendirme Kapalı Description: Otomatik Seslendirme Kapalı
+												51 düğme Sohbeti Temizle Description: Sohbeti Temizle
+												52 düğme Yeni Sohbet
+												53 düğme Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur Description: Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur
+												54 düğme Çıkış Yap Description: Çıkış Yap
+											55 ana
+												137 metin TRANSMISSION
+												138 başlık Chat Console
+												139 metin ASSISTANT
+												140 metin JARVIS
+												141 metin MODEL
+												142 metin QWEN2.5:3B
+												143 metin PROVIDER
+												144 metin OLLAMA
+												145 metin STATUS
+												146 metin ONLINE
+												147 metin STATE
+												148 metin IDLE
+												149 metin VISIBLE OPS
+												150 başlık Guardrails
+												151 metin Bu ekran sadece konuşma için. Task, tool, Computer Use ve Browser akışları Command Center ve ilgili modüllerde izlenir.
+												152 metin INPUT
+												153 başlık Voice
+												154 metin Ses açık olduğunda yanıtlar okunabilir; mikrofon komutları alttaki input üzerinden yürür.
+												155 başlık TRANSMISSION CONSOLE
+												156 metin 3
+												157 metin Mesaj
+												158 metin ASSISTANT
+												159 metin JARVIS
+												160 metin MODEL
+												161 metin QWEN2.5:3B
+												162 metin PROVIDER
+												163 metin OLLAMA
+												164 metin GEMINI
+												165 metin SETUP REQUIRED
+												166 metin OLLAMA
+												167 metin ONLINE
+												168 makale
+													169 metin JARVIS // RESPONSE
+													170 metin 13:48
+													171 metin MODEL
+													172 metin QWEN2.5:3B
+													173 metin PROVIDER
+													174 metin OLLAMA
+													175 metin PROVIDER OK
+													176 metin Merhaba efendim. Ben JARVIS; E.D.I.T.H. içinde aktif asistan profilinizim.
+													177 metin Action summary only. Hidden reasoning is not exposed.
+													178 düğme Sesli okut Description: Sesli okut
+												185 makale
+													186 metin YOU // COMMAND
+													187 metin 14:09
+													188 metin Bu bir kullanıcı testi. 17 + 25 kaç eder? Tek cümle Türkçe yanıt ver.
+												189 makale
+													190 metin JARVIS // RESPONSE
+													191 metin 14:09
+													192 metin MODEL
+													193 metin QWEN2.5:3B
+													194 metin PROVIDER
+													195 metin OLLAMA
+													196 metin PROVIDER OK
+													197 metin 32 eder. Efendim.
+													198 metin Action summary only. Hidden reasoning is not exposed.
+													199 düğme Sesli okut Description: Sesli okut
+												179 düğme Mikrofonu Aç Description: Mikrofonu Aç
+												180 grup Description: Current voice mode
+													181 metin PUSH_TO_TALK
+												182 düzenle JARVIS asistanınıza yazın veya mikrofona basın... Description: JARVIS asistanınıza yazın veya mikrofona basın... ID: edith-text-input
+												183 düğme (disabled) Gönder (Enter) Description: Gönder (Enter)
+								112 bölge
+		113 başlık çubuğu
+			114 menü çubuğu Sistem ID: MenuBar
+				115 menü öğesi Sistem
+			116 düğme Simge Durumuna Küçült
+			117 düğme Ekranı Kapla
+			118 düğme Kapat
+
+Document text: ```
+￼
+```

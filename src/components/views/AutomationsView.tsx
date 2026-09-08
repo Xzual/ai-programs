@@ -49,13 +49,13 @@ const CATEGORY_META: Record<string, { label: string; color: string; bg: string; 
   media:   { label: 'Medya',       color: 'text-rose-400',    bg: 'bg-rose-950/60',    border: 'border-rose-500/30' },
   code:    { label: 'Kod',         color: 'text-fuchsia-400', bg: 'bg-fuchsia-950/60', border: 'border-fuchsia-500/30' },
   monitor: { label: 'İzleme',      color: 'text-teal-400',    bg: 'bg-teal-950/60',    border: 'border-teal-500/30' },
-  vision:  { label: 'Vision',      color: 'text-sky-400',     bg: 'bg-sky-950/60',     border: 'border-sky-500/30' },
-  computer:{ label: 'Computer',    color: 'text-red-400',     bg: 'bg-red-950/60',     border: 'border-red-500/30' },
-  browser: { label: 'Browser',     color: 'text-blue-400',    bg: 'bg-blue-950/60',    border: 'border-blue-500/30' },
+  vision:  { label: 'Görsel',      color: 'text-sky-400',     bg: 'bg-sky-950/60',     border: 'border-sky-500/30' },
+  computer:{ label: 'Bilgisayar',  color: 'text-red-400',     bg: 'bg-red-950/60',     border: 'border-red-500/30' },
+  browser: { label: 'Tarayıcı',    color: 'text-blue-400',    bg: 'bg-blue-950/60',    border: 'border-blue-500/30' },
   design3d:{ label: '3D',          color: 'text-cyan-300',    bg: 'bg-cyan-950/60',    border: 'border-cyan-500/30' },
   iot:     { label: 'IoT',         color: 'text-lime-400',    bg: 'bg-lime-950/60',    border: 'border-lime-500/30' },
   finance: { label: 'Finans',      color: 'text-amber-300',   bg: 'bg-amber-950/60',   border: 'border-amber-500/30' },
-  knowledge:{ label: 'Knowledge',   color: 'text-cyan-300',    bg: 'bg-cyan-950/60',    border: 'border-cyan-500/30' },
+  knowledge:{ label: 'Bilgi',      color: 'text-cyan-300',    bg: 'bg-cyan-950/60',    border: 'border-cyan-500/30' },
 };
 
 // ── Araç ikonu ────────────────────────────────────────────────────────────────

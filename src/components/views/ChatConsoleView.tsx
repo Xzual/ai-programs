@@ -44,21 +44,21 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
     <div className="edith-workspace flex min-h-0 flex-col custom-scrollbar">
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 xl:grid-cols-[18rem_1fr]">
         <div className="hidden min-h-0 flex-col gap-4 xl:flex">
-          <OSPanel title="Chat Console" eyebrow="TRANSMISSION" icon={<MessageSquare className="h-4 w-4" />}>
+          <OSPanel title="Sohbet Konsolu" eyebrow="İLETİM" icon={<MessageSquare className="h-4 w-4" />}>
             <div className="space-y-2">
-              <StatusPill label="Assistant" value={assistantProfile.name} tone="info" />
-              <StatusPill label="Model" value={settings.selectedModel || 'AUTO'} tone="muted" />
-              <StatusPill label="Provider" value={providerDisplayName(settings.aiProvider)} tone={providerTone(providerStatus)} />
-              <StatusPill label="Status" value={providerStatusLabel(providerStatus)} tone={providerTone(providerStatus)} />
-              <StatusPill label="State" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
+              <StatusPill label="Asistan" value={assistantProfile.name} tone="info" />
+              <StatusPill label="Model" value={settings.selectedModel || 'OTOMATİK'} tone="muted" />
+              <StatusPill label="Sağlayıcı" value={providerDisplayName(settings.aiProvider)} tone={providerTone(providerStatus)} />
+              <StatusPill label="Durum" value={providerStatusLabel(providerStatus)} tone={providerTone(providerStatus)} />
+              <StatusPill label="Aşama" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
             </div>
           </OSPanel>
-          <OSPanel title="Guardrails" eyebrow="VISIBLE OPS" icon={<ShieldCheck className="h-4 w-4" />}>
+          <OSPanel title="Güvenlik Sınırları" eyebrow="GÖRÜNÜR İŞLEMLER" icon={<ShieldCheck className="h-4 w-4" />}>
             <p className="text-xs leading-relaxed text-slate-500">
               Bu ekran sadece konuşma için. Task, tool, Computer Use ve Browser akışları Command Center ve ilgili modüllerde izlenir.
             </p>
           </OSPanel>
-          <OSPanel title="Voice" eyebrow="INPUT" icon={<RadioTower className="h-4 w-4" />}>
+          <OSPanel title="Ses" eyebrow="GİRDİ" icon={<RadioTower className="h-4 w-4" />}>
             <p className="text-xs leading-relaxed text-slate-500">
               Ses açık olduğunda yanıtlar okunabilir; mikrofon komutları alttaki input üzerinden yürür.
             </p>

@@ -6,8 +6,10 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Dict
+from obsidian_path import CRYPTO_OBSIDIAN_FOLDER as DEFAULT_CRYPTO_OBSIDIAN_FOLDER, EXPECTED_VAULT_PATH, resolve_obsidian_vault_path
 
 CRYPTO_ROOT = Path(__file__).resolve().parents[1]
+OBSIDIAN_RESOLUTION = resolve_obsidian_vault_path(CRYPTO_ROOT / "config" / "observer_config.json")
 
 @dataclass
 class Config:
@@ -85,9 +87,12 @@ class Config:
         "CRYPTO_OBSERVER_CONFIG",
         str(CRYPTO_ROOT / "config" / "observer_config.json"),
     )
-    EDITH_OBSIDIAN_VAULT_PATH: str = os.getenv("EDITH_OBSIDIAN_VAULT_PATH", r"D:\EDİTH\EDİTH").strip()
+    EDITH_OBSIDIAN_VAULT_PATH: str = OBSIDIAN_RESOLUTION.get("vaultPath") if OBSIDIAN_RESOLUTION.get("ok") else ""
+    OBSIDIAN_PATH_ERROR_CODE: str = OBSIDIAN_RESOLUTION.get("errorCode")
+    OBSIDIAN_PATH_RECEIVED: str = OBSIDIAN_RESOLUTION.get("receivedPath")
+    OBSIDIAN_PATH_EXPECTED: str = OBSIDIAN_RESOLUTION.get("expectedPath", EXPECTED_VAULT_PATH)
     CRYPTO_OBSIDIAN_ENABLED: bool = os.getenv("CRYPTO_OBSIDIAN_ENABLED", "false").strip().lower() == "true"
-    CRYPTO_OBSIDIAN_FOLDER: str = "Trading/Crypto Market Learning"
+    CRYPTO_OBSIDIAN_FOLDER: str = DEFAULT_CRYPTO_OBSIDIAN_FOLDER
     CRYPTO_ALLOW_MARKET_DATA_ONLY_WHEN_OLLAMA_OFFLINE: bool = (
         os.getenv("CRYPTO_ALLOW_MARKET_DATA_ONLY_WHEN_OLLAMA_OFFLINE", "true").strip().lower() == "true"
     )

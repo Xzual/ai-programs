@@ -43,6 +43,8 @@ export type ProviderErrorCode =
   | "rate_limited"
   | "invalid_api_key"
   | "model_unavailable"
+  | "empty_response"
+  | "empty_final_response_with_thinking"
   | "malformed_response"
   | "unknown_error";
 
@@ -52,6 +54,8 @@ export interface GenerateOptions {
   temperature?: number;
   timeoutMs?: number;
   ollamaUrl?: string;
+  firstTokenTimeoutMs?: number;
+  generationTimeoutMs?: number;
 }
 
 export interface GenerateResult {
@@ -64,6 +68,7 @@ export interface GenerateResult {
 export interface StreamChunk {
   text?: string;
   done?: boolean;
+  status?: string;
 }
 
 export interface AIProviderAdapter {

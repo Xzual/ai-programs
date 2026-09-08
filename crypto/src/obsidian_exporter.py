@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 from config import CONFIG
+from obsidian_path import build_obsidian_status, resolve_obsidian_vault_path, validate_obsidian_vault_path
 
 SECRET_PATTERNS = [
     re.compile(r"BINANCE_API_KEY\s*=\s*\S+", re.IGNORECASE),
@@ -21,36 +22,48 @@ SECRET_PATTERNS = [
 
 class ObsidianMarketExporter:
     def __init__(self, vault_path: str = None, folder: str = None, enabled: bool = None):
-        self.vault_path = Path(vault_path or CONFIG.EDITH_OBSIDIAN_VAULT_PATH)
+        self.resolution = (
+            validate_obsidian_vault_path(vault_path, "explicit")
+            if vault_path is not None
+            else resolve_obsidian_vault_path(Path(CONFIG.OBSERVER_CONFIG_PATH))
+        )
+        raw_vault_path = self.resolution.get("vaultPath") if self.resolution.get("ok") else None
+        self.vault_path = Path(raw_vault_path) if raw_vault_path else None
         self.folder = (folder or CONFIG.CRYPTO_OBSIDIAN_FOLDER).strip("/\\")
         self.enabled = CONFIG.CRYPTO_OBSIDIAN_ENABLED if enabled is None else bool(enabled)
 
     def status(self) -> Dict[str, Any]:
-        target_path = str((self.vault_path / self.folder).resolve()) if self.vault_path else None
+        structured = build_obsidian_status(self.enabled, self.vault_path, self.folder, self.resolution)
+        target_path = structured.get("resolvedPath")
         base_status = {
             "global_vault_config": "EDITH_OBSIDIAN_VAULT_PATH",
             "uses_global_edith_vault": True,
-            "vault_path": str(self.vault_path) if self.vault_path else None,
+            "vault_path": structured.get("vaultPath"),
             "relative_folder": self.folder,
             "target_path": target_path,
             "last_export_path": None,
+            "enabled": structured.get("enabled"),
+            "vaultPath": structured.get("vaultPath"),
+            "folder": structured.get("folder"),
+            "resolvedPath": structured.get("resolvedPath"),
+            "vaultPathConfigured": structured.get("vaultPathConfigured"),
+            "available": structured.get("available"),
+            "writable": structured.get("writable"),
+            "errorCode": structured.get("errorCode"),
+            "expectedPath": structured.get("expectedPath"),
+            "receivedPath": structured.get("receivedPath"),
+            "obsidian": structured,
         }
-        if not self.enabled:
-            return {**base_status, "status": "disabled", "configured": False}
-        if not self.vault_path:
-            return {**base_status, "status": "configuration_required", "configured": False}
-        if not self.vault_path.exists():
-            return {**base_status, "status": "configuration_required", "configured": False}
         return {
             **base_status,
-            "status": "ready",
-            "configured": True,
+            "status": structured.get("status"),
+            "configured": structured.get("vaultPathConfigured"),
         }
 
     def export_observation(self, observation: Dict[str, Any], timestamp: datetime = None) -> Dict[str, Any]:
         timestamp = timestamp or datetime.now()
         status = self.status()
-        if status["status"] != "ready":
+        if status["status"] != "connected":
             return status
 
         daily_path = self._safe_path("Daily", f"{timestamp.date().isoformat()}.md")
@@ -69,7 +82,7 @@ class ObsidianMarketExporter:
 
     def write_export_test(self) -> Dict[str, Any]:
         status = self.status()
-        if status["status"] != "ready":
+        if status["status"] != "connected":
             return status
         test_path = self._safe_path("", "_EDITH_CRYPTO_EXPORT_TEST.md")
         test_path.write_text(
@@ -77,7 +90,8 @@ class ObsidianMarketExporter:
             "Status: OK\n"
             "Mode: OBSERVER_ONLY\n"
             "Live Trading: Disabled\n"
-            "Paper Trading: Disabled\n",
+            "Paper Trading: Disabled\n"
+            "Path Encoding: OK\n",
             encoding="utf-8",
         )
         return {

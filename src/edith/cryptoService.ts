@@ -24,11 +24,21 @@ export interface CryptoAgentStatus {
   error?: string;
 }
 
-const DASHBOARD_URL = process.env.EDITH_CRYPTO_DASHBOARD_URL || 'http://localhost:5000';
+const DASHBOARD_URL = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || 'http://localhost:5000';
 const PROJECT_PATH = process.env.EDITH_CRYPTO_PROJECT_PATH || path.join(process.cwd(), 'crypto');
-const PYTHON_PATH = process.env.EDITH_CRYPTO_PYTHON_PATH || path.join(PROJECT_PATH, '.venv', 'Scripts', 'python.exe');
 const SCRIPT_PATH = path.join(PROJECT_PATH, 'run_agent.py');
 const LOG_PATH = path.join(PROJECT_PATH, 'logs', 'edith-autostart.log');
+const DEFAULT_OBSIDIAN_VAULT_PATH = 'D:\\EDİTH\\EDİTH';
+
+function resolvePythonPath(): string {
+  if (process.env.EDITH_CRYPTO_PYTHON_PATH) return process.env.EDITH_CRYPTO_PYTHON_PATH;
+  const candidates = [
+    path.join(PROJECT_PATH, '.venv', 'Scripts', 'python.exe'),
+    path.join(process.cwd(), '.venv', 'Scripts', 'python.exe'),
+  ];
+  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  return existing ?? (process.platform === 'win32' ? 'py' : 'python');
+}
 
 export class CryptoService {
   private child?: ChildProcessWithoutNullStreams;
@@ -68,29 +78,34 @@ export class CryptoService {
     if (!fs.existsSync(PROJECT_PATH)) {
       return { ...current, error: `Crypto project path not found: ${PROJECT_PATH}` };
     }
-    if (!fs.existsSync(PYTHON_PATH)) {
-      return { ...current, error: `Crypto Python runtime not found: ${PYTHON_PATH}` };
-    }
     if (!fs.existsSync(SCRIPT_PATH)) {
       return { ...current, error: `Crypto agent script not found: ${SCRIPT_PATH}` };
     }
+    const pythonPath = resolvePythonPath();
 
     fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
     const out = fs.createWriteStream(LOG_PATH, { flags: 'a' });
     out.write(`\n[${new Date().toISOString()}] Starting crypto agent: ${reason}\n`);
 
-    this.child = spawn(PYTHON_PATH, [SCRIPT_PATH], {
+    this.child = spawn(pythonPath, [SCRIPT_PATH], {
       cwd: PROJECT_PATH,
       windowsHide: true,
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1',
-        CRYPTO_MODE: process.env.CRYPTO_MODE || 'OBSERVER_ONLY',
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8',
+        EDITH_CRYPTO_AUTOSTART: 'true',
+        CRYPTO_MODE: 'OBSERVER_ONLY',
+        TRADING_MODE: 'OBSERVER_ONLY',
         CRYPTO_TRADING_ENABLED: 'false',
         CRYPTO_PAPER_TRADING_ENABLED: 'false',
         CRYPTO_LIVE_TRADING_ENABLED: 'false',
+        ENABLE_LIVE_TRADING: 'false',
+        BINANCE_TRADING_ENABLED: 'false',
         CRYPTO_OBSIDIAN_ENABLED: process.env.CRYPTO_OBSIDIAN_ENABLED || 'true',
-        EDITH_OBSIDIAN_VAULT_PATH: process.env.EDITH_OBSIDIAN_VAULT_PATH || 'D:\\EDİTH\\EDİTH',
+        EDITH_OBSIDIAN_VAULT_PATH: process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || DEFAULT_OBSIDIAN_VAULT_PATH,
+        OBSIDIAN_VAULT_PATH: process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || DEFAULT_OBSIDIAN_VAULT_PATH,
       },
     });
     this.startedAt = new Date().toISOString();
@@ -105,11 +120,14 @@ export class CryptoService {
     this.registerShutdownHooks();
     this.audit('crypto.autostart', reason, 'success');
 
+    await this.waitForServiceReady();
+    const readyStatus = await this.status();
+
     return {
-      ...this.baseStatus(),
-      healthy: false,
+      ...readyStatus,
       managedProcessRunning: true,
       startedAt: this.startedAt,
+      error: readyStatus.healthy ? readyStatus.error : readyStatus.error ?? 'Crypto service started but health endpoint did not become ready.',
     };
   }
 
@@ -159,7 +177,7 @@ export class CryptoService {
       healthy: false,
       managedProcessRunning: Boolean(this.child),
       autoStartEnabled: process.env.EDITH_CRYPTO_AUTOSTART === 'true',
-      pythonPath: PYTHON_PATH,
+      pythonPath: resolvePythonPath(),
       scriptPath: SCRIPT_PATH,
       logPath: LOG_PATH,
       startedAt: this.startedAt,

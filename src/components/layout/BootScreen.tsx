@@ -26,13 +26,13 @@ function statusTone(status: BootStatus): string {
 
 export const BootScreen: React.FC<BootScreenProps> = ({ assistant, settings, onComplete }) => {
   const [checks, setChecks] = useState<BootCheck[]>([
-    { label: 'Frontend', status: 'ONLINE', detail: 'React shell mounted.' },
-    { label: 'Backend', status: 'PENDING', detail: 'Waiting for local API health.' },
-    { label: 'Provider', status: 'PENDING', detail: 'Provider check has not completed.' },
-    { label: 'Memory', status: 'PENDING', detail: 'Local memory status pending.' },
-    { label: 'Voice', status: 'PENDING', detail: 'Browser microphone support pending.' },
-    { label: 'Security', status: 'PENDING', detail: 'Permission and kill-switch policy pending.' },
-    { label: 'Tauri shell', status: 'PENDING', detail: 'Desktop shell detection pending.' },
+    { label: 'Arayüz', status: 'ONLINE', detail: 'React arayüzü başlatıldı.' },
+    { label: 'Arka uç', status: 'PENDING', detail: 'Yerel API sağlık kontrolü bekleniyor.' },
+    { label: 'Sağlayıcı', status: 'PENDING', detail: 'Sağlayıcı kontrolü tamamlanmadı.' },
+    { label: 'Bellek', status: 'PENDING', detail: 'Yerel bellek durumu bekleniyor.' },
+    { label: 'Ses', status: 'PENDING', detail: 'Tarayıcı mikrofon desteği bekleniyor.' },
+    { label: 'Güvenlik', status: 'PENDING', detail: 'İzin ve acil durdurma politikası bekleniyor.' },
+    { label: 'Tauri kabuğu', status: 'PENDING', detail: 'Masaüstü kabuğu algılama bekleniyor.' },
   ]);
 
   useEffect(() => {
@@ -41,47 +41,47 @@ export const BootScreen: React.FC<BootScreenProps> = ({ assistant, settings, onC
 
     async function runChecks() {
       const nextChecks: BootCheck[] = [
-        { label: 'Frontend', status: 'ONLINE', detail: 'React shell mounted.' },
+        { label: 'Arayüz', status: 'ONLINE', detail: 'React arayüzü başlatıldı.' },
       ];
 
       try {
         const health = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(settings.ollamaUrl)}`).then((response) => response.json());
-        nextChecks.push({ label: 'Backend', status: health?.status === 'ok' ? 'ONLINE' : 'DEGRADED', detail: 'Local Express API responded.' });
+        nextChecks.push({ label: 'Arka uç', status: health?.status === 'ok' ? 'ONLINE' : 'DEGRADED', detail: 'Yerel Express API yanıt verdi.' });
         nextChecks.push({
-          label: 'Provider',
+          label: 'Sağlayıcı',
           status: health?.ollamaConnected || health?.geminiAvailable ? 'ONLINE' : 'CONFIGURATION REQUIRED',
-          detail: health?.ollamaConnected ? 'Ollama is reachable.' : health?.geminiAvailable ? 'Gemini key is configured.' : 'No provider was confirmed online.',
+          detail: health?.ollamaConnected ? 'Ollama erişilebilir durumda.' : health?.geminiAvailable ? 'Gemini anahtarı yapılandırıldı.' : 'Çevrimiçi sağlayıcı doğrulanamadı.',
         });
       } catch {
-        nextChecks.push({ label: 'Backend', status: 'OFFLINE', detail: 'Local Express API did not respond.' });
-        nextChecks.push({ label: 'Provider', status: 'PENDING', detail: 'Provider check unavailable until backend responds.' });
+        nextChecks.push({ label: 'Arka uç', status: 'OFFLINE', detail: 'Yerel Express API yanıt vermedi.' });
+        nextChecks.push({ label: 'Sağlayıcı', status: 'PENDING', detail: 'Arka uç yanıt verene kadar sağlayıcı kontrolü kullanılamıyor.' });
       }
 
       try {
         const safety = await fetch('/api/edith/interaction-safety').then((response) => response.json());
-        nextChecks.push({ label: 'Security', status: safety?.snapshot?.computer?.mode === 'BLOCKED' ? 'BLOCKED' : 'ONLINE', detail: 'Permission snapshot loaded; computer-use remains read-only.' });
+        nextChecks.push({ label: 'Güvenlik', status: safety?.snapshot?.computer?.mode === 'BLOCKED' ? 'BLOCKED' : 'ONLINE', detail: 'İzin özeti yüklendi; bilgisayar kullanımı yalnızca okuma modunda.' });
       } catch {
-        nextChecks.push({ label: 'Security', status: 'PENDING', detail: 'Permission snapshot unavailable.' });
+        nextChecks.push({ label: 'Güvenlik', status: 'PENDING', detail: 'İzin özeti kullanılamıyor.' });
       }
 
       nextChecks.push({
-        label: 'Memory',
+        label: 'Bellek',
         status: settings.memoryEnabled ? 'DEGRADED' : 'OFFLINE',
-        detail: settings.memoryEnabled ? 'Memory UI enabled; backend details load after startup.' : 'Memory is disabled in local settings.',
+        detail: settings.memoryEnabled ? 'Bellek arayüzü etkin; arka uç ayrıntıları başlangıçtan sonra yüklenir.' : 'Bellek yerel ayarlarda devre dışı.',
       });
 
       const speechSupported = typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
       nextChecks.push({
-        label: 'Voice',
+        label: 'Ses',
         status: speechSupported ? 'DEGRADED' : 'CONFIGURATION REQUIRED',
-        detail: speechSupported ? 'Browser STT is available after microphone permission.' : 'Speech recognition is not available in this runtime.',
+        detail: speechSupported ? 'Mikrofon izninden sonra tarayıcı ses tanıma kullanılabilir.' : 'Bu çalışma ortamında ses tanıma kullanılamıyor.',
       });
 
       const shell = await getDesktopShellStatus();
       nextChecks.push({
-        label: 'Tauri shell',
+        label: 'Tauri kabuğu',
         status: shell.tauri ? 'ONLINE' : 'DEGRADED',
-        detail: shell.tauri ? `Desktop shell v${shell.version ?? 'unknown'} detected.` : 'Running in browser/dev preview mode.',
+        detail: shell.tauri ? `Masaüstü kabuğu v${shell.version ?? 'bilinmiyor'} algılandı.` : 'Tarayıcı/geliştirme önizleme modunda çalışıyor.',
       });
 
       if (!cancelled) setChecks(nextChecks);
@@ -106,8 +106,8 @@ export const BootScreen: React.FC<BootScreenProps> = ({ assistant, settings, onC
         </div>
         <div className="mt-6 text-center">
           <div className="font-mono text-2xl font-bold tracking-[0.22em] text-[var(--assistant-primary)]">E.D.I.T.H.</div>
-          <div className="mt-2 text-sm text-slate-400">Personal AI System</div>
-          <div className="mt-1 text-xs text-slate-500">Assistant profile: {assistant.name}</div>
+          <div className="mt-2 text-sm text-slate-400">Kişisel Yapay Zeka Sistemi</div>
+          <div className="mt-1 text-xs text-slate-500">Asistan profili: {assistant.name}</div>
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -128,11 +128,11 @@ export const BootScreen: React.FC<BootScreenProps> = ({ assistant, settings, onC
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[10px] font-mono text-slate-500">
-          <span className="flex items-center gap-1 rounded border border-emerald-400/20 bg-emerald-400/8 px-2 py-1 text-emerald-200"><ShieldCheck className="h-3 w-3" /> READ ONLY computer-use</span>
-          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Server className="h-3 w-3" /> Local-first</span>
-          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Mic2 className="h-3 w-3" /> Voice permission required</span>
-          <span className="flex items-center gap-1 rounded border border-red-400/20 bg-red-400/8 px-2 py-1 text-red-200"><LockKeyhole className="h-3 w-3" /> Unsafe control blocked</span>
-          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Sparkles className="h-3 w-3" /> UI checks are labeled honestly</span>
+          <span className="flex items-center gap-1 rounded border border-emerald-400/20 bg-emerald-400/8 px-2 py-1 text-emerald-200"><ShieldCheck className="h-3 w-3" /> SADECE OKUMA bilgisayar kullanımı</span>
+          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Server className="h-3 w-3" /> Önce yerel</span>
+          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Mic2 className="h-3 w-3" /> Ses izni gerekli</span>
+          <span className="flex items-center gap-1 rounded border border-red-400/20 bg-red-400/8 px-2 py-1 text-red-200"><LockKeyhole className="h-3 w-3" /> Güvensiz kontrol engellendi</span>
+          <span className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.035] px-2 py-1"><Sparkles className="h-3 w-3" /> Arayüz kontrolleri açıkça etiketlenir</span>
         </div>
       </div>
     </div>

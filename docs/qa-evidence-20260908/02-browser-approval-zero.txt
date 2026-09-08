@@ -1,0 +1,166 @@
+Window: "E.D.I.T.H. - Personal AI System", App: edith.exe.
+	0 pencere E.D.I.T.H. - Personal AI System Secondary Actions: Raise
+		1 bölme TAURI_DRAG_RESIZE_WINDOW
+		2 bölme
+			3 bölme E.D.I.T.H.
+				4 bölme (disabled)
+				5 bölge E.D.I.T.H. - Web içeriği
+					6 bölge
+						7 bölge
+						8 bölge
+							9 bölge
+								10 belge E.D.I.T.H. ID: RootWebArea
+									11 grup
+										12 grup ID: root
+											13 düğme E.D.I.T.H. Personal AI System / JARVIS Computer READ ONLY Desktop 1.0.0 Description: Drag E.D.I.T.H. window
+											14 düğme Stop Description: Emergency stop: stops speech/streaming state only
+											15 düğme Minimize Description: Minimize
+											16 düğme Maximize Description: Maximize
+											17 düğme Toggle fullscreen Description: Toggle fullscreen
+											18 düğme Close Description: Close
+											19 tamamlayıcı
+												20 başlık E.D.I.T.H.
+												21 metin PERSONAL AI OS
+												22 gezinme
+													23 düğme Command Center Description: Command Center
+													24 düğme Chat Description: Chat
+													25 düğme Agents Description: Agents
+													26 düğme Tasks Description: Tasks
+													27 düğme Computer Use Description: Computer Use
+													28 düğme Browser Description: Browser
+													29 düğme Memory Description: Memory
+													30 düğme Knowledge Graph Description: Knowledge Graph
+													31 düğme Automations Description: Automations
+													32 düğme Files Description: Files
+													33 düğme Coding Description: Coding
+													34 düğme Trading Description: Trading
+													35 düğme Tools / MCP Description: Tools / MCP
+													36 düğme Voice Description: Voice
+													37 düğme Integrations Description: Integrations
+													38 düğme Security Description: Security
+													39 düğme System Description: System
+													40 düğme Settings Description: Settings
+												41 metin Ollama
+												42 metin qwen2.5:3b
+												43 metin /
+												44 metin ONLINE
+											45 üst bilgi
+												46 düğme Assistant: JARVIS
+												47 birleşik giriş kutusu Select model provider without changing assistant persona Description: Select model provider without changing assistant persona ID: edith-provider-selector
+												48 birleşik giriş kutusu Select model without changing assistant persona Description: Select model without changing assistant persona ID: edith-model-selector
+												49 düğme Ollama ONLINE Description: Provider status
+												50 düğme Otomatik Seslendirme Kapalı Description: Otomatik Seslendirme Kapalı
+												51 düğme Sohbeti Temizle Description: Sohbeti Temizle
+												52 düğme Yeni Sohbet
+												53 düğme Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur Description: Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur
+												54 düğme Çıkış Yap Description: Çıkış Yap
+											55 ana
+												345 başlık Browser / Research
+												346 metin AI research cockpit for sources, claims, conflicts and synthesis
+												347 metin E.D.I.T.H. MODULE
+												348 metin BROWSER AGENT
+												349 başlık Research Session
+												350 metin Browser Agent hazır
+												351 metin Araştırma görevi başladığında aktif URL, tabs, extracted facts ve source board burada görünür.
+												352 metin VERIFICATION
+												353 başlık Source Board
+												354 metin Browser-capable tools
+												355 metin 21
+												356 metin Research audit events
+												357 metin 0
+												358 metin Browser mode
+												359 metin READ_ONLY
+												360 metin Approval-gated actions
+												361 metin 0
+												362 metin Sources being evaluated
+												363 metin none active
+												364 metin Final answer draft
+												365 metin not generated
+												366 metin SEARCH
+												367 metin NAVIGATE
+												368 metin EXTRACT
+												369 metin SCREENSHOT
+												370 metin DOWNLOAD_PDF
+												371 metin READ_PDF
+								112 bölge
+		113 başlık çubuğu
+			114 menü çubuğu Sistem ID: MenuBar
+				115 menü öğesi Sistem
+			116 düğme Simge Durumuna Küçült
+			117 düğme Ekranı Kapla
+			118 düğme Kapat
+
+Document text: ```
+E.D.I.T.H.
+Personal AI System
+/
+JARVIS
+Computer READ ONLY
+Desktop 1.0.0
+Stop
+￼
+￼
+￼
+￼
+￼
+E.D.I.T.H.
+PERSONAL AI OS
+Command Center
+Chat
+Agents
+Tasks
+Computer Use
+Browser
+Memory
+Knowledge Graph
+Automations
+Files
+Coding
+Trading
+Tools / MCP
+Voice
+Integrations
+Security
+System
+Settings
+Ollama
+qwen2.5:3b / ONLINE
+Assistant:
+JARVIS
+￼
+￼
+Ollama
+ONLINE
+￼
+￼
+Yeni Sohbet
+￼
+￼
+Browser / Research
+AI research cockpit for sources, claims, conflicts and synthesis
+E.D.I.T.H. MODULE
+BROWSER AGENT
+Research Session
+Browser Agent hazır
+Araştırma görevi başladığında aktif URL, tabs, extracted facts ve source board burada görünür.
+VERIFICATION
+Source Board
+Browser-capable tools
+21
+Research audit events
+0
+Browser mode
+READ_ONLY
+Approval-gated actions
+0
+Sources being evaluated
+none active
+Final answer draft
+not generated
+SEARCH
+NAVIGATE
+EXTRACT
+SCREENSHOT
+DOWNLOAD_PDF
+READ_PDF
+```

@@ -7,16 +7,26 @@ import os
 import threading
 import time
 import logging
+import signal
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
+os.environ.setdefault("PYTHONUTF8", "1")
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("CRYPTO_MODE", "OBSERVER_ONLY")
 os.environ.setdefault("CRYPTO_TRADING_ENABLED", "false")
 os.environ.setdefault("CRYPTO_PAPER_TRADING_ENABLED", "false")
 os.environ.setdefault("CRYPTO_LIVE_TRADING_ENABLED", "false")
 os.environ.setdefault("CRYPTO_OBSIDIAN_ENABLED", "true")
 os.environ.setdefault("EDITH_OBSIDIAN_VAULT_PATH", r"D:\EDİTH\EDİTH")
+os.environ.setdefault("OBSIDIAN_VAULT_PATH", os.environ["EDITH_OBSIDIAN_VAULT_PATH"])
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 # Add src to path
 sys.path.append(str(BASE_DIR / 'src'))
@@ -34,8 +44,23 @@ setup_directories()
 
 from dashboard import run_dashboard
 from config import CONFIG
+from runtime_controller import runtime_controller
 
 def main():
+    shutdown_requested = threading.Event()
+
+    def request_shutdown(signum=None, _frame=None):
+        signal_name = signal.Signals(signum).name if signum else "KeyboardInterrupt"
+        print(f"\nKapatiliyor... ({signal_name})")
+        try:
+            runtime_controller.stop_observer()
+        except Exception:
+            logging.exception("Crypto observer shutdown failed.")
+        shutdown_requested.set()
+
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
+
     print("="*52)
     print(">>  EDITH CRYPTO OBSERVER SERVICE BASLATILIYOR")
     print("="*52)
@@ -47,7 +72,12 @@ def main():
     print(f"Dongu Suresi : {CONFIG.LOOP_INTERVAL_MINUTES} dakika")
     print(f"Izleme Lst.  : {', '.join(CONFIG.WATCHLIST)}")
     print(f"Dashboard    : http://localhost:5000")
-    print(f"Obsidian     : {CONFIG.EDITH_OBSIDIAN_VAULT_PATH}\\Trading\\Crypto Market Learning")
+    if CONFIG.OBSIDIAN_PATH_ERROR_CODE:
+        print(f"Obsidian     : ERROR {CONFIG.OBSIDIAN_PATH_ERROR_CODE}")
+        print(f"Received     : {CONFIG.OBSIDIAN_PATH_RECEIVED}")
+        print(f"Expected     : {CONFIG.OBSIDIAN_PATH_EXPECTED}")
+    else:
+        print(f"Obsidian     : {CONFIG.EDITH_OBSIDIAN_VAULT_PATH}\\Trading\\Crypto Market Learning")
     print("Observer     : STOPPED (manual UI/API start required)")
     print("="*52)
 
@@ -55,15 +85,15 @@ def main():
     dashboard_thread = threading.Thread(
         target=run_dashboard, 
         kwargs={"port": 5000}, 
-        daemon=False
+        daemon=True
     )
     dashboard_thread.start()
     try:
-        while dashboard_thread.is_alive():
-            time.sleep(1)
+        while dashboard_thread.is_alive() and not shutdown_requested.is_set():
+            shutdown_requested.wait(1)
     except KeyboardInterrupt:
-        print("\nKapatiliyor...")
-        sys.exit(0)
+        request_shutdown()
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

@@ -56,7 +56,7 @@ class CryptoRuntimeController:
                 "liveTradingEnabled": False,
                 "ollamaAvailable": self.ollama_status().get("available", False),
                 "marketDataAvailable": self._last_market_data_available,
-                "obsidianAvailable": self.obsidian.status().get("status") == "ready",
+                "obsidianAvailable": self.obsidian.status().get("available") is True,
                 "lastStartedAt": self._last_started_at,
                 "lastStoppedAt": self._last_stopped_at,
                 "lastObservationAt": self._last_observation_at or self._last_observation_from_db(),

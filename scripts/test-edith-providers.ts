@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import express from "express";
 import { geminiProvider, setGeminiRuntimeApiKey } from "../server/providers/gemini";
+import { OllamaProvider, parseOllamaStreamChunk } from "../server/providers/ollama";
 import { providerRegistry } from "../server/providers/registry";
 import { ProviderError } from "../server/providers/types";
 import { createProvidersRouter } from "../server/routes/providers";
@@ -33,6 +34,26 @@ const geminiHealth = await geminiProvider.healthCheck();
 assert.equal(geminiHealth.available, false);
 assert.equal(geminiHealth.errorCode, "configuration_required");
 assert.equal(JSON.stringify(geminiHealth).includes("MY_GEMINI_API_KEY"), false);
+
+const parsedChatChunk = parseOllamaStreamChunk({
+  message: { role: "assistant", content: "final answer", thinking: "internal reasoning" },
+  done: false,
+});
+assert.equal(parsedChatChunk.text, "final answer");
+assert.equal(parsedChatChunk.hasThinking, true);
+
+const parsedGenerateChunk = parseOllamaStreamChunk({
+  response: "generate answer",
+  done: false,
+});
+assert.equal(parsedGenerateChunk.text, "generate answer");
+
+const parsedThinkingOnlyChunk = parseOllamaStreamChunk({
+  message: { role: "assistant", content: "", thinking: "internal reasoning only" },
+  done: true,
+});
+assert.equal(parsedThinkingOnlyChunk.text, undefined);
+assert.equal(parsedThinkingOnlyChunk.hasThinking, true);
 
 await assert.rejects(
   () => geminiProvider.generate({ messages: [{ role: "user", content: "hello" }] }),
@@ -106,6 +127,76 @@ try {
 const mockResult = await mock.generate({ messages: [{ role: "user", content: "hello" }] });
 assert.equal(mockResult.provider, "mock");
 assert.equal(mockResult.model, "edith-mock");
+
+const ndjsonResponse = (lines: string[]) => {
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        controller.enqueue(encoder.encode(line));
+      }
+      controller.close();
+    },
+  }), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+};
+
+const ollamaProvider = new OllamaProvider();
+let capturedOllamaChatBody = "";
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.includes("/api/chat")) {
+    capturedOllamaChatBody = String(init?.body ?? "");
+    return ndjsonResponse([
+      JSON.stringify({ message: { role: "assistant", content: "hello " }, done: false }) + "\n",
+      JSON.stringify({ message: { role: "assistant", content: "world" }, done: true }) + "\n",
+    ]);
+  }
+  return originalFetch(input, init);
+};
+try {
+  const chunks: string[] = [];
+  for await (const chunk of ollamaProvider.stream({
+    model: "qwen3.5:0.8b",
+    messages: [{ role: "user", content: "hello" }],
+    firstTokenTimeoutMs: 1000,
+    generationTimeoutMs: 3000,
+  })) {
+    if (chunk.text) chunks.push(chunk.text);
+  }
+  assert.equal(chunks.join(""), "hello world");
+  const capturedOllamaChatRequest = JSON.parse(capturedOllamaChatBody);
+  assert.equal(capturedOllamaChatRequest.model, "qwen3.5:0.8b");
+  assert.equal(capturedOllamaChatRequest.think, false);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.includes("/api/chat")) {
+    return ndjsonResponse([
+      JSON.stringify({ message: { role: "assistant", content: "", thinking: "internal reasoning only" }, done: true }) + "\n",
+    ]);
+  }
+  return originalFetch(input, init);
+};
+try {
+  await assert.rejects(
+    async () => {
+      for await (const _chunk of ollamaProvider.stream({
+        model: "qwen3.5:0.8b",
+        messages: [{ role: "user", content: "hello" }],
+        firstTokenTimeoutMs: 1000,
+        generationTimeoutMs: 3000,
+      })) {
+        // Consume stream to completion.
+      }
+    },
+    (error) => error instanceof ProviderError && error.code === "empty_final_response_with_thinking",
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 const resolved = providerRegistry.resolve("gemini", "auto");
 assert.equal(resolved.resolvedProvider, "gemini");

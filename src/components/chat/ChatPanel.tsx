@@ -51,7 +51,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <Bot className="w-4 h-4 text-[var(--assistant-primary)]" />
           </div>
           <h3 className="text-xs font-semibold text-slate-200 tracking-wider font-mono uppercase">
-            Transmission Console
+            İletim Konsolu
           </h3>
         </div>
         <span className="text-[10px] text-slate-500 font-mono">
@@ -61,11 +61,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
       <div className="relative border-b border-white/10 bg-slate-950/35 px-3 py-2 sm:px-4">
         <div className="flex flex-wrap items-center gap-1.5">
-          <StatusPill label="Assistant" value={assistantProfile.name} tone="info" />
-          <StatusPill label="Model" value={settings.selectedModel === 'auto' ? 'AUTO' : settings.selectedModel} tone={settings.selectedModel === 'auto' ? 'info' : 'muted'} />
-          <StatusPill label="Provider" value={providerDisplayName(settings.aiProvider)} tone={providerTone(activeProvider?.status ?? 'unknown')} />
+          <StatusPill label="Asistan" value={assistantProfile.name} tone="info" />
+          <StatusPill label="Model" value={settings.selectedModel === 'auto' ? 'OTOMATİK' : settings.selectedModel} tone={settings.selectedModel === 'auto' ? 'info' : 'muted'} />
+          <StatusPill label="Sağlayıcı" value={providerDisplayName(settings.aiProvider)} tone={providerTone(activeProvider?.status ?? 'unknown')} />
           <StatusPill label="Gemini" value={providerStatusLabel(geminiProvider?.status ?? 'configuration_required')} tone={providerTone(geminiProvider?.status ?? 'configuration_required')} />
-          <StatusPill label="Ollama" value={ollamaConnected ? 'ONLINE' : 'OFFLINE'} tone={ollamaConnected ? 'success' : 'warning'} />
+          <StatusPill label="Ollama" value={ollamaConnected ? 'ÇEVRİMİÇİ' : 'ÇEVRİMDIŞI'} tone={ollamaConnected ? 'success' : 'warning'} />
         </div>
       </div>
 
@@ -96,9 +96,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
             <div>
-              <p className="font-medium text-amber-200">Gemini provider is not configured.</p>
+              <p className="font-medium text-amber-200">Gemini sağlayıcısı yapılandırılmamış.</p>
               <p className="mt-0.5 text-[11px] leading-relaxed text-amber-100/80">
-                Set <code className="rounded bg-amber-950/70 px-1 py-0.5 font-mono">GEMINI_API_KEY</code> in environment configuration. E.D.I.T.H. will not expose or request the key in frontend.
+                Ortam yapılandırmasına <code className="rounded bg-amber-950/70 px-1 py-0.5 font-mono">GEMINI_API_KEY</code> ekleyin. E.D.I.T.H. anahtarı arayüzde göstermez veya istemez.
               </p>
             </div>
           </div>

@@ -75,7 +75,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
             </div>
             <div>
               <h1 className="font-mono text-2xl font-bold tracking-[0.18em] text-[var(--edith-primary)]">E.D.I.T.H.</h1>
-              <p className="text-xs font-mono text-slate-400 tracking-[0.22em]">PERSONAL AI SYSTEM</p>
+              <p className="text-xs font-mono text-slate-400 tracking-[0.22em]">KİŞİSEL YAPAY ZEKA SİSTEMİ</p>
             </div>
           </div>
 
@@ -120,11 +120,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onAuthenticated }) => 
           <div className="mt-6 grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-400">
             <div className="border border-slate-800 p-2 flex items-center gap-2">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              ADMIN MODE
+              YÖNETİCİ MODU
             </div>
             <div className="border border-slate-800 p-2 flex items-center gap-2">
               <LockKeyhole className="w-3.5 h-3.5 text-amber-400" />
-              NAME CHECK
+              İSİM DOĞRULAMA
             </div>
           </div>
         </div>

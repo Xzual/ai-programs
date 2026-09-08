@@ -4,12 +4,15 @@ echo ==========================================
 echo    EDITH CRYPTO OBSERVER SERVICE
 echo ==========================================
 echo.
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 set CRYPTO_MODE=OBSERVER_ONLY
 set CRYPTO_TRADING_ENABLED=false
 set CRYPTO_PAPER_TRADING_ENABLED=false
 set CRYPTO_LIVE_TRADING_ENABLED=false
 set CRYPTO_OBSIDIAN_ENABLED=true
 set EDITH_OBSIDIAN_VAULT_PATH=D:\EDİTH\EDİTH
+set OBSIDIAN_VAULT_PATH=D:\EDİTH\EDİTH
 
 :: Check if virtual environment exists
 if not exist ".venv\Scripts\python.exe" (
@@ -30,7 +33,7 @@ echo.
 echo Observer API service baslatiliyor...
 echo Dashboard: http://localhost:5000
 echo Trading: DISABLED
-echo Observer: STOPPED - EDITH UI ile manuel baslatilir
+echo Observer: AUTO-START - piyasa ogrenmesi acik
 echo.
 .venv\Scripts\python.exe run_agent.py
 pause

@@ -288,7 +288,7 @@ export const EdithOpsView: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <Metric title="Registry Tool" value={tools.length} icon={<Wrench className="w-4 h-4" />} />
           <Metric title="High Risk" value={highRiskTools.length} icon={<ShieldAlert className="w-4 h-4" />} />
-          <Metric title="Task" value={tasks.length} icon={<ClipboardList className="w-4 h-4" />} />
+          <Metric title="Görev" value={tasks.length} icon={<ClipboardList className="w-4 h-4" />} />
           <Metric title="Audit Event" value={events.length} icon={<Activity className="w-4 h-4" />} />
         </div>
 
@@ -578,7 +578,7 @@ export const EdithOpsView: React.FC = () => {
           </Panel>
         </div>
 
-        <Panel title="Tasks">
+        <Panel title="Görevler">
           <div className="space-y-2">
             {tasks.length === 0 && <Empty text="Henüz kalıcı görev yok." />}
             {tasks.map((task) => (

@@ -82,24 +82,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
   );
   const menuItems = [
-    { id: 'dashboard' as ActiveTab, label: 'Command Center', icon: LayoutDashboard },
-    { id: 'chat' as ActiveTab, label: 'Chat', icon: MessageSquare },
-    { id: 'agents' as ActiveTab, label: 'Agents', icon: Bot },
-    { id: 'tasks' as ActiveTab, label: 'Tasks', icon: CalendarClock },
-    { id: 'computer' as ActiveTab, label: 'Computer Use', icon: Cpu },
-    { id: 'browser' as ActiveTab, label: 'Browser', icon: Chrome },
-    { id: 'memory' as ActiveTab, label: 'Memory', icon: Brain },
-    { id: 'knowledge' as ActiveTab, label: 'Knowledge Graph', icon: Network },
-    { id: 'automations' as ActiveTab, label: 'Automations', icon: Zap },
-    { id: 'files' as ActiveTab, label: 'Files', icon: Files },
-    { id: 'code' as ActiveTab, label: 'Coding', icon: Code2 },
-    { id: 'crypto' as ActiveTab, label: 'Trading', icon: TrendingUp },
-    { id: 'tools' as ActiveTab, label: 'Tools / MCP', icon: Wrench },
-    { id: 'voice' as ActiveTab, label: 'Voice', icon: BotMessageSquare },
-    { id: 'integrations' as ActiveTab, label: 'Integrations', icon: Boxes },
-    { id: 'security' as ActiveTab, label: 'Security', icon: ShieldCheck },
-    { id: 'system' as ActiveTab, label: 'System', icon: Activity },
-    { id: 'settings' as ActiveTab, label: 'Settings', icon: Settings },
+    { id: 'dashboard' as ActiveTab, label: 'Komuta Merkezi', icon: LayoutDashboard },
+    { id: 'chat' as ActiveTab, label: 'Sohbet', icon: MessageSquare },
+    { id: 'agents' as ActiveTab, label: 'Ajanlar', icon: Bot },
+    { id: 'tasks' as ActiveTab, label: 'Görevler', icon: CalendarClock },
+    { id: 'computer' as ActiveTab, label: 'Bilgisayar Kullanımı', icon: Cpu },
+    { id: 'browser' as ActiveTab, label: 'Tarayıcı', icon: Chrome },
+    { id: 'memory' as ActiveTab, label: 'Bellek', icon: Brain },
+    { id: 'knowledge' as ActiveTab, label: 'Bilgi Grafiği', icon: Network },
+    { id: 'automations' as ActiveTab, label: 'Otomasyonlar', icon: Zap },
+    { id: 'files' as ActiveTab, label: 'Dosyalar', icon: Files },
+    { id: 'code' as ActiveTab, label: 'Kodlama', icon: Code2 },
+    { id: 'crypto' as ActiveTab, label: 'Alım Satım', icon: TrendingUp },
+    { id: 'tools' as ActiveTab, label: 'Araçlar / MCP', icon: Wrench },
+    { id: 'voice' as ActiveTab, label: 'Ses', icon: BotMessageSquare },
+    { id: 'integrations' as ActiveTab, label: 'Entegrasyonlar', icon: Boxes },
+    { id: 'security' as ActiveTab, label: 'Güvenlik', icon: ShieldCheck },
+    { id: 'system' as ActiveTab, label: 'Sistem', icon: Activity },
+    { id: 'settings' as ActiveTab, label: 'Ayarlar', icon: Settings },
   ];
 
   return (
@@ -120,7 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               E.D.I.T.H.
             </h1>
             <p className="text-[10px] text-slate-500 font-mono tracking-[0.22em]">
-              PERSONAL AI OS
+              KİŞİSEL YAPAY ZEKA İŞLETİM SİSTEMİ
             </p>
           </div>
         </div>

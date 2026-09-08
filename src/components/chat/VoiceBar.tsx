@@ -227,7 +227,7 @@ export const VoiceBar: React.FC<VoiceBarProps> = ({
               </span>
             ) : (
           <span className="text-slate-200 font-mono italic">
-                {liveTranscript || (handsFree ? 'Hands-free mod açık. Konuşmanız bekleniyor...' : 'Dinleniyor... Konuşabilirsiniz.')}
+                {liveTranscript || (handsFree ? 'Eller serbest modu açık. Konuşmanız bekleniyor...' : 'Dinleniyor... Konuşabilirsiniz.')}
               </span>
             )}
           </div>

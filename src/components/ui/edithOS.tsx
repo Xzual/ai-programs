@@ -487,8 +487,8 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
     ['QA Agent', 'Sonuç doğrulama ve final rapor kalitesi', logs.length > 0 ? 'WAITING' : 'STANDBY', ['verifier']],
   ] as const;
   return (
-    <ScreenFrame title="Agent Operations" icon={<Network className="h-5 w-5" />} subtitle="Multi-agent orchestration graph and operational units">
-      <OSPanel title="Agent Network" eyebrow="FLOW" icon={<Route className="h-4 w-4" />}>
+    <ScreenFrame title="Ajan İşlemleri" icon={<Network className="h-5 w-5" />} subtitle="Çok ajanlı düzenleme grafiği ve işlem birimleri">
+      <OSPanel title="Ajan Ağı" eyebrow="AKIŞ" icon={<Route className="h-4 w-4" />}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
           {['User Objective', 'Orchestrator', 'Planning Agent', 'Browser Agent', 'Research Agent', 'Verifier', 'Final Response'].map((node, index) => (
             <React.Fragment key={node}>
@@ -499,9 +499,9 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
         </div>
       </OSPanel>
       <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <ActionRow label="Registered tools" value={String(tools.length)} />
-        <ActionRow label="Running tools" value={String(runningTools)} />
-        <ActionRow label="Audit events" value={String(logs.length)} />
+        <ActionRow label="Kayıtlı araçlar" value={String(tools.length)} />
+        <ActionRow label="Çalışan araçlar" value={String(runningTools)} />
+        <ActionRow label="Denetim olayları" value={String(logs.length)} />
       </div>
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {agents.map(([name, role, status, tools]) => <AgentCard key={name} name={name} role={role} status={status} tools={[...tools]} />)}
@@ -518,7 +518,7 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
   );
   const latestComputerLog = logs.find((log) => computerTools.some((tool) => tool.id === log.toolId));
   return (
-    <ScreenFrame title="Computer Use" icon={<Cpu className="h-5 w-5" />} subtitle="Visible perception-action cockpit. Default mode: READ ONLY.">
+    <ScreenFrame title="Bilgisayar Kullanımı" icon={<Cpu className="h-5 w-5" />} subtitle="Görünür algı-eylem kokpiti. Varsayılan mod: SADECE OKUMA.">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
         <OSPanel title="Live Observation" eyebrow="SCREEN" icon={<Eye className="h-4 w-4" />}>
           <div className="aspect-video rounded-lg border border-white/10 bg-[radial-gradient(circle_at_center,var(--assistant-glow),transparent_34%),linear-gradient(135deg,rgba(15,23,42,.9),rgba(2,6,23,.96))] p-4">
@@ -527,15 +527,15 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
             </div>
           </div>
         </OSPanel>
-        <OSPanel title="Next Action" eyebrow="SAFETY LOOP" icon={<ShieldCheck className="h-4 w-4" />}>
+        <OSPanel title="Sonraki İşlem" eyebrow="GÜVENLİK DÖNGÜSÜ" icon={<ShieldCheck className="h-4 w-4" />}>
           <LoopBar items={['OBSERVE', 'UNDERSTAND', 'PLAN', 'ACTION', 'VERIFY']} active={0} />
           <div className="mt-4 space-y-2">
             <StatusPill label={safety?.computer?.mode ?? 'READ ONLY'} tone="success" />
-            <StatusPill label={safety?.computer?.approvalRequired ? 'Approval required for control' : 'Approval state unknown'} tone="warning" />
-            <ActionRow label="Control adapters" value={String(computerTools.length)} />
-            <ActionRow label="Latest audit" value={latestComputerLog?.status ?? 'none'} />
-            <ActionRow label="Runtime bound" value={safety?.computer?.runtimeBound ? 'yes' : 'no'} />
-            <ActionRow label="Risk" value="No action pending" />
+            <StatusPill label={safety?.computer?.approvalRequired ? 'Kontrol için onay gerekli' : 'Onay durumu bilinmiyor'} tone="warning" />
+            <ActionRow label="Kontrol bağdaştırıcıları" value={String(computerTools.length)} />
+            <ActionRow label="Son denetim" value={latestComputerLog?.status ?? 'yok'} />
+            <ActionRow label="Çalışma ortamı bağlı" value={safety?.computer?.runtimeBound ? 'evet' : 'hayır'} />
+            <ActionRow label="Risk" value="Bekleyen işlem yok" />
           </div>
           {safety?.computer?.phases && (
             <div className="mt-4 space-y-1">
@@ -545,7 +545,7 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
             </div>
           )}
           <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-red-400/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100">
-            <Square className="h-4 w-4" /> Stop Computer Agent
+            <Square className="h-4 w-4" /> Bilgisayar Ajanını Durdur
           </button>
         </OSPanel>
       </div>
@@ -564,19 +564,19 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
     capability.runtimeStatus === 'BLOCKED' || capability.requiresApproval
   ) ?? [];
   return (
-    <ScreenFrame title="Browser / Research" icon={<Globe2 className="h-5 w-5" />} subtitle="AI research cockpit for sources, claims, conflicts and synthesis">
+    <ScreenFrame title="Tarayıcı / Araştırma" icon={<Globe2 className="h-5 w-5" />} subtitle="Kaynaklar, iddialar, çelişkiler ve sentez için yapay zeka araştırma kokpiti">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
-        <OSPanel title="Research Session" eyebrow="BROWSER AGENT" icon={<Globe2 className="h-4 w-4" />}>
+        <OSPanel title="Araştırma Oturumu" eyebrow="TARAYICI AJANI" icon={<Globe2 className="h-4 w-4" />}>
           <EmptyState icon={<SearchIcon />} title="Browser Agent hazır" text="Araştırma görevi başladığında aktif URL, tabs, extracted facts ve source board burada görünür." />
         </OSPanel>
         <OSPanel title="Source Board" eyebrow="VERIFICATION" icon={<Database className="h-4 w-4" />}>
           <div className="space-y-2">
-            <ActionRow label="Browser-capable tools" value={String(browserTools.length)} />
-            <ActionRow label="Research audit events" value={String(logs.filter((log) => browserTools.some((tool) => tool.id === log.toolId)).length)} />
-            <ActionRow label="Browser mode" value={safety?.browser?.mode ?? 'READ_ONLY'} />
-            <ActionRow label="Approval-gated actions" value={String(blockedCapabilities.length)} />
-            <ActionRow label="Sources being evaluated" value="none active" />
-            <ActionRow label="Final answer draft" value="not generated" />
+            <ActionRow label="Tarayıcı uyumlu araçlar" value={String(browserTools.length)} />
+            <ActionRow label="Araştırma denetim olayları" value={String(logs.filter((log) => browserTools.some((tool) => tool.id === log.toolId)).length)} />
+            <ActionRow label="Tarayıcı modu" value={safety?.browser?.mode ?? 'SADECE_OKUMA'} />
+            <ActionRow label="Onay gerektiren işlemler" value={String(blockedCapabilities.length)} />
+            <ActionRow label="Değerlendirilen kaynaklar" value="etkin kaynak yok" />
+            <ActionRow label="Son yanıt taslağı" value="oluşturulmadı" />
           </div>
           {safety?.browser?.capabilities && (
             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -593,9 +593,9 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
 
 export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assistant }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[]; assistant?: AssistantProfile }) {
   return (
-    <ScreenFrame title="Tasks" icon={<Clock3 className="h-5 w-5" />} subtitle="Autonomous task timeline with checkpoints, tools, approvals and result status">
+    <ScreenFrame title="Görevler" icon={<Clock3 className="h-5 w-5" />} subtitle="Kontrol noktaları, araçlar, onaylar ve sonuç durumlarıyla otonom görev zaman akışı">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
-        <OSPanel title="Task Status Model" eyebrow="QUEUE" icon={<CircleDot className="h-4 w-4" />}>
+        <OSPanel title="Görev Durum Modeli" eyebrow="KUYRUK" icon={<CircleDot className="h-4 w-4" />}>
           {assistant && (
             <div className="mb-3 space-y-2">
               <ActionRow label="Report identity" value={assistant.taskReportSignature} />
@@ -608,7 +608,7 @@ export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assist
             ))}
           </div>
         </OSPanel>
-        <OSPanel title="Active Task Timeline" eyebrow="MISSION LOG" icon={<Route className="h-4 w-4" />}>
+        <OSPanel title="Etkin Görev Zaman Akışı" eyebrow="GÖREV GÜNLÜĞÜ" icon={<Route className="h-4 w-4" />}>
           <TaskTimeline aiState={aiState} hasObjective={messages.length > 1} logs={logs} />
         </OSPanel>
       </div>
@@ -618,9 +618,9 @@ export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assist
 
 export function MemoryBrainScreen({ memories }: { memories: MemoryItem[] }) {
   return (
-    <ScreenFrame title="Memory" icon={<Brain className="h-5 w-5" />} subtitle="Semantic memory, preference memory and why-it-was-used context">
+    <ScreenFrame title="Bellek" icon={<Brain className="h-5 w-5" />} subtitle="Anlamsal bellek, tercih belleği ve kullanım gerekçesi bağlamı">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[20rem_1fr]">
-        <OSPanel title="Memory Clusters" eyebrow="BRAIN" icon={<Network className="h-4 w-4" />}>
+        <OSPanel title="Bellek Kümeleri" eyebrow="BEYİN" icon={<Network className="h-4 w-4" />}>
           {['User Memory', 'Conversation Memory', 'Project Memory', 'Task Memory', 'Preference Memory', 'Technical Memory', 'Trading Memory', 'Failure Memory'].map((label) => (
             <ActionRow key={label} label={label} value={label === 'User Memory' ? String(memories.length) : '0'} />
           ))}
@@ -694,7 +694,7 @@ export function KnowledgeGraphScreen({
   const selectedRelations = edges.filter(([from, to]) => from === selected.id || to === selected.id);
 
   return (
-    <ScreenFrame title="Knowledge Map" icon={<Network className="h-5 w-5" />} subtitle="Semantic map for memories, agents, tools, files and task relations">
+    <ScreenFrame title="Bilgi Haritası" icon={<Network className="h-5 w-5" />} subtitle="Bellekler, ajanlar, araçlar, dosyalar ve görev ilişkileri için anlamsal harita">
       <div className="grid min-h-[calc(100vh-10rem)] grid-cols-1 gap-4 xl:grid-cols-[17rem_1fr_22rem]">
         <OSPanel title="Map Controls" eyebrow="FILTERS" icon={<SlidersHorizontal className="h-4 w-4" />}>
           <div className="space-y-3">
@@ -727,7 +727,7 @@ export function KnowledgeGraphScreen({
           </div>
         </OSPanel>
 
-        <OSPanel title="Semantic Graph Canvas" eyebrow="KNOWLEDGE MAP" icon={<Network className="h-4 w-4" />}>
+        <OSPanel title="Anlamsal Grafik Tuvali" eyebrow="BİLGİ HARİTASI" icon={<Network className="h-4 w-4" />}>
           <div className="relative min-h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-[#030817]">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_46%,var(--assistant-glow),transparent_24rem),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.022)_1px,transparent_1px)] bg-[size:auto,36px_36px,36px_36px]" />
             <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -828,7 +828,7 @@ export function KnowledgeGraphScreen({
 
 export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; logs: ToolExecutionLog[] }) {
   return (
-    <ScreenFrame title="Tools / MCP Registry" icon={<Wrench className="h-5 w-5" />} subtitle="Tool risk, permissions, status, latency and execution history">
+    <ScreenFrame title="Araçlar / MCP Kayıt Defteri" icon={<Wrench className="h-5 w-5" />} subtitle="Araç riski, izinler, durum, gecikme ve çalıştırma geçmişi">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {tools.map((tool) => (
           <OSPanel key={tool.id} title={tool.name} eyebrow={tool.category.toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
@@ -855,8 +855,8 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
 export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
   const automationTools = tools.filter((tool) => tool.category === 'reminder' || tool.category === 'monitor');
   return (
-    <ScreenFrame title="Automations" icon={<Zap className="h-5 w-5" />} subtitle="Mission scheduling for recurring, event-based and trigger-driven work">
-      <OSPanel title="Automation Types" eyebrow="TRIGGERS" icon={<Zap className="h-4 w-4" />}>
+    <ScreenFrame title="Otomasyonlar" icon={<Zap className="h-5 w-5" />} subtitle="Yinelenen, olay tabanlı ve tetikleyiciyle çalışan işler için görev zamanlama">
+      <OSPanel title="Otomasyon Türleri" eyebrow="TETİKLEYİCİLER" icon={<Zap className="h-4 w-4" />}>
         <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <ActionRow label="Configured automation tools" value={String(automationTools.length)} />
           <ActionRow label="Automation audit events" value={String(logs.filter((log) => automationTools.some((tool) => tool.id === log.toolId)).length)} />
@@ -875,8 +875,8 @@ export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: Au
 export function VoiceScreen() {
   const safety = useInteractionSafetySnapshot();
   return (
-    <ScreenFrame title="Voice" icon={<Mic2 className="h-5 w-5" />} subtitle="Wake word, STT, intent, assistant response and TTS pipeline">
-      <OSPanel title="Voice Pipeline" eyebrow="AUDIO LOOP" icon={<Mic2 className="h-4 w-4" />}>
+    <ScreenFrame title="Ses" icon={<Mic2 className="h-5 w-5" />} subtitle="Uyandırma sözcüğü, ses tanıma, niyet, asistan yanıtı ve ses sentezi akışı">
+      <OSPanel title="Ses Akışı" eyebrow="SES DÖNGÜSÜ" icon={<Mic2 className="h-4 w-4" />}>
         <LoopBar items={['Wake Word', 'Speech Recognition', 'Intent', 'Assistant', 'Model', 'Response', 'TTS']} active={0} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <ActionRow label="Voice mode" value={safety?.voice?.mode ?? 'DISABLED'} />
@@ -895,7 +895,7 @@ export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?
   const highRiskTools = tools.filter((tool) => tool.requiresConfirmation);
   const connectedIntegrations = integrations.filter((integration) => integration.status === 'connected' && integration.enabled);
   return (
-    <ScreenFrame title="Security Center" icon={<LockKeyhole className="h-5 w-5" />} subtitle="Approvals, high-risk tools, sessions, locks and emergency control">
+    <ScreenFrame title="Güvenlik Merkezi" icon={<LockKeyhole className="h-5 w-5" />} subtitle="Onaylar, yüksek riskli araçlar, oturumlar, kilitler ve acil kontrol">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
         <OSPanel title="Approval UX" eyebrow="RISK REVIEW" icon={<ShieldAlert className="h-4 w-4" />}>
           <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 p-4">

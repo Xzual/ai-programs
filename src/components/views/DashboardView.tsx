@@ -147,10 +147,10 @@ function CommandSurface({
           <div className="edith-eyebrow">ACTIVE STACK</div>
           <div className="mt-4 space-y-3">
             <StatusPill label="Assistant" value={assistantName} tone="info" />
-            <StatusPill label="State" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
-            <StatusPill label="Model" value={model === 'auto' ? 'AUTO' : model || 'AUTO'} tone={model === 'auto' ? 'info' : 'muted'} />
-            <StatusPill label="Provider" value={providerDisplayName(provider)} tone={providerTone(activeProviderStatus)} />
-            <StatusPill label="Status" value={providerStatusLabel(activeProviderStatus)} tone={providerTone(activeProviderStatus)} />
+            <StatusPill label="Aşama" value={aiState.toUpperCase()} tone={aiState === 'error' ? 'danger' : 'muted'} />
+            <StatusPill label="Model" value={model === 'auto' ? 'OTOMATİK' : model || 'OTOMATİK'} tone={model === 'auto' ? 'info' : 'muted'} />
+            <StatusPill label="Sağlayıcı" value={providerDisplayName(provider)} tone={providerTone(activeProviderStatus)} />
+            <StatusPill label="Durum" value={providerStatusLabel(activeProviderStatus)} tone={providerTone(activeProviderStatus)} />
           </div>
           <div className="mt-6 rounded-lg border border-[var(--assistant-primary)]/20 bg-[var(--assistant-primary)]/8 p-3">
             <div className="text-xs font-semibold text-slate-200">Quick Command</div>

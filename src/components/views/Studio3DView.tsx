@@ -163,7 +163,7 @@ export const Studio3DView: React.FC = () => {
     <div className="flex-1 min-w-0 bg-slate-950 text-slate-100 overflow-hidden">
       <div className="h-full grid grid-cols-1 xl:grid-cols-[18rem_1fr_22rem]">
         <aside className="border-r border-slate-800 bg-slate-950/80 min-h-0 overflow-y-auto custom-scrollbar">
-          <PanelHeader icon={<Layers3 className="w-4 h-4" />} title="3D Projects" />
+          <PanelHeader icon={<Layers3 className="w-4 h-4" />} title="3D Projeleri" />
           <div className="p-3 space-y-2">
             {projects.length === 0 && (
               <div className="border border-dashed border-slate-800 p-3 text-xs text-slate-500">
@@ -192,7 +192,7 @@ export const Studio3DView: React.FC = () => {
             ))}
           </div>
 
-          <PanelHeader icon={<Boxes className="w-4 h-4" />} title="Component Tree" />
+          <PanelHeader icon={<Boxes className="w-4 h-4" />} title="Bileşen Ağacı" />
           <div className="p-3 space-y-1.5">
             {(selectedProject?.components ?? []).map((component) => (
               <button
@@ -215,18 +215,18 @@ export const Studio3DView: React.FC = () => {
           <div className="h-12 border-b border-slate-800 bg-slate-950/70 px-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Box className="w-4 h-4 text-[var(--edith-primary)]" />
-              <span className="text-sm font-semibold">{selectedProject?.name ?? 'AI Controlled 3D Studio'}</span>
+              <span className="text-sm font-semibold">{selectedProject?.name ?? 'Yapay Zeka Kontrollü 3D Stüdyo'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <ToolbarButton icon={<RotateCcw className="w-4 h-4" />} label="Undo foundation" />
-              <ToolbarButton icon={<Camera className="w-4 h-4" />} label="Render preview" />
-              <ToolbarButton icon={<Download className="w-4 h-4" />} label="Export" />
+              <ToolbarButton icon={<RotateCcw className="w-4 h-4" />} label="Temeli geri al" />
+              <ToolbarButton icon={<Camera className="w-4 h-4" />} label="Önizleme oluştur" />
+              <ToolbarButton icon={<Download className="w-4 h-4" />} label="Dışa aktar" />
               <button
                 onClick={snapshot}
                 disabled={!selectedProject || busy}
                 className="h-8 px-3 border border-slate-800 bg-slate-900 hover:border-[var(--edith-primary)] text-xs text-slate-200 disabled:opacity-40"
               >
-                Snapshot
+                Anlık Görüntü
               </button>
             </div>
           </div>
@@ -288,14 +288,14 @@ export const Studio3DView: React.FC = () => {
         </main>
 
         <aside className="border-l border-slate-800 bg-slate-950/80 min-h-0 overflow-y-auto custom-scrollbar">
-          <PanelHeader icon={<Ruler className="w-4 h-4" />} title="Properties" />
+          <PanelHeader icon={<Ruler className="w-4 h-4" />} title="Özellikler" />
           <div className="p-3 space-y-3">
             {selectedComponent ? (
               <>
                 <InfoRow label="Name" value={selectedComponent.name} />
                 <InfoRow label="Type" value={selectedComponent.type} />
                 <InfoRow label="Material" value={selectedComponent.material ?? 'unset'} />
-                <InfoRow label="Status" value={selectedComponent.status} />
+                <InfoRow label="Durum" value={selectedComponent.status} />
                 <div className="grid grid-cols-3 gap-2">
                   <Metric label="X" value={`${selectedComponent.dimensionsMm.x} mm`} />
                   <Metric label="Y" value={`${selectedComponent.dimensionsMm.y} mm`} />
@@ -307,7 +307,7 @@ export const Studio3DView: React.FC = () => {
             )}
           </div>
 
-          <PanelHeader icon={<Braces className="w-4 h-4" />} title="Parameters" />
+          <PanelHeader icon={<Braces className="w-4 h-4" />} title="Parametreler" />
           <div className="p-3 space-y-2">
             {Object.entries(selectedProject?.parameters ?? {}).map(([parameterKey, value]) => (
               <InfoRow key={parameterKey} label={parameterKey} value={String(value)} />
@@ -355,20 +355,20 @@ export const Studio3DView: React.FC = () => {
             )}
           </div>
 
-          <PanelHeader icon={<Download className="w-4 h-4" />} title="Export" />
+          <PanelHeader icon={<Download className="w-4 h-4" />} title="Dışa Aktarma" />
           <div className="p-3 flex flex-wrap gap-1.5">
             {(selectedProject?.exportFormats ?? ['STEP', 'STL', 'OBJ', 'GLB']).map((format) => (
               <button
                 key={format}
                 className="px-2 py-1 border border-slate-800 bg-slate-900 text-[10px] font-mono text-slate-300 hover:border-[var(--edith-primary)]"
-                title="Runtime export adapter required"
+                title="Çalışma zamanı dışa aktarma bağdaştırıcısı gerekli"
               >
                 {format}
               </button>
             ))}
           </div>
 
-          <PanelHeader icon={<FileClock className="w-4 h-4" />} title="History" />
+          <PanelHeader icon={<FileClock className="w-4 h-4" />} title="Geçmiş" />
           <div className="p-3 space-y-2">
             {(selectedProject?.history ?? []).slice().reverse().map((item, index) => (
               <div key={`${item}-${index}`} className="flex gap-2 text-[11px] text-slate-500">

@@ -157,7 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {settings.selectedModel === 'auto' && (
           <div className="hidden min-[2100px]:block">
-            <StatusPill label="AUTO MODE" value="ROUTED" tone="info" />
+            <StatusPill label="OTOMATİK MOD" value="YÖNLENDİRİLDİ" tone="info" />
           </div>
         )}
 
@@ -181,8 +181,8 @@ export const Header: React.FC<HeaderProps> = ({
             {isTestingConnection
               ? 'Testing...'
               : ollamaConnected
-              ? 'Ollama Online'
-              : 'Ollama Offline'}
+              ? 'Ollama Çevrimiçi'
+              : 'Ollama Çevrimdışı'}
           </span>
         </button>
 
@@ -196,7 +196,7 @@ export const Header: React.FC<HeaderProps> = ({
               ? 'border-red-500/30 bg-red-950/40 text-red-300'
               : 'border-amber-500/30 bg-amber-950/40 text-amber-300'
           }`}
-          title={activeProvider?.requiredEnv.length ? `Required environment: ${activeProvider.requiredEnv.join(', ')}` : 'Provider status'}
+          title={activeProvider?.requiredEnv.length ? `Gerekli ortam değişkenleri: ${activeProvider.requiredEnv.join(', ')}` : 'Sağlayıcı durumu'}
         >
           {activeProviderStatus === 'available' ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
           <span className="max-w-24 truncate">{providerDisplayName(settings.aiProvider)}</span>
@@ -210,18 +210,18 @@ export const Header: React.FC<HeaderProps> = ({
             tone={providerTone(geminiProvider?.status ?? (providerHealth.geminiAvailable ? 'available' : 'configuration_required'))}
           />
           <StatusPill
-            label="Local"
+            label="Yerel"
             value={providerStatusLabel(ollamaProvider?.status ?? (ollamaConnected ? 'available' : 'offline'))}
             tone={providerTone(ollamaProvider?.status ?? (ollamaConnected ? 'available' : 'offline'))}
           />
         </div>
 
         <div className="hidden min-[2300px]:flex items-center gap-2">
-          <StatusPill label="Voice" value={settings.autoSpeech ? 'ON' : 'OFF'} tone={settings.autoSpeech ? 'success' : 'muted'} />
-          <StatusPill label="Network" value="UI ONLY" tone="muted" />
-          <StatusPill label="Computer" value="READ" tone="success" />
-          <StatusPill label="Automation" value="GATED" tone="info" />
-          <StatusPill label="Security" value="GUARDED" tone="success" />
+          <StatusPill label="Ses" value={settings.autoSpeech ? 'AÇIK' : 'KAPALI'} tone={settings.autoSpeech ? 'success' : 'muted'} />
+          <StatusPill label="Ağ" value="YALNIZCA ARAYÜZ" tone="muted" />
+          <StatusPill label="Bilgisayar" value="OKUMA" tone="success" />
+          <StatusPill label="Otomasyon" value="KISITLI" tone="info" />
+          <StatusPill label="Güvenlik" value="KORUMALI" tone="success" />
         </div>
 
       </div>

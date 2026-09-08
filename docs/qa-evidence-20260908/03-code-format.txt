@@ -1,0 +1,88 @@
+Window: "E.D.I.T.H. - Personal AI System", App: edith.exe.
+	0 pencere E.D.I.T.H. - Personal AI System Secondary Actions: Raise
+		1 bölme TAURI_DRAG_RESIZE_WINDOW
+		2 bölme
+			3 bölme E.D.I.T.H.
+				4 bölme (disabled)
+				5 bölge E.D.I.T.H. - Web içeriği
+					6 bölge
+						7 bölge
+						8 bölge
+							9 bölge
+								10 belge E.D.I.T.H. ID: RootWebArea
+									11 grup
+										12 grup ID: root
+											13 düğme E.D.I.T.H. Personal AI System / JARVIS Computer READ ONLY Desktop 1.0.0 Description: Drag E.D.I.T.H. window
+											14 düğme Stop Description: Emergency stop: stops speech/streaming state only
+											15 düğme Minimize Description: Minimize
+											16 düğme Maximize Description: Maximize
+											17 düğme Toggle fullscreen Description: Toggle fullscreen
+											18 düğme Close Description: Close
+											19 tamamlayıcı
+												20 başlık E.D.I.T.H.
+												21 metin PERSONAL AI OS
+												22 gezinme
+													23 düğme Command Center Description: Command Center
+													24 düğme Chat Description: Chat
+													25 düğme Agents Description: Agents
+													26 düğme Tasks Description: Tasks
+													27 düğme Computer Use Description: Computer Use
+													28 düğme Browser Description: Browser
+													29 düğme Memory Description: Memory
+													30 düğme Knowledge Graph Description: Knowledge Graph
+													31 düğme Automations Description: Automations
+													32 düğme Files Description: Files
+													33 düğme Coding Description: Coding
+													34 düğme Trading Description: Trading
+													35 düğme Tools / MCP Description: Tools / MCP
+													36 düğme Voice Description: Voice
+													37 düğme Integrations Description: Integrations
+													38 düğme Security Description: Security
+													39 düğme System Description: System
+													40 düğme Settings Description: Settings
+												41 metin Ollama
+												42 metin qwen2.5:3b
+												43 metin /
+												44 metin ONLINE
+											45 üst bilgi
+												46 düğme Assistant: JARVIS
+												47 birleşik giriş kutusu Select model provider without changing assistant persona Description: Select model provider without changing assistant persona ID: edith-provider-selector
+												48 birleşik giriş kutusu Select model without changing assistant persona Description: Select model without changing assistant persona ID: edith-model-selector
+												49 düğme Ollama ONLINE Description: Provider status
+												50 düğme Otomatik Seslendirme Kapalı Description: Otomatik Seslendirme Kapalı
+												51 düğme Sohbeti Temizle Description: Sohbeti Temizle
+												52 düğme Yeni Sohbet
+												53 düğme Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur Description: Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur
+												54 düğme Çıkış Yap Description: Çıkış Yap
+											55 ana
+												490 başlık Kod Chat
+												491 metin JARVIS
+												492 metin · ayrı geçmiş · kod odaklı sistem prompt’u
+												493 düğme Temizle
+												494 metin JARVIS Code
+												495 düğme Kopyala Description: Kopyala
+												496 metin JARVIS kod kanalı hazır. Burada kod yazdırabilir, dosya mimarisi tasarlatabilir, hata açıklatabilir veya refactor isteyebilirsiniz. Normal sohbet geçmişinden ayrı tutulur.
+												504 metin ARDA YORULMAZEL
+												505 düğme Kopyala Description: Kopyala
+												506 metin React ve TypeScript ile temiz, erişilebilir bir bileşen yaz.
+												507 metin JARVIS Code
+												508 düğme Kopyala Description: Kopyala
+												509 metin Efendim, React ve TypeScript kullanarak temiz ve erişilebilir bir bileşene başlayacağım. İlk adımda, genel bir arayüz tasarımı yapacağız ve ardından bunun üzerinde daha fazla detay ekleyeceğiz. İlk olarak, `App.tsx` dosyasında genel bir arayüze ihtiyacımız var. İşte bu aşamada nasıl yapılacağı: ```tsx// App.tsximport React from 'react'; import { render } from 'react-dom'; const App: React.FC = () => { return ( <div> <h1>Temiz ve Erişilebilir Arayüz</h1> <p>Sadece temel içerik içerir.</p> </div> ); }; render(<App />, document.getElementById('root')); ``` Bu kod, bir `React.FC` (Functional Component) oluşturup, iç içe yer alan bir `<div>` içinde sadece başlık ve metin ekrana yazdırır. Bu arayüz genel olarak erişilebilir ve temiz hale getirilmiştir. İşte bu aşamada bize ihtiyacımız var! Şimdi bunun üzerinde daha fazla detay ekleyebilir veya başka bileşenlerle etkileşim kurabiliriz.
+												497 düzenle Kod isteğini yaz... örn: Bu React bileşenini refactor et, TypeScript tiplerini düzelt, hata mesajını analiz et Description: Kod isteğini yaz... örn: Bu React bileşenini refactor et, TypeScript tiplerini düzelt, hata mesajını analiz et
+												498 düğme (disabled) Gönder Description: Gönder
+												499 tamamlayıcı
+													500 metin Kod Kısayolları
+													501 düğme Bileşen Yaz React ve TypeScript ile temiz, erişilebilir bir bileşen yaz.
+													502 düğme Hata Açıkla Bu hatayı açıkla, kök nedeni bul ve düzeltme öner.
+													503 düğme Refactor Planı Bu kod için küçük ve güvenli bir refactor planı çıkar.
+								112 bölge
+		113 başlık çubuğu
+			114 menü çubuğu Sistem ID: MenuBar
+				115 menü öğesi Sistem
+			116 düğme Simge Durumuna Küçült
+			117 düğme Ekranı Kapla
+			118 düğme Kapat
+
+Document text: ```
+￼
+```

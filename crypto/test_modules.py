@@ -17,6 +17,15 @@ TEST_DB = BASE_DIR / 'data' / 'test_agent_memory.db'
 if TEST_DB.exists():
     TEST_DB.unlink()
 os.environ['CRYPTO_DB_PATH'] = str(TEST_DB)
+os.environ.setdefault('PYTHONUTF8', '1')
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+os.environ.setdefault('CRYPTO_MODE', 'OBSERVER_ONLY')
+os.environ.setdefault('CRYPTO_TRADING_ENABLED', 'false')
+os.environ.setdefault('CRYPTO_PAPER_TRADING_ENABLED', 'false')
+os.environ.setdefault('CRYPTO_LIVE_TRADING_ENABLED', 'false')
+os.environ.setdefault('CRYPTO_OBSIDIAN_ENABLED', 'true')
+os.environ.setdefault('EDITH_OBSIDIAN_VAULT_PATH', r'D:\EDİTH\EDİTH')
+os.environ.setdefault('OBSIDIAN_VAULT_PATH', r'D:\EDİTH\EDİTH')
 
 errors = []
 
@@ -215,6 +224,18 @@ except Exception as e:
 print("=== Testing obsidian_exporter ===")
 try:
     from obsidian_exporter import ObsidianMarketExporter
+    from obsidian_path import resolve_obsidian_vault_path, validate_obsidian_vault_path
+
+    resolved = resolve_obsidian_vault_path(BASE_DIR / "config" / "observer_config.json")
+    assert resolved["vaultPath"] == r"D:\EDİTH\EDİTH"
+    assert resolved["errorCode"] is None
+    mojibake = validate_obsidian_vault_path(r"D:\ED─░TH\ED─░TH")
+    assert mojibake["errorCode"] == "OBSIDIAN_PATH_ENCODING_ERROR"
+    rejected_exporter = ObsidianMarketExporter(vault_path=r"D:\ED─░TH\ED─░TH", enabled=True)
+    rejected_status = rejected_exporter.status()
+    assert rejected_status["errorCode"] == "OBSIDIAN_PATH_ENCODING_ERROR"
+    assert rejected_status["status"] == "configuration_required"
+
     missing_exporter = ObsidianMarketExporter(vault_path=str(BASE_DIR / "missing-global-vault"), enabled=True)
     assert missing_exporter.export_observation({"symbol": "BTC/USDT"}).get("status") == "configuration_required"
     with tempfile.TemporaryDirectory() as td:
@@ -224,6 +245,11 @@ try:
         assert status["uses_global_edith_vault"] is True
         assert status["relative_folder"] == "Trading/Crypto Market Learning"
         assert status["target_path"].endswith("Trading\\Crypto Market Learning") or status["target_path"].endswith("Trading/Crypto Market Learning")
+        assert status["status"] == "connected"
+        assert status["vaultPathConfigured"] is True
+        assert status["available"] is True
+        assert status["writable"] is True
+        assert status["obsidian"]["status"] == "connected"
         obs = {
             "symbol": "BTC/USDT",
             "mode": "OBSERVER_ONLY",
@@ -250,9 +276,11 @@ try:
         assert test_path.name == "_EDITH_CRYPTO_EXPORT_TEST.md"
         assert test_path.parent.name == "Crypto Market Learning"
         assert test_path.parent.parent.name == "Trading"
-        assert "Status: OK" in test_path.read_text(encoding="utf-8")
+        test_text = test_path.read_text(encoding="utf-8")
+        assert "Status: OK" in test_text
+        assert "Path Encoding: OK" in test_text
         os.environ.pop("BINANCE_API_KEY", None)
-    print("  Missing path fallback and configured Markdown export  [OK]")
+    print("  Unicode path, mojibake rejection, and Markdown export  [OK]")
 except Exception as e:
     errors.append(f"obsidian_exporter: {e}")
     print(f"  ERROR: {e}")
@@ -415,6 +443,10 @@ try:
         assert health["runtime"]["state"] == "STOPPED"
         assert health["runtime"]["observerRunning"] is False
         assert health["runtime"]["safetyStatus"]["status"] == "LOCKED"
+        assert health["obsidian"]["vaultPath"] == r"D:\EDİTH\EDİTH"
+        assert health["obsidian"]["folder"] == "Trading/Crypto Market Learning"
+        assert "ED─░TH" not in (health["obsidian"].get("vaultPath") or "")
+        assert health["obsidian"]["errorCode"] is None
         assert health["obsidianTargetPath"].endswith("Trading\\Crypto Market Learning") or health["obsidianTargetPath"].endswith("Trading/Crypto Market Learning")
         r0 = client.get('/api/health')
         print(f"  /api/health -> {r0.status_code}  [OK]")
@@ -460,6 +492,9 @@ try:
         print(f"  /api/learning-notes -> {r21.status_code}  [OK]")
         r22 = client.get('/api/obsidian-status')
         print(f"  /api/obsidian-status -> {r22.status_code}  [OK]")
+        obsidian_status = r22.get_json()
+        assert obsidian_status["vaultPath"] == r"D:\EDİTH\EDİTH"
+        assert "ED─░TH" not in obsidian_status["vaultPath"]
         r23 = client.get('/api/crypto/status')
         print(f"  /api/crypto/status -> {r23.status_code}  [OK]")
         runtime = r23.get_json()
