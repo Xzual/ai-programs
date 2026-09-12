@@ -138,7 +138,7 @@ export const ProactiveView: React.FC = () => {
 
   return (
     <div className="flex-1 overflow-y-auto bg-slate-950 p-5 custom-scrollbar">
-      <div className="max-w-7xl mx-auto space-y-5">
+      <div className="mx-auto w-[min(100%,118rem)] space-y-5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">

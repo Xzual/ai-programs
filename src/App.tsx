@@ -977,7 +977,7 @@ export default function App() {
         />
       )}
       <DesktopTitleBar activeAssistant={activeAssistant} onEmergencyStop={handleEmergencyStop} />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
         {/* Left Sidebar */}
         <Sidebar
           activeTab={activeTab}
@@ -989,7 +989,7 @@ export default function App() {
         />
 
         {/* Main Content Workspace */}
-        <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Header
           settings={settings}
           activeAssistant={activeAssistant}
@@ -1010,7 +1010,7 @@ export default function App() {
         />
 
         {/* Dynamic Tab Views */}
-        <main className="flex-1 flex overflow-hidden relative">
+        <main className="relative flex min-h-0 flex-1 overflow-hidden">
           {activeTab === 'dashboard' && (
             <DashboardView
               aiState={aiState}
@@ -1113,7 +1113,7 @@ export default function App() {
               isTestingConnection={isTestingConnection}
             />
           )}
-          {activeTab !== 'dashboard' && activeTab !== 'chat' && (
+          {!['dashboard', 'chat', 'knowledge', 'crypto', 'settings', 'system'].includes(activeTab) && (
             <ContextPanel aiState={aiState} assistant={activeAssistant} tools={tools} logs={logs} />
           )}
         </main>

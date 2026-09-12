@@ -68,6 +68,63 @@ export const statusCopy: Record<AiState, string> = {
   success: 'SUCCESS',
 };
 
+const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
+
+type ScreenFrameVariant = 'readable' | 'wide' | 'cockpit' | 'canvas';
+
+const screenContainerClass: Record<ScreenFrameVariant, string> = {
+  readable: 'edith-responsive-container',
+  wide: 'edith-responsive-container-wide',
+  cockpit: 'edith-responsive-container-cockpit',
+  canvas: 'edith-responsive-container-canvas',
+};
+
+export function ResponsiveWorkspace({
+  children,
+  variant = 'wide',
+  className = '',
+}: {
+  children: React.ReactNode;
+  variant?: ScreenFrameVariant;
+  className?: string;
+}) {
+  return (
+    <div className={cx('edith-workspace edith-responsive-pad custom-scrollbar', className)}>
+      <div className={cx(screenContainerClass[variant], 'min-w-0')}>{children}</div>
+    </div>
+  );
+}
+
+export function WorkspaceGrid({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <div className={cx('edith-responsive-grid', className)}>{children}</div>;
+}
+
+export function CockpitGrid({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <div className={cx('edith-cockpit-grid', className)}>{children}</div>;
+}
+
+export function AdaptiveInspector({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <aside className={cx('edith-adaptive-inspector', className)}>{children}</aside>;
+}
+
 type InteractionSafetySnapshot = {
   computer?: {
     mode: string;
@@ -377,10 +434,10 @@ export function CommandCenter({
   const activeTools = tools.filter((tool) => tool.status === 'running').length;
   const pendingApproval = tools.filter((tool) => tool.requiresConfirmation).slice(0, 3);
   return (
-    <div className="edith-workspace custom-scrollbar">
-      <div className="grid grid-cols-1 gap-4 p-4 2xl:grid-cols-[1fr_24rem]">
+    <ResponsiveWorkspace variant="cockpit">
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_clamp(22rem,22vw,30rem)]">
         <div className="space-y-4 min-w-0">
-          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1fr_18rem]">
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_clamp(17rem,16vw,22rem)]">
             <OSPanel title="Mission Control Surface" eyebrow="COMMAND CENTER" icon={<Cpu className="h-4 w-4" />}>
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <StatusPill label={assistant.name} tone="info" />
@@ -460,7 +517,7 @@ export function CommandCenter({
           </div>
         </OSPanel>
       </div>
-    </div>
+    </ResponsiveWorkspace>
   );
 }
 
@@ -488,7 +545,7 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
     ['QA Agent', 'Sonuç doğrulama ve final rapor kalitesi', logs.length > 0 ? 'WAITING' : 'STANDBY', ['verifier']],
   ] as const;
   return (
-    <ScreenFrame title="Ajan İşlemleri" icon={<Network className="h-5 w-5" />} subtitle="Çok ajanlı düzenleme grafiği ve işlem birimleri">
+    <ScreenFrame title="Ajan İşlemleri" icon={<Network className="h-5 w-5" />} subtitle="Çok ajanlı düzenleme grafiği ve işlem birimleri" variant="wide">
       <OSPanel title="Ajan Ağı" eyebrow="AKIŞ" icon={<Route className="h-4 w-4" />}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
           {['User Objective', 'Orchestrator', 'Planning Agent', 'Browser Agent', 'Research Agent', 'Verifier', 'Final Response'].map((node, index) => (
@@ -504,9 +561,9 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
         <ActionRow label="Çalışan araçlar" value={String(runningTools)} />
         <ActionRow label="Denetim olayları" value={String(logs.length)} />
       </div>
-      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+      <WorkspaceGrid className="mt-4">
         {agents.map(([name, role, status, tools]) => <AgentCard key={name} name={name} role={role} status={status} tools={[...tools]} />)}
-      </div>
+      </WorkspaceGrid>
     </ScreenFrame>
   );
 }
@@ -519,8 +576,8 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
   );
   const latestComputerLog = logs.find((log) => computerTools.some((tool) => tool.id === log.toolId));
   return (
-    <ScreenFrame title="Bilgisayar Kullanımı" icon={<Cpu className="h-5 w-5" />} subtitle="Görünür algı-eylem kokpiti. Varsayılan mod: SADECE OKUMA.">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
+    <ScreenFrame title="Bilgisayar Kullanımı" icon={<Cpu className="h-5 w-5" />} subtitle="Görünür algı-eylem kokpiti. Varsayılan mod: SADECE OKUMA." variant="cockpit">
+      <CockpitGrid>
         <OSPanel title="Live Observation" eyebrow="SCREEN" icon={<Eye className="h-4 w-4" />}>
           <div className="aspect-video rounded-lg border border-white/10 bg-[radial-gradient(circle_at_center,var(--assistant-glow),transparent_34%),linear-gradient(135deg,rgba(15,23,42,.9),rgba(2,6,23,.96))] p-4">
             <div className="flex h-full items-center justify-center rounded-md border border-dashed border-white/15 bg-black/30 text-center">
@@ -549,7 +606,7 @@ export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: Automatio
             <Square className="h-4 w-4" /> Bilgisayar Ajanını Durdur
           </button>
         </OSPanel>
-      </div>
+      </CockpitGrid>
     </ScreenFrame>
   );
 }
@@ -565,8 +622,8 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
     capability.runtimeStatus === 'BLOCKED' || capability.requiresApproval
   ) ?? [];
   return (
-    <ScreenFrame title="Tarayıcı / Araştırma" icon={<Globe2 className="h-5 w-5" />} subtitle="Kaynaklar, iddialar, çelişkiler ve sentez için yapay zeka araştırma kokpiti">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
+    <ScreenFrame title="Tarayıcı / Araştırma" icon={<Globe2 className="h-5 w-5" />} subtitle="Kaynaklar, iddialar, çelişkiler ve sentez için yapay zeka araştırma kokpiti" variant="cockpit">
+      <CockpitGrid>
         <OSPanel title="Araştırma Oturumu" eyebrow="TARAYICI AJANI" icon={<Globe2 className="h-4 w-4" />}>
           <EmptyState icon={<SearchIcon />} title="Browser Agent hazır" text="Araştırma görevi başladığında aktif URL, tabs, extracted facts ve source board burada görünür." />
         </OSPanel>
@@ -587,15 +644,15 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
             </div>
           )}
         </OSPanel>
-      </div>
+      </CockpitGrid>
     </ScreenFrame>
   );
 }
 
 export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assistant }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[]; assistant?: AssistantProfile }) {
   return (
-    <ScreenFrame title="Görevler" icon={<Clock3 className="h-5 w-5" />} subtitle="Kontrol noktaları, araçlar, onaylar ve sonuç durumlarıyla otonom görev zaman akışı">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
+    <ScreenFrame title="Görevler" icon={<Clock3 className="h-5 w-5" />} subtitle="Kontrol noktaları, araçlar, onaylar ve sonuç durumlarıyla otonom görev zaman akışı" variant="wide">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[clamp(20rem,24vw,30rem)_minmax(0,1fr)]">
         <OSPanel title="Görev Durum Modeli" eyebrow="KUYRUK" icon={<CircleDot className="h-4 w-4" />}>
           {assistant && (
             <div className="mb-3 space-y-2">
@@ -619,8 +676,8 @@ export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assist
 
 export function MemoryBrainScreen({ memories }: { memories: MemoryItem[] }) {
   return (
-    <ScreenFrame title="Bellek" icon={<Brain className="h-5 w-5" />} subtitle="Anlamsal bellek, tercih belleği ve kullanım gerekçesi bağlamı">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[20rem_1fr]">
+    <ScreenFrame title="Bellek" icon={<Brain className="h-5 w-5" />} subtitle="Anlamsal bellek, tercih belleği ve kullanım gerekçesi bağlamı" variant="wide">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[clamp(18rem,20vw,24rem)_minmax(0,1fr)]">
         <OSPanel title="Bellek Kümeleri" eyebrow="BEYİN" icon={<Network className="h-4 w-4" />}>
           {['User Memory', 'Conversation Memory', 'Project Memory', 'Task Memory', 'Preference Memory', 'Technical Memory', 'Trading Memory', 'Failure Memory'].map((label) => (
             <ActionRow key={label} label={label} value={label === 'User Memory' ? String(memories.length) : '0'} />
@@ -847,32 +904,32 @@ export function KnowledgeGraphScreen({
     .slice(0, 32) as Array<{ edge: GraphEdge; a: typeof positionedNodes[number]; b: typeof positionedNodes[number] }>;
 
   return (
-    <div className="-m-4 min-h-[calc(100vh-5.5rem)] overflow-hidden bg-[#020713] p-3 text-slate-100">
+    <div className="-m-[var(--edith-workspace-gutter)] min-h-[calc(100vh-var(--edith-header-height)-1rem)] w-full flex-1 overflow-hidden bg-[#020713] p-3 text-slate-100">
       <style>{`
         @keyframes edith-flow-dash { to { stroke-dashoffset: -34; } }
         @keyframes edith-star-pulse { 0%, 100% { opacity: .24; transform: scale(.78); } 45% { opacity: .95; transform: scale(1.28); } }
         @keyframes edith-core-breathe { 0%, 100% { transform: translate(-50%, -50%) scale(.96); opacity: .72; } 50% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; } }
         @keyframes edith-orbit-spin { to { transform: rotate(360deg); } }
       `}</style>
-      <div className="grid h-[calc(100vh-6.5rem)] min-h-[760px] grid-cols-[minmax(34rem,1fr)_350px] grid-rows-[62px_minmax(0,1fr)] gap-3">
-        <header className="col-span-2 flex items-center justify-between rounded-2xl border border-cyan-300/20 bg-[#041421]/86 px-5 shadow-[0_0_38px_rgba(14,165,233,0.14)]">
+      <div className="grid min-h-[calc(100vh-var(--edith-header-height)-2rem)] grid-cols-1 grid-rows-[auto_minmax(34rem,1fr)_auto] gap-3 xl:h-[calc(100vh-var(--edith-header-height)-2rem)] xl:grid-cols-[minmax(0,1fr)_clamp(20rem,22vw,28rem)] xl:grid-rows-[auto_minmax(0,1fr)] 2xl:grid-cols-[minmax(0,1fr)_clamp(23rem,21vw,32rem)]">
+        <header className="flex flex-col gap-3 rounded-2xl border border-cyan-300/20 bg-[#041421]/86 px-4 py-3 shadow-[0_0_38px_rgba(14,165,233,0.14)] sm:flex-row sm:items-center sm:justify-between xl:col-span-2 xl:px-5">
           <div>
             <h1 className="text-xl font-semibold text-cyan-50">KNOWLEDGE MAP</h1>
             <p className="text-xs text-slate-400">Everything connected. Greater together.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className={`flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-mono ${statusOnline ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200' : 'border-red-300/30 bg-red-400/10 text-red-200'}`}>
               <span className="h-2 w-2 rounded-full bg-current shadow-[0_0_12px_currentColor]" />
               {statusOnline ? 'SYSTEM ONLINE' : (status?.connectionStatus ?? 'DEGRADED').toUpperCase()}
             </div>
-            <div className="relative w-72">
+            <div className="relative min-w-[13rem] flex-1 sm:w-72 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
               <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anything..." className="w-full rounded-xl border border-cyan-300/16 bg-black/30 py-2.5 pl-9 pr-3 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-300/45" />
             </div>
           </div>
         </header>
 
-        <section className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#020713] shadow-[0_0_90px_rgba(14,165,233,0.22)]">
+        <section className="relative min-h-[34rem] overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#020713] shadow-[0_0_90px_rgba(14,165,233,0.22)] xl:min-h-0">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,rgba(34,211,238,0.36),transparent_17rem),radial-gradient(circle_at_50%_52%,rgba(37,99,235,0.24),transparent_28rem),radial-gradient(circle_at_40%_45%,rgba(124,58,237,0.22),transparent_20rem),linear-gradient(90deg,rgba(34,211,238,.055)_1px,transparent_1px),linear-gradient(rgba(34,211,238,.04)_1px,transparent_1px)] bg-[size:auto,auto,auto,48px_48px,48px_48px]" />
           <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_20%_18%,rgba(125,211,252,.26)_0_1px,transparent_2px),radial-gradient(circle_at_71%_22%,rgba(255,255,255,.38)_0_1px,transparent_2px),radial-gradient(circle_at_42%_77%,rgba(45,212,191,.28)_0_1px,transparent_2px),radial-gradient(circle_at_84%_69%,rgba(147,197,253,.28)_0_1px,transparent_2px)] [background-size:92px_80px,126px_118px,154px_130px,198px_176px]" />
           {starredNodes.map((node) => (
@@ -918,10 +975,10 @@ export function KnowledgeGraphScreen({
               );
             })}
           </svg>
-          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[19rem] w-[19rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/24 shadow-[0_0_80px_rgba(34,211,238,.55),inset_0_0_48px_rgba(34,211,238,.26)]" style={{ animation: 'edith-core-breathe 4.4s ease-in-out infinite' }} />
-          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[34rem] w-[34rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/10" style={{ animation: 'edith-orbit-spin 34s linear infinite' }} />
-          <div className="pointer-events-none absolute left-4 top-24 font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70">Ideas<br />People<br />Data<br />Knowledge<br />Actions</div>
-          <div className="pointer-events-none absolute right-5 top-24 text-right font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70">Higher<br />Context<br />Greater<br />Possibilities</div>
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[clamp(14rem,24vw,26rem)] w-[clamp(14rem,24vw,26rem)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/24 shadow-[0_0_80px_rgba(34,211,238,.55),inset_0_0_48px_rgba(34,211,238,.26)]" style={{ animation: 'edith-core-breathe 4.4s ease-in-out infinite' }} />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[clamp(24rem,42vw,48rem)] w-[clamp(24rem,42vw,48rem)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/10" style={{ animation: 'edith-orbit-spin 34s linear infinite' }} />
+          <div className="pointer-events-none absolute left-4 top-24 hidden font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70 md:block">Ideas<br />People<br />Data<br />Knowledge<br />Actions</div>
+          <div className="pointer-events-none absolute right-5 top-24 hidden text-right font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70 md:block">Higher<br />Context<br />Greater<br />Possibilities</div>
           <div className="absolute inset-0 [perspective:900px]">
             {positionedNodes.map((node, index) => {
               const active = selected?.id === node.id;
@@ -946,17 +1003,17 @@ export function KnowledgeGraphScreen({
               );
             })}
           </div>
-          <div className="absolute left-4 top-4 flex rounded-xl border border-cyan-300/18 bg-black/42 p-1 backdrop-blur-xl">
+          <div className="absolute left-4 right-4 top-4 flex overflow-x-auto rounded-xl border border-cyan-300/18 bg-black/42 p-1 backdrop-blur-xl sm:right-auto">
             {(['Graph', 'Timeline', 'Clusters', 'Insights'] as const).map((item) => (
-              <button key={item} onClick={() => setMode(item)} className={`rounded-lg px-4 py-2 text-xs ${mode === item ? 'bg-cyan-300/16 text-cyan-50' : 'text-slate-500 hover:text-slate-200'}`}>{item}</button>
+              <button key={item} onClick={() => setMode(item)} className={`shrink-0 rounded-lg px-4 py-2 text-xs ${mode === item ? 'bg-cyan-300/16 text-cyan-50' : 'text-slate-500 hover:text-slate-200'}`}>{item}</button>
             ))}
           </div>
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl border border-cyan-300/18 bg-black/52 px-5 py-3 text-[11px] text-slate-300 backdrop-blur-xl">
+          <div className="absolute bottom-4 left-4 right-4 rounded-2xl border border-cyan-300/18 bg-black/52 px-4 py-3 text-center text-[11px] text-slate-300 backdrop-blur-xl sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:px-5">
             <span className="text-emerald-300">●</span> {domains.length} knowledge domains · {graphNodes.length} total nodes · {activity?.realtime ?? 'polling'} synchronization
           </div>
         </section>
 
-        <aside className="rounded-2xl border border-cyan-300/20 bg-[#041421]/84 p-4 shadow-[0_0_38px_rgba(14,165,233,0.12)]">
+        <aside className="min-h-0 overflow-y-auto rounded-2xl border border-cyan-300/20 bg-[#041421]/84 p-4 shadow-[0_0_38px_rgba(14,165,233,0.12)] custom-scrollbar">
           <div className="mb-4 flex items-center justify-between">
             <div className="text-[11px] font-semibold text-cyan-100">NODE DETAILS</div>
             <StatusPill label={statusOnline ? 'online' : 'degraded'} tone={statusOnline ? 'success' : 'warning'} />
@@ -1007,8 +1064,8 @@ export function KnowledgeGraphScreen({
 
 export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; logs: ToolExecutionLog[] }) {
   return (
-    <ScreenFrame title="Araçlar / MCP Kayıt Defteri" icon={<Wrench className="h-5 w-5" />} subtitle="Araç riski, izinler, durum, gecikme ve çalıştırma geçmişi">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+    <ScreenFrame title="Araçlar / MCP Kayıt Defteri" icon={<Wrench className="h-5 w-5" />} subtitle="Araç riski, izinler, durum, gecikme ve çalıştırma geçmişi" variant="wide">
+      <WorkspaceGrid>
         {tools.map((tool) => (
           <OSPanel key={tool.id} title={tool.name} eyebrow={tool.category.toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
             <p className="text-xs leading-relaxed text-slate-400">{tool.description}</p>
@@ -1020,7 +1077,7 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
           </OSPanel>
         ))}
         {tools.length === 0 && <div className="xl:col-span-3"><EmptyState icon={<Wrench className="h-4 w-4" />} title="Tool registry boş" text="Registry yüklendiğinde tool izinleri ve risk seviyeleri burada görünür." /></div>}
-      </div>
+      </WorkspaceGrid>
       <div className="mt-4">
         <OSPanel title="Recent Tool Logs" eyebrow="AUDIT" icon={<Terminal className="h-4 w-4" />}>
           {logs.slice(0, 6).map((log) => <ActionRow key={log.id} label={`${log.assistantName ?? 'EDITH'} / ${log.toolName}`} value={log.status} />)}
@@ -1034,7 +1091,7 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
 export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
   const automationTools = tools.filter((tool) => tool.category === 'reminder' || tool.category === 'monitor');
   return (
-    <ScreenFrame title="Otomasyonlar" icon={<Zap className="h-5 w-5" />} subtitle="Yinelenen, olay tabanlı ve tetikleyiciyle çalışan işler için görev zamanlama">
+    <ScreenFrame title="Otomasyonlar" icon={<Zap className="h-5 w-5" />} subtitle="Yinelenen, olay tabanlı ve tetikleyiciyle çalışan işler için görev zamanlama" variant="wide">
       <OSPanel title="Otomasyon Türleri" eyebrow="TETİKLEYİCİLER" icon={<Zap className="h-4 w-4" />}>
         <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <ActionRow label="Configured automation tools" value={String(automationTools.length)} />
@@ -1054,7 +1111,7 @@ export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: Au
 export function VoiceScreen() {
   const safety = useInteractionSafetySnapshot();
   return (
-    <ScreenFrame title="Ses" icon={<Mic2 className="h-5 w-5" />} subtitle="Uyandırma sözcüğü, ses tanıma, niyet, asistan yanıtı ve ses sentezi akışı">
+    <ScreenFrame title="Ses" icon={<Mic2 className="h-5 w-5" />} subtitle="Uyandırma sözcüğü, ses tanıma, niyet, asistan yanıtı ve ses sentezi akışı" variant="readable">
       <OSPanel title="Ses Akışı" eyebrow="SES DÖNGÜSÜ" icon={<Mic2 className="h-4 w-4" />}>
         <LoopBar items={['Wake Word', 'Speech Recognition', 'Intent', 'Assistant', 'Model', 'Response', 'TTS']} active={0} />
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1074,8 +1131,8 @@ export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?
   const highRiskTools = tools.filter((tool) => tool.requiresConfirmation);
   const connectedIntegrations = integrations.filter((integration) => integration.status === 'connected' && integration.enabled);
   return (
-    <ScreenFrame title="Güvenlik Merkezi" icon={<LockKeyhole className="h-5 w-5" />} subtitle="Onaylar, yüksek riskli araçlar, oturumlar, kilitler ve acil kontrol">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
+    <ScreenFrame title="Güvenlik Merkezi" icon={<LockKeyhole className="h-5 w-5" />} subtitle="Onaylar, yüksek riskli araçlar, oturumlar, kilitler ve acil kontrol" variant="cockpit">
+      <CockpitGrid>
         <OSPanel title="Approval UX" eyebrow="RISK REVIEW" icon={<ShieldAlert className="h-4 w-4" />}>
           <div className="rounded-lg border border-amber-400/25 bg-amber-400/10 p-4">
             <div className="text-sm font-semibold text-amber-100">Efendim, bu işlem için onayınız gerekiyor.</div>
@@ -1096,7 +1153,7 @@ export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?
           <ActionRow label="High-risk tools" value="approval required" />
           <ActionRow label="Connected integrations" value={String(connectedIntegrations.length)} />
         </OSPanel>
-      </div>
+      </CockpitGrid>
     </ScreenFrame>
   );
 }
@@ -1384,11 +1441,11 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const portfolioDataLabel = serviceOnline ? 'PAPER DISABLED' : 'STALE / DEMO MEMORY';
 
   return (
-    <div className="edith-workspace overflow-y-auto bg-[#05070b] p-4 custom-scrollbar">
-      <div className="mx-auto max-w-[1540px] space-y-4">
+    <div className="edith-workspace edith-responsive-pad overflow-y-auto bg-[#05070b] custom-scrollbar">
+      <div className="edith-responsive-container-cockpit space-y-4">
         <section className="relative overflow-hidden rounded-lg border border-cyan-300/18 bg-[radial-gradient(circle_at_18%_0%,rgba(14,165,233,0.17),transparent_34%),linear-gradient(135deg,rgba(8,13,23,0.96),rgba(2,6,12,0.98))] p-4 shadow-[0_0_42px_rgba(14,165,233,0.12)]">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-transparent" />
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_24rem]">
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,22vw,30rem)]">
             <div className="min-w-0">
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <StatusPill label="CRYPTO OBSERVER MODE" tone={serviceOnline ? 'success' : 'warning'} value={serviceOnline ? 'SERVICE READY' : 'OFFLINE'} />
@@ -1546,9 +1603,9 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
           </section>
         )}
 
-        <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[1fr_25rem]">
+        <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_clamp(23rem,21vw,31rem)]">
           <div>
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[clamp(22rem,24vw,32rem)_minmax(0,1fr)]">
               <CryptoPanel title="Market Radar" eyebrow={endpointConnected ? 'LIVE FEED' : 'SAFE PLACEHOLDER'} icon={<Radar className="h-4 w-4" />}>
                 <CryptoMarketTerminal
                   symbols={symbolRows}
@@ -2220,8 +2277,8 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
     status === 'ONLINE' ? 'success' : status === 'BLOCKED' || status === 'OFFLINE' ? 'danger' : status === 'DEGRADED' || status === 'CONFIGURATION REQUIRED' ? 'warning' : 'muted';
 
   return (
-    <ScreenFrame title="System Diagnostics" icon={<Activity className="h-5 w-5" />} subtitle="Desktop shell, providers, permissions, tools and safe local runtime state">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_22rem]">
+    <ScreenFrame title="System Diagnostics" icon={<Activity className="h-5 w-5" />} subtitle="Desktop shell, providers, permissions, tools and safe local runtime state" variant="cockpit">
+      <CockpitGrid>
         <OSPanel title="Self-Test Matrix" eyebrow="DIAGNOSTICS" icon={<Activity className="h-4 w-4" />}>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             {diagnosticRows.map(([label, detail, status]) => (
@@ -2264,10 +2321,10 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
             </div>
           )}
         </OSPanel>
-      </div>
+      </CockpitGrid>
       <div className="mt-4">
         <OSPanel title="Capability Review" eyebrow="SAFE BOUNDARY" icon={<ShieldAlert className="h-4 w-4" />}>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
             {(safety?.classifications ?? []).slice(0, 12).map((capability) => (
               <div key={capability.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
                 <div className="flex items-start justify-between gap-2">
@@ -2386,7 +2443,7 @@ export function SettingsArchitectureScreen({
   };
 
   return (
-    <ScreenFrame title="Settings" icon={<SlidersHorizontal className="h-5 w-5" />} subtitle="Grouped settings architecture for E.D.I.T.H.">
+    <ScreenFrame title="Settings" icon={<SlidersHorizontal className="h-5 w-5" />} subtitle="Grouped settings architecture for E.D.I.T.H." variant="wide">
       <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
         <ActionRow label="Assistant" value={assistant?.name ?? settings?.assistantPersona ?? 'unknown'} />
         <ActionRow label="Memory namespace" value={assistant?.memoryNamespace ?? 'not configured'} />
@@ -2396,7 +2453,7 @@ export function SettingsArchitectureScreen({
         <ActionRow label="Provider source" value={providerHealth?.source === 'backend' ? 'backend endpoint' : 'frontend placeholder'} />
       </div>
 
-      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[22rem_1fr]">
+      <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-[clamp(20rem,22vw,28rem)_minmax(0,1fr)]">
         <OSPanel title="Active Model Route" eyebrow="MODELS / PROVIDERS" icon={<Cpu className="h-4 w-4" />}>
           <div className="space-y-3">
             <div>
@@ -2613,7 +2670,7 @@ export function ContextPanel({
   logs: ToolExecutionLog[];
 }) {
   return (
-    <aside className="hidden w-80 shrink-0 border-l border-white/10 bg-slate-950/55 p-3 backdrop-blur-2xl 2xl:block">
+    <aside className="hidden w-[clamp(19rem,18vw,26rem)] shrink-0 border-l border-white/10 bg-slate-950/55 p-3 backdrop-blur-2xl 2xl:block">
       <div className="space-y-3">
         <OSPanel title="Inspector" eyebrow="LIVE CONTEXT" icon={<Radar className="h-4 w-4" />}>
           <div className="space-y-2">
@@ -2631,10 +2688,22 @@ export function ContextPanel({
   );
 }
 
-export function ScreenFrame({ title, subtitle, icon, children }: { title: string; subtitle: string; icon: React.ReactNode; children: React.ReactNode }) {
+export function ScreenFrame({
+  title,
+  subtitle,
+  icon,
+  children,
+  variant = 'wide',
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  variant?: ScreenFrameVariant;
+}) {
   return (
-    <div className="edith-workspace overflow-y-auto p-4 custom-scrollbar">
-      <div className="mx-auto max-w-7xl">
+    <div className="edith-workspace edith-responsive-pad overflow-y-auto custom-scrollbar">
+      <div className={cx(screenContainerClass[variant], 'min-w-0')}>
         <div className="mb-4 flex flex-col gap-3 border-b border-white/10 pb-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <div className="edith-icon-cell h-11 w-11">{icon}</div>

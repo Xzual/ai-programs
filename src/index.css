@@ -10,6 +10,13 @@
   --edith-panel: rgba(15, 23, 42, 0.62);
   --edith-panel-strong: rgba(2, 6, 23, 0.78);
   --edith-border: rgba(226, 232, 240, 0.1);
+  --edith-header-height: 4.5rem;
+  --edith-sidebar-compact: 4.5rem;
+  --edith-sidebar-wide: clamp(14.5rem, 15vw, 17rem);
+  --edith-workspace-gutter: clamp(0.75rem, 1vw, 1.35rem);
+  --edith-readable-max: 84rem;
+  --edith-wide-max: min(100%, 118rem);
+  --edith-ultra-max: min(100%, 150rem);
 }
 
 body {
@@ -51,6 +58,65 @@ body {
     radial-gradient(circle at 28% 12%, var(--assistant-glow), transparent 24rem),
     radial-gradient(circle at 88% 80%, color-mix(in srgb, var(--assistant-accent) 10%, transparent), transparent 26rem),
     linear-gradient(180deg, rgba(2, 6, 23, 0.62), rgba(2, 6, 23, 0.92));
+}
+
+.edith-responsive-pad {
+  padding: var(--edith-workspace-gutter);
+}
+
+.edith-responsive-container {
+  width: min(100%, var(--edith-readable-max));
+  margin-inline: auto;
+}
+
+.edith-responsive-container-wide {
+  width: var(--edith-wide-max);
+  margin-inline: auto;
+}
+
+.edith-responsive-container-cockpit,
+.edith-responsive-container-canvas {
+  width: var(--edith-ultra-max);
+  margin-inline: auto;
+}
+
+.edith-responsive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.edith-cockpit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.edith-adaptive-inspector {
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .edith-cockpit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
+  }
+
+  .edith-adaptive-inspector {
+    max-width: clamp(19rem, 22vw, 28rem);
+  }
+}
+
+@media (min-width: 1920px) {
+  .edith-cockpit-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(23rem, 28rem);
+    gap: 1.15rem;
+  }
+}
+
+@media (max-width: 767px) {
+  .edith-responsive-pad {
+    padding: 0.75rem;
+  }
 }
 
 .edith-os-panel {

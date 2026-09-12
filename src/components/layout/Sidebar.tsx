@@ -103,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="relative top-0 z-30 flex h-full w-16 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-4 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 sm:w-64 sm:px-3">
+    <aside className="relative top-0 z-30 flex h-full w-[var(--edith-sidebar-compact)] shrink-0 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-3 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 md:w-[var(--edith-sidebar-wide)] md:px-3 md:py-4">
       {/* Top Brand Logo */}
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-1">
         <div className="flex items-center gap-3 px-2 py-3 mb-6">
@@ -115,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Cpu className="w-5 h-5 text-[var(--assistant-accent)] animate-pulse" />
             </div>
           </div>
-          <div className="hidden sm:block">
+          <div className="hidden min-w-0 md:block">
             <h1 className="text-lg font-extrabold tracking-widest text-[var(--assistant-primary)] font-mono">
               E.D.I.T.H.
             </h1>
@@ -155,9 +155,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }`}
                   />
                 </span>
-                <span className="hidden sm:inline font-sans">{item.label}</span>
+                <span className="hidden min-w-0 truncate font-sans md:inline">{item.label}</span>
                 {isActive && (
-                  <span className="hidden sm:block ml-auto w-1.5 h-1.5 rounded-full bg-[var(--assistant-primary)] shadow-[0_0_10px_var(--assistant-glow)]" />
+                  <span className="ml-auto hidden h-1.5 w-1.5 rounded-full bg-[var(--assistant-primary)] shadow-[0_0_10px_var(--assistant-glow)] md:block" />
                 )}
               </button>
             );
@@ -166,10 +166,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Bottom Status Card */}
-      <div className="mt-3 p-2 sm:p-3 rounded-lg bg-black/45 border border-white/10 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+      <div className="mt-3 rounded-lg border border-white/10 bg-black/45 p-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] md:p-3">
         <div className="flex items-center gap-2">
           {statusIcon}
-          <div className="hidden sm:block truncate">
+          <div className="hidden min-w-0 truncate md:block">
             <div className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
               <span className="truncate">{providerName}</span>
               <span className={`w-1.5 h-1.5 rounded-full ${statusDotClass}`} />

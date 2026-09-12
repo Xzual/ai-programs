@@ -3,7 +3,7 @@ import { MessageSquare, RadioTower, ShieldCheck } from 'lucide-react';
 import { ChatPanel } from '../chat/ChatPanel';
 import { VoiceBar } from '../chat/VoiceBar';
 import { AiState, AssistantProfile, ChatMessage, ProviderProfile, UserSettings } from '../../types';
-import { OSPanel, StatusPill } from '../ui/edithOS';
+import { OSPanel, ResponsiveWorkspace, StatusPill } from '../ui/edithOS';
 import { providerDisplayName, providerStatusLabel, providerTone } from '../../edith/providerService';
 
 interface ChatConsoleViewProps {
@@ -41,8 +41,9 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
   const providerStatus = activeProvider?.status ?? (ollamaConnected && settings.aiProvider === 'ollama' ? 'available' : 'unknown');
 
   return (
-    <div className="edith-workspace flex min-h-0 flex-col custom-scrollbar">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-4 xl:grid-cols-[18rem_1fr]">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ResponsiveWorkspace variant="wide" className="flex min-h-0 flex-col overflow-hidden">
+      <div className="grid h-full min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[clamp(17rem,18vw,22rem)_minmax(0,1fr)] 2xl:grid-cols-[clamp(18rem,16vw,24rem)_minmax(42rem,1fr)_clamp(18rem,16vw,24rem)]">
         <div className="hidden min-h-0 flex-col gap-4 xl:flex">
           <OSPanel title="Sohbet Konsolu" eyebrow="İLETİM" icon={<MessageSquare className="h-4 w-4" />}>
             <div className="space-y-2">
@@ -76,7 +77,20 @@ export const ChatConsoleView: React.FC<ChatConsoleViewProps> = ({
           assistantProfile={assistantProfile}
           className="min-h-0 h-full rounded-lg"
         />
+        <div className="hidden min-h-0 flex-col gap-4 2xl:flex">
+          <OSPanel title="Bağlam" eyebrow="GENİŞ EKRAN" icon={<RadioTower className="h-4 w-4" />}>
+            <div className="space-y-2">
+              <StatusPill label="Mesaj" value={String(messages.length)} tone="muted" />
+              <StatusPill label="Akış" value={isStreaming ? 'STREAMING' : 'IDLE'} tone={isStreaming ? 'warning' : 'muted'} />
+              <StatusPill label="Persona" value={assistantProfile.name} tone="info" />
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              Metin kolonu okunur genişlikte tutulur; geniş ekranda bağlam ve durum panelleri boş alanı kullanır.
+            </p>
+          </OSPanel>
+        </div>
       </div>
+      </ResponsiveWorkspace>
       <VoiceBar
         aiState={aiState}
         onSendMessage={onSendMessage}

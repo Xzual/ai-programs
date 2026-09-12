@@ -192,7 +192,7 @@ export const CryptoView: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] min-h-0 flex-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 xl:grid-cols-[clamp(18rem,20vw,24rem)_minmax(0,1fr)]">
         <aside className="border-r border-slate-800/80 bg-slate-950/70 p-4 space-y-4 overflow-y-auto custom-scrollbar">
           <div className="rounded-lg border border-slate-800 bg-slate-900/65 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-100">

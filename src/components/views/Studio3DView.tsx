@@ -161,8 +161,8 @@ export const Studio3DView: React.FC = () => {
 
   return (
     <div className="flex-1 min-w-0 bg-slate-950 text-slate-100 overflow-hidden">
-      <div className="h-full grid grid-cols-1 xl:grid-cols-[18rem_1fr_22rem]">
-        <aside className="border-r border-slate-800 bg-slate-950/80 min-h-0 overflow-y-auto custom-scrollbar">
+      <div className="grid h-full grid-cols-1 xl:grid-cols-[clamp(16rem,17vw,22rem)_minmax(0,1fr)] 2xl:grid-cols-[clamp(16rem,15vw,23rem)_minmax(0,1fr)_clamp(20rem,19vw,28rem)]">
+        <aside className="min-h-0 overflow-y-auto border-r border-slate-800 bg-slate-950/80 custom-scrollbar">
           <PanelHeader icon={<Layers3 className="w-4 h-4" />} title="3D Projeleri" />
           <div className="p-3 space-y-2">
             {projects.length === 0 && (
@@ -234,7 +234,7 @@ export const Studio3DView: React.FC = () => {
           <section className="relative flex-1 min-h-[360px] overflow-hidden bg-[linear-gradient(180deg,#020617,#08111f_52%,#020617)]">
             <div className="absolute inset-0 opacity-60 bg-[linear-gradient(rgba(56,189,248,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(56,189,248,0.08)_1px,transparent_1px)] bg-[size:38px_38px]" />
             <div className="absolute inset-0 flex items-center justify-center perspective-[900px]">
-              <div className="relative w-[min(72vw,680px)] aspect-[16/10] rotate-x-[58deg] rotate-z-[-32deg]">
+              <div className="relative aspect-[16/10] w-[min(82vw,1180px)] rotate-x-[58deg] rotate-z-[-32deg] xl:w-[min(62vw,1180px)]">
                 {(selectedProject?.components ?? []).map((component, index) => (
                   <div
                     key={component.id}
@@ -287,7 +287,7 @@ export const Studio3DView: React.FC = () => {
           </section>
         </main>
 
-        <aside className="border-l border-slate-800 bg-slate-950/80 min-h-0 overflow-y-auto custom-scrollbar">
+        <aside className="min-h-0 overflow-y-auto border-l border-slate-800 bg-slate-950/80 custom-scrollbar xl:col-span-2 2xl:col-span-1">
           <PanelHeader icon={<Ruler className="w-4 h-4" />} title="Özellikler" />
           <div className="p-3 space-y-3">
             {selectedComponent ? (

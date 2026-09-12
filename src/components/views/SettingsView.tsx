@@ -242,7 +242,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      <div className="space-y-6 max-w-4xl">
+      <div className="mx-auto max-w-[min(100%,96rem)] space-y-6">
         {/* 1. LLM & Provider Settings */}
         <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4 shadow-xl">
           <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">

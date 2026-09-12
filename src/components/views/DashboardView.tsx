@@ -113,11 +113,11 @@ function CommandSurface({
   ];
 
   return (
-    <div className="relative min-h-[25rem] overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-4">
+    <div className="relative min-h-[clamp(25rem,42vh,42rem)] overflow-hidden rounded-lg border border-white/10 bg-slate-950/45 p-4">
       <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:32px_32px]" />
       <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_78%_24%,var(--assistant-glow),transparent_19rem)]" />
 
-      <div className="relative z-10 grid min-h-[23rem] grid-cols-1 gap-4 lg:grid-cols-[1fr_18rem]">
+      <div className="relative z-10 grid min-h-[clamp(23rem,38vh,38rem)] grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(17rem,18vw,24rem)]">
         <div className="flex flex-col justify-between rounded-lg border border-white/10 bg-black/24 p-4">
           <div>
             <div className="edith-eyebrow">OBJECTIVE OPERATING SURFACE</div>
