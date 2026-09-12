@@ -2,7 +2,7 @@ import type { AIProviderAdapter, GenerateOptions, GenerateResult, ProviderHealth
 import { ProviderError } from "./types";
 
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
-const DEFAULT_MODEL = "llama3.2";
+const DEFAULT_MODEL = "auto";
 const FALLBACK_MODELS = ["llama3.2:latest", "qwen2.5:latest", "mistral:latest", "gemma2:latest"];
 const DEFAULT_HEALTH_TIMEOUT_MS = 2500;
 const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 12000;
@@ -34,12 +34,17 @@ function modelMatches(requestedModel: string, availableModel: string): boolean {
 }
 
 function resolveAvailableModel(requestedModel: string | undefined, models: ProviderMetadata["models"]): string {
-  if (!models.length) return requestedModel && requestedModel !== "auto" ? requestedModel : DEFAULT_MODEL;
+  const configuredDefault = process.env.OLLAMA_DEFAULT_MODEL?.trim();
+  if (!models.length) return requestedModel && requestedModel !== "auto" ? requestedModel : configuredDefault || DEFAULT_MODEL;
   if (requestedModel && requestedModel !== "auto") {
     const matchingModel = models.find((model) => modelMatches(requestedModel, model.id));
     if (matchingModel) return matchingModel.id;
   }
-  return models.find((model) => modelMatches(DEFAULT_MODEL, model.id))?.id ?? models[0].id;
+  if (configuredDefault) {
+    const configuredMatch = models.find((model) => modelMatches(configuredDefault, model.id));
+    if (configuredMatch) return configuredMatch.id;
+  }
+  return models.find((model) => modelMatches("llama3.2", model.id))?.id ?? models[0].id;
 }
 
 function hasNonEmptyString(value: unknown): value is string {
@@ -101,6 +106,7 @@ async function readWithTimeout<T>(
 
 export class OllamaProvider implements AIProviderAdapter {
   metadata(): ProviderMetadata {
+    const defaultModel = process.env.OLLAMA_DEFAULT_MODEL?.trim() || DEFAULT_MODEL;
     return {
       id: "ollama",
       name: "Ollama",
@@ -111,7 +117,7 @@ export class OllamaProvider implements AIProviderAdapter {
       status: "unknown",
       privacyMode: "local",
       models: FALLBACK_MODELS.map((model) => ({ id: model, name: model })),
-      defaultModel: DEFAULT_MODEL,
+      defaultModel,
       capabilities: ["text", "streaming"],
       supportsStreaming: true,
       supportsVision: false,
@@ -121,7 +127,7 @@ export class OllamaProvider implements AIProviderAdapter {
 
   async healthCheck(options: OllamaProviderOptions = {}): Promise<ProviderHealth> {
     const startedAt = Date.now();
-    const ollamaUrl = options.ollamaUrl || DEFAULT_OLLAMA_URL;
+    const ollamaUrl = options.ollamaUrl || process.env.OLLAMA_HOST || DEFAULT_OLLAMA_URL;
     const requestedModel = options.model && options.model !== "auto" ? options.model : undefined;
 
     try {
@@ -140,19 +146,23 @@ export class OllamaProvider implements AIProviderAdapter {
       const modelAvailable = requestedModel
         ? models.some((model) => modelMatches(requestedModel, model.id))
         : models.length > 0;
+      const canServe = models.length > 0;
       return {
         ...this.metadata(),
-        available: true,
-        healthy: true,
+        available: canServe,
+        healthy: canServe,
         modelAvailable,
-        status: models.length ? "available" : "degraded",
-        models: models.length ? models : this.metadata().models,
+        status: canServe ? "available" : models.length ? "unavailable" : "degraded",
+        models,
         defaultModel: resolvedModel,
         checkedAt: new Date().toISOString(),
         checkedModel: requestedModel,
         latencyMs: Date.now() - startedAt,
         errorCode: modelAvailable ? undefined : "model_unavailable",
         error: modelAvailable ? undefined : requestedModel
+          ? `Ollama model is not installed: ${requestedModel}`
+          : "Ollama is reachable but no local models are installed.",
+        errorMessage: modelAvailable ? undefined : requestedModel
           ? `Ollama model is not installed: ${requestedModel}`
           : "Ollama is reachable but no local models are installed.",
       };
@@ -171,8 +181,11 @@ export class OllamaProvider implements AIProviderAdapter {
   }
 
   async *stream(options: GenerateOptions & OllamaProviderOptions): AsyncIterable<StreamChunk> {
-    const ollamaUrl = options.ollamaUrl || DEFAULT_OLLAMA_URL;
-    const model = options.model || DEFAULT_MODEL;
+    const ollamaUrl = options.ollamaUrl || process.env.OLLAMA_HOST || DEFAULT_OLLAMA_URL;
+    const model = options.model && options.model !== "auto" ? options.model : process.env.OLLAMA_DEFAULT_MODEL || DEFAULT_MODEL;
+    if (model === "auto") {
+      throw new ProviderError("model_unavailable", "No concrete Ollama model was selected.", 404);
+    }
     const firstTokenTimeoutMs = options.firstTokenTimeoutMs ?? readTimeout("OLLAMA_FIRST_TOKEN_TIMEOUT_MS", DEFAULT_FIRST_TOKEN_TIMEOUT_MS);
     const generationTimeoutMs = options.generationTimeoutMs ?? options.timeoutMs ?? readTimeout("OLLAMA_GENERATION_TIMEOUT_MS", DEFAULT_GENERATION_TIMEOUT_MS);
     const controller = new AbortController();
@@ -309,6 +322,8 @@ export class OllamaProvider implements AIProviderAdapter {
   private unavailable(latencyMs: number, errorCode: ProviderHealth["errorCode"], error: string): ProviderHealth {
     return {
       ...this.metadata(),
+      models: [],
+      defaultModel: process.env.OLLAMA_DEFAULT_MODEL?.trim() || DEFAULT_MODEL,
       available: false,
       healthy: false,
       modelAvailable: false,
@@ -317,6 +332,7 @@ export class OllamaProvider implements AIProviderAdapter {
       latencyMs,
       errorCode,
       error,
+      errorMessage: error,
     };
   }
 }

@@ -1,4 +1,4 @@
-import type { AiProvider, ProviderRuntimeStatus } from "../../src/types";
+import type { ProviderRuntimeStatus } from "../../src/types";
 
 export interface ProviderMessage {
   role: "system" | "user" | "assistant";
@@ -11,7 +11,7 @@ export interface ProviderModelInfo {
 }
 
 export interface ProviderMetadata {
-  id: AiProvider;
+  id: "gemini" | "ollama" | "mock";
   name: string;
   configured: boolean;
   available: boolean;
@@ -33,6 +33,7 @@ export interface ProviderHealth extends ProviderMetadata {
   checkedModel?: string;
   errorCode?: ProviderErrorCode;
   error?: string;
+  errorMessage?: string;
 }
 
 export type ProviderErrorCode =
@@ -59,7 +60,7 @@ export interface GenerateOptions {
 }
 
 export interface GenerateResult {
-  provider: AiProvider;
+  provider: "gemini" | "ollama" | "mock";
   model: string;
   text: string;
   latencyMs: number;
@@ -77,6 +78,41 @@ export interface AIProviderAdapter {
   getModels?(options?: Record<string, unknown>): Promise<ProviderModelInfo[]>;
   generate(options: GenerateOptions): Promise<GenerateResult>;
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
+}
+
+export type RuntimeProviderId = ProviderMetadata["id"];
+
+export interface ProviderRouteRequest {
+  requestedProvider?: RuntimeProviderId | "auto" | string;
+  requestedModel?: string;
+  mode?: "manual" | "auto";
+  fallbackEnabled?: boolean;
+  health: ProviderHealth[];
+}
+
+export interface ProviderRouteResult {
+  requestedProvider: RuntimeProviderId | "auto";
+  requestedModel: string;
+  resolvedProvider: RuntimeProviderId;
+  resolvedModel: string;
+  providerStatus: ProviderRuntimeStatus;
+  fallbackUsed: boolean;
+  fallbackProvider?: RuntimeProviderId;
+  fallbackModel?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  modelAvailable: boolean;
+  configured: boolean;
+  available: boolean;
+  candidates: Array<{
+    provider: RuntimeProviderId;
+    model: string;
+    available: boolean;
+    modelAvailable: boolean;
+    status: ProviderRuntimeStatus;
+    skippedReason?: string;
+    errorCode?: string;
+  }>;
 }
 
 export class ProviderError extends Error {

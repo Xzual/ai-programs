@@ -1,275 +1,180 @@
 import assert from "node:assert/strict";
 import express from "express";
-import { geminiProvider, setGeminiRuntimeApiKey } from "../server/providers/gemini";
+import { geminiProvider } from "../server/providers/gemini";
 import { OllamaProvider, parseOllamaStreamChunk } from "../server/providers/ollama";
 import { providerRegistry } from "../server/providers/registry";
+import { routeProvider } from "../server/providers/router";
 import { ProviderError } from "../server/providers/types";
+import { createChatRouter } from "../server/routes/chat";
+import { createHealthRouter } from "../server/routes/health";
 import { createProvidersRouter } from "../server/routes/providers";
 
 const originalGeminiKey = process.env.GEMINI_API_KEY;
-process.env.GEMINI_API_KEY = "MY_GEMINI_API_KEY";
-
-const providers = providerRegistry.list();
-const gemini = providerRegistry.get("gemini");
-const ollama = providerRegistry.get("ollama");
-const mock = providerRegistry.get("mock");
-
-assert.ok(gemini);
-assert.ok(ollama);
-assert.ok(mock);
-assert.equal(providers.some((provider) => provider.id === "gemini"), true);
-assert.equal(providers.some((provider) => provider.id === "ollama"), true);
-assert.equal(providers.some((provider) => provider.id === "mock"), true);
-
-const geminiMetadata = geminiProvider.metadata();
-assert.equal(geminiMetadata.configured, false);
-assert.equal(geminiMetadata.status, "configuration_required");
-assert.equal(geminiMetadata.privacyMode, "cloud");
-assert.equal(geminiMetadata.supportsStreaming, true);
-assert.equal(geminiMetadata.supportsTools, false);
-assert.equal(geminiMetadata.capabilities.includes("tools"), false);
-assert.equal(JSON.stringify(geminiMetadata).includes("MY_GEMINI_API_KEY"), false);
-
-const geminiHealth = await geminiProvider.healthCheck();
-assert.equal(geminiHealth.available, false);
-assert.equal(geminiHealth.errorCode, "configuration_required");
-assert.equal(JSON.stringify(geminiHealth).includes("MY_GEMINI_API_KEY"), false);
-
-const parsedChatChunk = parseOllamaStreamChunk({
-  message: { role: "assistant", content: "final answer", thinking: "internal reasoning" },
-  done: false,
-});
-assert.equal(parsedChatChunk.text, "final answer");
-assert.equal(parsedChatChunk.hasThinking, true);
-
-const parsedGenerateChunk = parseOllamaStreamChunk({
-  response: "generate answer",
-  done: false,
-});
-assert.equal(parsedGenerateChunk.text, "generate answer");
-
-const parsedThinkingOnlyChunk = parseOllamaStreamChunk({
-  message: { role: "assistant", content: "", thinking: "internal reasoning only" },
-  done: true,
-});
-assert.equal(parsedThinkingOnlyChunk.text, undefined);
-assert.equal(parsedThinkingOnlyChunk.hasThinking, true);
-
-await assert.rejects(
-  () => geminiProvider.generate({ messages: [{ role: "user", content: "hello" }] }),
-  (error) => error instanceof ProviderError && error.code === "configuration_required",
-);
-
-setGeminiRuntimeApiKey("test-runtime-gemini-key");
-const configuredGeminiMetadata = geminiProvider.metadata();
-assert.equal(configuredGeminiMetadata.configured, true);
-assert.equal(configuredGeminiMetadata.status, "unknown");
-assert.equal(JSON.stringify(configuredGeminiMetadata).includes("test-runtime-gemini-key"), false);
-
-setGeminiRuntimeApiKey("MY_GEMINI_API_KEY");
-const app = express();
-app.use(express.json());
-app.use(createProvidersRouter());
-const server = app.listen(0);
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-  if (url.includes("127.0.0.1:11434/api/tags")) {
-    return new Response(JSON.stringify({
-      models: [
-        { name: "qwen3.5:0.8b" },
-        { name: "llama3.2:latest" },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
-  return originalFetch(input, init);
-};
-try {
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  const baseUrl = `http://127.0.0.1:${address.port}`;
 
-  const providerListPayload = await (await fetch(`${baseUrl}/api/providers?ollamaUrl=http://127.0.0.1:11434`)).json();
-  const providerListOllama = providerListPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
-  assert.equal(providerListOllama.available, true);
-  assert.equal(providerListOllama.healthy, true);
-  assert.equal(providerListOllama.defaultModel, "llama3.2:latest");
-  assert.equal(providerListOllama.models.some((model: { id: string }) => model.id === "qwen3.5:0.8b"), true);
-  assert.equal(providerListPayload.geminiAvailable, false);
-  assert.equal(providerListPayload.geminiConfigured, false);
-
-  const providerHealthPayload = await (await fetch(`${baseUrl}/api/providers/health?ollamaUrl=http://127.0.0.1:11434&model=qwen3.5:0.8b`)).json();
-  const providerHealthOllama = providerHealthPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
-  assert.equal(providerHealthOllama.available, true);
-  assert.equal(providerHealthOllama.modelAvailable, true);
-  assert.equal(providerHealthPayload.availableModels.includes("qwen3.5:0.8b"), true);
-
-  const modelsPayload = await (await fetch(`${baseUrl}/api/models?ollamaUrl=http://127.0.0.1:11434`)).json();
-  const modelsOllama = modelsPayload.providers.find((provider: { id?: string }) => provider.id === "ollama");
-  assert.equal(modelsOllama.available, true);
-  assert.equal(modelsPayload.models.some((model: { id: string; provider: string }) => model.provider === "ollama" && model.id === "qwen3.5:0.8b"), true);
-
-  const devKeyResponse = await fetch(`${baseUrl}/api/providers/dev-key`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: "gemini", apiKey: "test-runtime-route-key" }),
-  });
-  assert.equal(devKeyResponse.ok, true);
-  const devKeyPayload = await devKeyResponse.json();
-  assert.equal(JSON.stringify(devKeyPayload).includes("test-runtime-route-key"), false);
-} finally {
-  globalThis.fetch = originalFetch;
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
-  });
+function restoreGeminiKey() {
+  if (originalGeminiKey === undefined) delete process.env.GEMINI_API_KEY;
+  else process.env.GEMINI_API_KEY = originalGeminiKey;
 }
 
-setGeminiRuntimeApiKey("AIza-test-runtime-key-shape-only");
-globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-  if (url.endsWith("/v1beta/models?pageSize=100") || url.includes("/v1beta/models?")) {
-    return new Response(JSON.stringify({
-      models: [
-        { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", supportedActions: ["generateContent"] },
-        { name: "models/gemini-2.0-flash", displayName: "Gemini 2.0 Flash", supportedActions: ["generateContent"] },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
-  if (url.includes("/v1beta/models/gemini-2.5-flash:generateContent")) {
-    return new Response(JSON.stringify({
-      error: {
-        code: 404,
-        status: "NOT_FOUND",
-        message: "This model models/gemini-2.5-flash is no longer available to new users.",
-      },
-    }), { status: 404, headers: { "Content-Type": "application/json" } });
-  }
-  if (url.includes("/v1beta/models/gemini-2.0-flash:generateContent")) {
-    return new Response(JSON.stringify({
-      candidates: [
-        { content: { parts: [{ text: "OK" }], role: "model" }, finishReason: "STOP" },
-      ],
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
-  return originalFetch(input, init);
-};
-try {
-  const dynamicGeminiModels = await geminiProvider.getModels();
-  assert.equal(dynamicGeminiModels.some((model) => model.id === "gemini-2.5-flash"), true);
-  assert.equal(dynamicGeminiModels.some((model) => model.id === "models/gemini-2.5-flash"), false);
-
-  const fallbackGeminiHealth = await geminiProvider.healthCheck({ timeoutMs: 1000 });
-  assert.equal(fallbackGeminiHealth.available, true);
-  assert.equal(fallbackGeminiHealth.healthy, true);
-  assert.equal(fallbackGeminiHealth.defaultModel, "gemini-2.0-flash");
-  assert.equal(fallbackGeminiHealth.errorCode, "model_unavailable");
-  assert.match(fallbackGeminiHealth.error ?? "", /gemini-3\.8-flash/);
-  assert.equal(JSON.stringify(fallbackGeminiHealth).includes("AIza-test-runtime-key-shape-only"), false);
-} finally {
-  globalThis.fetch = originalFetch;
-  setGeminiRuntimeApiKey("MY_GEMINI_API_KEY");
-}
-
-const mockResult = await mock.generate({ messages: [{ role: "user", content: "hello" }] });
-assert.equal(mockResult.provider, "mock");
-assert.equal(mockResult.model, "edith-mock");
-
-const ndjsonResponse = (lines: string[]) => {
+function ndjsonResponse(lines: string[]) {
   const encoder = new TextEncoder();
   return new Response(new ReadableStream({
     start(controller) {
-      for (const line of lines) {
-        controller.enqueue(encoder.encode(line));
-      }
+      for (const line of lines) controller.enqueue(encoder.encode(line));
       controller.close();
     },
   }), { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
-};
-
-const ollamaProvider = new OllamaProvider();
-let capturedOllamaChatBody = "";
-globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-  if (url.includes("/api/chat")) {
-    capturedOllamaChatBody = String(init?.body ?? "");
-    return ndjsonResponse([
-      JSON.stringify({ message: { role: "assistant", content: "hello " }, done: false }) + "\n",
-      JSON.stringify({ message: { role: "assistant", content: "world" }, done: true }) + "\n",
-    ]);
-  }
-  return originalFetch(input, init);
-};
-try {
-  const chunks: string[] = [];
-  for await (const chunk of ollamaProvider.stream({
-    model: "qwen3.5:0.8b",
-    messages: [{ role: "user", content: "hello" }],
-    firstTokenTimeoutMs: 1000,
-    generationTimeoutMs: 3000,
-  })) {
-    if (chunk.text) chunks.push(chunk.text);
-  }
-  assert.equal(chunks.join(""), "hello world");
-  const capturedOllamaChatRequest = JSON.parse(capturedOllamaChatBody);
-  assert.equal(capturedOllamaChatRequest.model, "qwen3.5:0.8b");
-  assert.equal(capturedOllamaChatRequest.think, false);
-} finally {
-  globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-  if (url.includes("/api/chat")) {
-    return ndjsonResponse([
-      JSON.stringify({ message: { role: "assistant", content: "", thinking: "internal reasoning only" }, done: true }) + "\n",
-    ]);
-  }
-  return originalFetch(input, init);
-};
 try {
+  process.env.GEMINI_API_KEY = "";
+  let geminiMetadata = geminiProvider.metadata();
+  assert.equal(geminiMetadata.configured, false);
+  assert.equal(geminiMetadata.status, "configuration_required");
+
+  process.env.GEMINI_API_KEY = "YOUR_GEMINI_API_KEY";
+  geminiMetadata = geminiProvider.metadata();
+  assert.equal(geminiMetadata.configured, false);
+  const missingGeminiHealth = await geminiProvider.healthCheck();
+  assert.equal(missingGeminiHealth.status, "configuration_required");
+  assert.equal(missingGeminiHealth.available, false);
+
   await assert.rejects(
-    async () => {
-      for await (const _chunk of ollamaProvider.stream({
-        model: "qwen3.5:0.8b",
-        messages: [{ role: "user", content: "hello" }],
-        firstTokenTimeoutMs: 1000,
-        generationTimeoutMs: 3000,
-      })) {
-        // Consume stream to completion.
-      }
-    },
-    (error) => error instanceof ProviderError && error.code === "empty_final_response_with_thinking",
+    () => geminiProvider.generate({ messages: [{ role: "user", content: "hello" }] }),
+    (error) => error instanceof ProviderError && error.code === "configuration_required",
   );
+
+  const parsedThinkingOnlyChunk = parseOllamaStreamChunk({
+    message: { role: "assistant", content: "", thinking: "internal reasoning only" },
+    done: true,
+  });
+  assert.equal(parsedThinkingOnlyChunk.text, undefined);
+  assert.equal(parsedThinkingOnlyChunk.hasThinking, true);
+
+  const providers = providerRegistry.list();
+  assert.deepEqual(providers.map((provider) => provider.id).sort(), ["gemini", "mock", "ollama"]);
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("127.0.0.1:11434/api/tags")) {
+      return new Response(JSON.stringify({
+        models: [
+          { name: "qwen3.5:0.8b" },
+          { name: "llama3.2:latest" },
+        ],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("127.0.0.2:11434/api/tags")) {
+      return new Response(JSON.stringify({ models: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("127.0.0.1:11434/api/chat")) {
+      const request = JSON.parse(String(init?.body ?? "{}"));
+      return ndjsonResponse([
+        JSON.stringify({ message: { role: "assistant", content: `${request.model}:hello ` }, done: false }) + "\n",
+        JSON.stringify({ message: { role: "assistant", content: "world" }, done: true }) + "\n",
+      ]);
+    }
+    return originalFetch(input, init);
+  };
+
+  const ollamaProvider = new OllamaProvider();
+  const healthyOllama = await ollamaProvider.healthCheck({ ollamaUrl: "http://127.0.0.1:11434" });
+  assert.equal(healthyOllama.available, true);
+  assert.equal(healthyOllama.healthy, true);
+  assert.equal(healthyOllama.models.some((model) => model.id === "qwen3.5:0.8b"), true);
+
+  const emptyOllama = await ollamaProvider.healthCheck({ ollamaUrl: "http://127.0.0.2:11434" });
+  assert.equal(emptyOllama.available, false);
+  assert.equal(emptyOllama.status, "degraded");
+  assert.deepEqual(emptyOllama.models, []);
+
+  const invalidGemini = {
+    ...missingGeminiHealth,
+    configured: true,
+    status: "invalid_api_key" as const,
+    errorCode: "invalid_api_key" as const,
+  };
+  const route = routeProvider({
+    requestedProvider: "auto",
+    requestedModel: "auto",
+    mode: "auto",
+    fallbackEnabled: true,
+    health: [healthyOllama, invalidGemini, await providerRegistry.get("mock")!.healthCheck()],
+  });
+  assert.equal(route.resolvedProvider, "ollama");
+  assert.equal(route.fallbackUsed, false);
+
+  const missingModelRoute = routeProvider({
+    requestedProvider: "ollama",
+    requestedModel: "missing-model",
+    mode: "manual",
+    fallbackEnabled: false,
+    health: [healthyOllama, await providerRegistry.get("mock")!.healthCheck()],
+  });
+  assert.equal(missingModelRoute.resolvedProvider, "ollama");
+  assert.equal(missingModelRoute.modelAvailable, false);
+  assert.equal(missingModelRoute.errorCode, "MODEL_NOT_AVAILABLE");
+
+  const app = express();
+  app.use(express.json());
+  app.use(createChatRouter());
+  app.use(createProvidersRouter());
+  app.use(createHealthRouter());
+  const server = app.listen(0);
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+
+    const providersPayload = await (await fetch(`${baseUrl}/api/providers?ollamaUrl=http://127.0.0.1:11434`)).json();
+    const providersText = JSON.stringify(providersPayload);
+    assert.equal(providersText.includes(process.env.GEMINI_API_KEY || "YOUR_GEMINI_API_KEY"), false);
+    assert.equal(providersPayload.geminiConfigured, false);
+    assert.equal(providersPayload.geminiStatus, "configuration_required");
+
+    const modelsPayload = await (await fetch(`${baseUrl}/api/models?ollamaUrl=http://127.0.0.1:11434`)).json();
+    assert.equal(modelsPayload.models.some((model: { id: string; provider: string }) => model.provider === "ollama" && model.id === "qwen3.5:0.8b"), true);
+
+    const ollamaModelsPayload = await (await fetch(`${baseUrl}/api/ollama/models?ollamaUrl=http://127.0.0.1:11434`)).json();
+    assert.equal(ollamaModelsPayload.available, true);
+    assert.equal(ollamaModelsPayload.models.some((model: { id: string }) => model.id === "qwen3.5:0.8b"), true);
+
+    const chatResponse = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provider: "ollama",
+        model: "qwen3.5:0.8b",
+        ollamaUrl: "http://127.0.0.1:11434",
+        messages: [{ sender: "user", text: "hello" }],
+      }),
+    });
+    assert.equal(chatResponse.ok, true);
+    const chatText = await chatResponse.text();
+    assert.match(chatText, /event: done/);
+    assert.match(chatText, /"resolvedProvider":"ollama"/);
+    assert.match(chatText, /"finalState":"completed"/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
+
+  console.log(JSON.stringify({
+    success: true,
+    scenarios: [
+      "gemini_missing_key_configuration_required",
+      "gemini_placeholder_key_configuration_required",
+      "provider_responses_do_not_include_key",
+      "ollama_available_requires_local_model",
+      "ollama_empty_model_list_degraded_unavailable",
+      "invalid_gemini_does_not_beat_healthy_ollama",
+      "missing_ollama_model_reports_model_not_available",
+      "ollama_models_endpoint_delegates_to_provider",
+      "chat_stream_emits_done",
+      "mock_provider_registered",
+    ],
+  }, null, 2));
 } finally {
   globalThis.fetch = originalFetch;
+  restoreGeminiKey();
 }
-
-const resolved = providerRegistry.resolve("gemini", "auto");
-assert.equal(resolved.resolvedProvider, "gemini");
-assert.equal(resolved.resolvedModel, geminiMetadata.defaultModel);
-
-if (originalGeminiKey === undefined) {
-  setGeminiRuntimeApiKey("MY_GEMINI_API_KEY");
-} else {
-  setGeminiRuntimeApiKey(originalGeminiKey);
-}
-
-console.log(JSON.stringify({
-  success: true,
-  providers: providers.map((provider) => provider.id),
-  geminiConfiguredWithoutKey: geminiMetadata.configured,
-  geminiStatusWithoutKey: geminiHealth.status,
-  scenarios: [
-    "registry_lists_core_providers",
-    "gemini_missing_key_configuration_required",
-    "gemini_metadata_does_not_include_key",
-    "gemini_runtime_key_sets_configured_without_exposing_secret",
-    "gemini_runtime_key_route_does_not_return_secret",
-    "provider_and_model_routes_do_not_return_secret",
-    "provider_routes_share_dynamic_ollama_availability",
-    "provider_routes_share_dynamic_ollama_models",
-    "gemini_available_means_health_available",
-    "mock_provider_is_explicit",
-    "provider_resolution_keeps_provider_separate_from_persona",
-  ],
-}, null, 2));

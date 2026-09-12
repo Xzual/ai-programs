@@ -23,6 +23,7 @@ export function createHealthRouter(): Router {
       availableModels,
       geminiAvailable: Boolean(gemini?.available),
       geminiConfigured: Boolean(gemini?.configured),
+      geminiStatus: gemini?.status ?? "configuration_required",
       providers,
       timestamp: Date.now(),
     });
@@ -30,29 +31,20 @@ export function createHealthRouter(): Router {
 
   router.get("/api/ollama/models", async (req, res) => {
     const ollamaUrl = (req.query.ollamaUrl as string) || "http://localhost:11434";
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      const response = await fetch(`${ollamaUrl}/api/tags`, { signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      if (response.ok) {
-        const data = await response.json();
-        return res.json(data);
-      }
-      res.status(502).json({ error: "Ollama sunucusuna ulaşılamadı", models: [] });
-    } catch {
-      res.json({
-        error: "Ollama sunucusuna ulaşılamadı. EDITH yerel sunucuyu başlatmadı; yalnızca mevcut durumu algılıyor.",
-        models: [
-          { name: "llama3.2:latest", details: { family: "llama" } },
-          { name: "qwen2.5:latest", details: { family: "qwen" } },
-          { name: "mistral:latest", details: { family: "mistral" } },
-          { name: "gemma2:latest", details: { family: "gemma" } },
-        ],
-        offline: true,
-      });
-    }
+    const ollama = providerRegistry.get("ollama");
+    const health = ollama
+      ? await ollama.healthCheck({ ollamaUrl, timeoutMs: 3000 })
+      : undefined;
+    res.status(health?.available ? 200 : 503).json({
+      success: Boolean(health?.available),
+      provider: "ollama",
+      status: health?.status ?? "unavailable",
+      available: Boolean(health?.available),
+      healthy: Boolean(health?.healthy),
+      errorCode: health?.errorCode,
+      error: health?.errorMessage ?? health?.error,
+      models: health?.models.map((model) => ({ name: model.id, id: model.id })) ?? [],
+    });
   });
 
   return router;

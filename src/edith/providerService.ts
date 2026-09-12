@@ -141,8 +141,10 @@ function normalizeStatus(value: unknown): ProviderRuntimeStatus {
     value === 'available' ||
     value === 'unavailable' ||
     value === 'configuration_required' ||
+    value === 'invalid_api_key' ||
     value === 'rate_limited' ||
     value === 'offline' ||
+    value === 'timeout' ||
     value === 'degraded' ||
     value === 'error' ||
     value === 'unknown'
@@ -282,8 +284,10 @@ export function providerDisplayName(provider: AiProvider): string {
 export function providerStatusLabel(status: ProviderRuntimeStatus): string {
   if (status === 'available') return 'ONLINE';
   if (status === 'configuration_required') return 'SETUP REQUIRED';
+  if (status === 'invalid_api_key') return 'INVALID KEY';
   if (status === 'rate_limited') return 'RATE LIMITED';
   if (status === 'offline') return 'OFFLINE';
+  if (status === 'timeout') return 'TIMEOUT';
   if (status === 'unavailable') return 'UNAVAILABLE';
   if (status === 'degraded') return 'DEGRADED';
   if (status === 'error') return 'ERROR';
@@ -292,7 +296,8 @@ export function providerStatusLabel(status: ProviderRuntimeStatus): string {
 
 export function providerTone(status: ProviderRuntimeStatus): 'info' | 'success' | 'warning' | 'danger' | 'muted' {
   if (status === 'available') return 'success';
-  if (status === 'configuration_required' || status === 'rate_limited' || status === 'degraded' || status === 'unknown') return 'warning';
+  if (status === 'configuration_required' || status === 'rate_limited' || status === 'degraded' || status === 'unknown' || status === 'timeout') return 'warning';
+  if (status === 'invalid_api_key') return 'danger';
   if (status === 'offline' || status === 'unavailable' || status === 'error') return 'danger';
   return 'muted';
 }
@@ -504,7 +509,9 @@ export function modelDisabledReason(
   const profile = providerProfiles.find((candidate) => candidate.provider === provider);
   const status = profile?.status ?? 'unknown';
   if (status === 'configuration_required') return 'configuration required';
+  if (status === 'invalid_api_key') return 'invalid API key';
   if (status === 'offline') return 'provider offline';
+  if (status === 'timeout') return 'provider timeout';
   if (status === 'unavailable' || status === 'error') return 'provider unavailable';
   if (status === 'rate_limited') return 'provider rate limited';
   if (status === 'unknown' && provider !== 'gemini') return 'provider status unknown';

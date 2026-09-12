@@ -2412,34 +2412,14 @@ export function SettingsArchitectureScreen({
       return;
     }
 
-    try {
-      const response = await fetch('/api/providers/dev-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey }),
-      });
-      const payload = await readJsonResponse(response);
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error ?? `API key kaydedilemedi: ${response.status}`);
-      }
-      setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
-      setProviderKeyStatus((prev) => ({
-        ...prev,
-        [provider]: {
-          tone: 'success',
-          text: `${payload.requiredEnv?.[0] ?? providerDisplayName(provider)} runtime oturumuna kaydedildi.`,
-        },
-      }));
-      onTestConnection?.();
-    } catch (error) {
-      setProviderKeyStatus((prev) => ({
-        ...prev,
-        [provider]: {
-          tone: 'danger',
-          text: error instanceof Error ? error.message : 'API key kaydedilemedi.',
-        },
-      }));
-    }
+    setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
+    setProviderKeyStatus((prev) => ({
+      ...prev,
+      [provider]: {
+        tone: 'warning',
+        text: 'API keys are backend-only. Set GEMINI_API_KEY in the server environment and restart EDITH.',
+      },
+    }));
   };
 
   return (

@@ -29,10 +29,10 @@ import { localToolProbeService } from "./src/edith/localToolProbes";
 import { sensitiveIntegrationService } from "./src/edith/sensitiveIntegrationService";
 import { interactionSafetyService } from "./src/edith/interactionSafetyService";
 import assistantProfiles from "./src/config/assistantProfiles.json";
-import { getGeminiClient } from "./server/providers/gemini";
 import { providerRegistry } from "./server/providers/registry";
 import { ProviderError } from "./server/providers/types";
 import type { ProviderHealth } from "./server/providers/types";
+import { createChatRouter } from "./server/routes/chat";
 import { createCryptoRouter } from "./server/routes/crypto";
 import { createHealthRouter } from "./server/routes/health";
 import { createKnowledgeRouter } from "./server/routes/knowledge";
@@ -48,6 +48,7 @@ const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
+app.use(createChatRouter());
 app.use(createProvidersRouter());
 app.use(createStatusRouter());
 app.use(createHealthRouter());
@@ -378,8 +379,13 @@ function captureExplicitMemory(text: string, userName: string) {
   return memory;
 }
 
-// 3. Streaming Chat Endpoint
-app.post("/api/chat", async (req, res) => {
+// 3. Legacy chat endpoint kept disabled while the clean provider-backed chat route owns /api/chat.
+app.post("/api/chat/legacy-disabled", async (_req, res) => {
+  return res.status(410).json({
+    success: false,
+    error: "Legacy chat provider routing is disabled. Use POST /api/chat.",
+  });
+  /*
   const {
     messages,
     provider = "ollama",
@@ -450,6 +456,9 @@ app.post("/api/chat", async (req, res) => {
     return code ? code.toUpperCase() : undefined;
   };
   const routerHealth = (providerId: "ollama" | "gemini" | "openai" | "anthropic" | "openrouter" | "local" | "mock") => {
+    if (providerId !== "ollama" && providerId !== "gemini" && providerId !== "mock") {
+      return "unavailable";
+    }
     const snapshot = providerSnapshotById.get(providerId);
     if (!snapshot) return providerId === "mock" ? "available" : "unavailable";
     return snapshot.available ? "available" : "unavailable";
@@ -513,7 +522,9 @@ app.post("/api/chat", async (req, res) => {
   });
   const initialModelValidation = validateProviderModel(modelRoute.selectedProvider as RuntimeProvider, modelRoute.selectedModel);
   const initialResolvedModel = initialModelValidation.resolvedModel;
-  const initialSnapshot = providerSnapshotById.get(modelRoute.selectedProvider);
+  const initialSnapshot = modelRoute.selectedProvider === "ollama" || modelRoute.selectedProvider === "gemini" || modelRoute.selectedProvider === "mock"
+    ? providerSnapshotById.get(modelRoute.selectedProvider)
+    : undefined;
   sendEvent({
     requestedProvider: provider,
     requestedModel: model,
@@ -827,6 +838,7 @@ app.post("/api/chat", async (req, res) => {
     providerStatus: provider === "mock" ? "degraded" : "fallback",
   });
   res.end();
+  */
 });
 
 // Helper for realistic fallback assistant response generator
@@ -1503,24 +1515,12 @@ For each topic, give 1-2 new developments if any. Be concise. Respond in Turkish
           const imgBuffer = await screenshot({ format: "png" }) as Buffer;
           const base64 = imgBuffer.toString("base64");
 
-          // Gemini Vision ile analiz et
-          const gemini = getGeminiClient();
-          if (!gemini) {
-            return res.json({ success: true, toolId, result: `🖥️ Ekran görüntüsü alındı (${(imgBuffer.length / 1024).toFixed(1)} KB). Analiz için GEMINI_API_KEY gereklidir.` });
-          }
-
-          const result = await (gemini as any).models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: [
-              { role: "user", parts: [
-                { text: question },
-                { inlineData: { mimeType: "image/png", data: base64 } }
-              ]}
-            ],
+          void base64;
+          return res.json({
+            success: true,
+            toolId,
+            result: `🖥️ **Ekran Görüntüsü Alındı**\n\nBoyut: ${(imgBuffer.length / 1024).toFixed(1)} KB\n\nGemini Vision doğrudan çağrısı devre dışı. Görüntü analizi, vision desteği provider sistemine eklendiğinde tekrar etkinleşir.\n\nSoru: "${question}"`,
           });
-
-          const text = (result as any).text ?? "Görüntü analiz edildi.";
-          return res.json({ success: true, toolId, result: `🖥️ **Ekran Analizi**\n\n${text}` });
         } catch {
           // screenshot-desktop yoksa
           return res.json({

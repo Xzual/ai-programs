@@ -1,11 +1,11 @@
-import type { AiProvider } from "../../src/types";
 import { geminiProvider } from "./gemini";
 import { MockProvider } from "./mock";
 import { OllamaProvider } from "./ollama";
-import type { AIProviderAdapter, GenerateOptions, ProviderHealth, ProviderMetadata } from "./types";
+import { routeProvider } from "./router";
+import type { AIProviderAdapter, GenerateOptions, ProviderHealth, ProviderMetadata, ProviderRouteRequest, RuntimeProviderId } from "./types";
 
 export class ProviderRegistry {
-  private readonly providers = new Map<AiProvider, AIProviderAdapter>();
+  private readonly providers = new Map<RuntimeProviderId, AIProviderAdapter>();
 
   constructor() {
     this.register(new OllamaProvider());
@@ -17,7 +17,7 @@ export class ProviderRegistry {
     this.providers.set(provider.metadata().id, provider);
   }
 
-  get(provider: AiProvider): AIProviderAdapter | undefined {
+  get(provider: RuntimeProviderId): AIProviderAdapter | undefined {
     return this.providers.get(provider);
   }
 
@@ -29,7 +29,7 @@ export class ProviderRegistry {
     return Promise.all(Array.from(this.providers.values()).map((provider) => provider.healthCheck(options)));
   }
 
-  models(): Array<ProviderMetadata & { provider: AiProvider }> {
+  models(): Array<ProviderMetadata & { provider: RuntimeProviderId }> {
     return this.list().map((provider) => ({ ...provider, provider: provider.id }));
   }
 
@@ -37,52 +37,18 @@ export class ProviderRegistry {
     return this.health(options);
   }
 
-  async modelSnapshot(options: Record<string, unknown> = {}): Promise<Array<ProviderHealth & { provider: AiProvider }>> {
+  async modelSnapshot(options: Record<string, unknown> = {}): Promise<Array<ProviderHealth & { provider: RuntimeProviderId }>> {
     return (await this.snapshot(options)).map((provider) => ({ ...provider, provider: provider.id }));
   }
 
-  resolve(requestedProvider: AiProvider | "auto" | string | undefined, requestedModel?: string): {
-    provider: AIProviderAdapter;
-    requestedProvider: AiProvider | "auto";
-    requestedModel?: string;
-    resolvedProvider: AiProvider;
-    resolvedModel: string;
-    fallbackUsed: boolean;
-  } {
-    const normalizedProvider = this.normalizeProvider(requestedProvider);
-    const provider = normalizedProvider === "auto"
-      ? this.get("ollama") ?? this.get("mock")
-      : this.get(normalizedProvider) ?? this.get("mock");
-    if (!provider) throw new Error("No AI providers are registered.");
-
-    const metadata = provider.metadata();
-    return {
-      provider,
-      requestedProvider: normalizedProvider,
-      requestedModel,
-      resolvedProvider: metadata.id,
-      resolvedModel: requestedModel && requestedModel !== "auto" ? requestedModel : metadata.defaultModel,
-      fallbackUsed: normalizedProvider !== "auto" && metadata.id !== normalizedProvider,
-    };
+  route(request: ProviderRouteRequest) {
+    return routeProvider(request);
   }
 
-  async generate(provider: AiProvider, options: GenerateOptions) {
+  async generate(provider: RuntimeProviderId, options: GenerateOptions) {
     const adapter = this.get(provider);
     if (!adapter) throw new Error(`Provider is not registered: ${provider}`);
     return adapter.generate(options);
-  }
-
-  private normalizeProvider(provider: AiProvider | "auto" | string | undefined): AiProvider | "auto" {
-    return provider === "auto" ||
-      provider === "ollama" ||
-      provider === "gemini" ||
-      provider === "mock" ||
-      provider === "openai" ||
-      provider === "anthropic" ||
-      provider === "openrouter" ||
-      provider === "local"
-      ? provider
-      : "ollama";
   }
 }
 

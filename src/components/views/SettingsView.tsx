@@ -152,41 +152,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       return;
     }
 
-    try {
-      setSavingProviderKey(provider);
-      const response = await fetch('/api/providers/dev-key', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, apiKey }),
-      });
-      const data = await readJsonResponse(response);
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || `Provider key update failed: ${response.status}`);
-      }
-
-      setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
-      setProviderKeyStatus((prev) => ({
-        ...prev,
-        [provider]: {
-          tone: data.available ? 'good' : 'warn',
-          text: data.available
-            ? 'API anahtarı doğrulandı. Anahtar arayüzde tutulmuyor.'
-            : `${data.errorCode ?? 'Doğrulama hatası'}: ${data.error ?? 'Gemini API anahtarı doğrulanamadı.'}`,
-        },
-      }));
-      await onTestConnection();
-      await loadProviderProfiles();
-    } catch (error) {
-      setProviderKeyStatus((prev) => ({
-        ...prev,
-        [provider]: {
-          tone: 'warn',
-          text: error instanceof Error ? error.message : 'API key kaydedilemedi.',
-        },
-      }));
-    } finally {
-      setSavingProviderKey(null);
-    }
+    setSavingProviderKey(provider);
+    setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
+    setProviderKeyStatus((prev) => ({
+      ...prev,
+      [provider]: {
+        tone: 'warn',
+        text: 'API keys are backend-only. Set GEMINI_API_KEY in the server environment and restart EDITH.',
+      },
+    }));
+    setSavingProviderKey(null);
   }
 
   async function loadObsidianStatus() {
