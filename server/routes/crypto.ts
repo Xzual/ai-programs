@@ -4,6 +4,33 @@ import { cryptoService } from "../../src/edith/cryptoService";
 
 export function createCryptoRouter(): Router {
   const router = Router();
+  const dashboardUrl = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || "http://localhost:5000";
+  const safeReadOnlyDashboardPaths = [
+    "/api/permissions",
+    "/api/symbols",
+    "/api/categories",
+    "/api/watchlist",
+    "/api/risk",
+    "/api/mode",
+    "/api/overview",
+    "/api/trades",
+    "/api/decisions",
+    "/api/markets",
+    "/api/analysis",
+    "/api/observations",
+    "/api/learning-notes",
+    "/api/obsidian-status",
+  ];
+
+  async function fetchDashboard(path: string, init?: RequestInit) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    try {
+      return await fetch(`${dashboardUrl}${path}`, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
 
   async function sendCryptoStatus(res: Response) {
     try {
@@ -75,6 +102,20 @@ export function createCryptoRouter(): Router {
     }
   }
 
+  async function proxyDashboardJson(res: Response, path: string, init?: RequestInit) {
+    try {
+      const response = await fetchDashboard(path, init);
+      const text = await response.text();
+      res.status(response.status).type(response.headers.get("content-type") ?? "application/json").send(text);
+    } catch (error) {
+      res.status(503).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        serviceUrl: dashboardUrl,
+      });
+    }
+  }
+
   router.get("/api/edith/crypto/status", async (_req, res) => {
     await sendCryptoStatus(res);
   });
@@ -85,6 +126,20 @@ export function createCryptoRouter(): Router {
 
   router.get("/api/crypto/health", async (_req, res) => {
     await sendCryptoStatus(res);
+  });
+
+  for (const path of safeReadOnlyDashboardPaths) {
+    router.get(path, async (_req, res) => {
+      await proxyDashboardJson(res, path);
+    });
+  }
+
+  router.post("/api/edith/crypto/obsidian-export-test", async (_req, res) => {
+    await proxyDashboardJson(res, "/api/obsidian-export-test", { method: "POST" });
+  });
+
+  router.post("/api/crypto/obsidian-export-test", async (_req, res) => {
+    await proxyDashboardJson(res, "/api/obsidian-export-test", { method: "POST" });
   });
 
   router.post("/api/edith/crypto/start", async (_req, res) => {

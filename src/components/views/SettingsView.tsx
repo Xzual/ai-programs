@@ -167,7 +167,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setProviderApiKeys((prev) => ({ ...prev, [provider]: '' }));
       setProviderKeyStatus((prev) => ({
         ...prev,
-        [provider]: { tone: 'good', text: 'Bu backend oturumu için kaydedildi. Key UI içinde tutulmuyor.' },
+        [provider]: {
+          tone: data.available ? 'good' : 'warn',
+          text: data.available
+            ? 'API anahtarı doğrulandı. Anahtar arayüzde tutulmuyor.'
+            : `${data.errorCode ?? 'Doğrulama hatası'}: ${data.error ?? 'Gemini API anahtarı doğrulanamadı.'}`,
+        },
       }));
       await onTestConnection();
       await loadProviderProfiles();

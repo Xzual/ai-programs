@@ -483,12 +483,15 @@ app.post("/api/chat", async (req, res) => {
       };
     }
     const modelMatch = snapshot.models.find((candidate) => matchesProviderModel(requestedModel, candidate.id));
+    const fallbackModel = providerId === "gemini" && snapshot.available
+      ? snapshot.defaultModel || snapshot.models[0]?.id
+      : undefined;
     return {
       snapshot,
       requestedModel,
-      resolvedModel: modelMatch?.id ?? requestedModel,
-      modelAvailable: Boolean(modelMatch),
-      errorCode: modelMatch ? undefined : "MODEL_NOT_AVAILABLE",
+      resolvedModel: modelMatch?.id ?? fallbackModel ?? requestedModel,
+      modelAvailable: Boolean(modelMatch || fallbackModel),
+      errorCode: modelMatch || fallbackModel ? undefined : "MODEL_NOT_AVAILABLE",
     };
   };
 
@@ -681,7 +684,7 @@ app.post("/api/chat", async (req, res) => {
     const validation = validateProviderModel("gemini", selectedModel);
     if (!validation.modelAvailable) {
       sendEvent({
-        warning: `Gemini model is not available: ${validation.requestedModel}`,
+        warning: `Gemini modeli kullanılamıyor: ${validation.requestedModel}`,
         requestedProvider: provider,
         requestedModel: model,
         provider: "gemini",
@@ -693,6 +696,21 @@ app.post("/api/chat", async (req, res) => {
         providerStatus: "failed",
         errorCode: "MODEL_NOT_AVAILABLE",
       });
+      if (provider === "gemini") {
+        sendEvent({
+          done: true,
+          provider: "gemini",
+          model: validation.requestedModel,
+          resolvedProvider: "gemini",
+          resolvedModel: validation.requestedModel,
+          fallbackUsed: false,
+          providerStatus: "failed",
+          error: "Seçili Gemini modeli bu API anahtarıyla kullanılamıyor.",
+          errorCode: "MODEL_NOT_AVAILABLE",
+        });
+        res.end();
+        return true;
+      }
       return false;
     }
     try {
@@ -735,7 +753,7 @@ app.post("/api/chat", async (req, res) => {
       const errorCode = geminiErr instanceof ProviderError ? geminiErr.code : "unknown_error";
       console.error("Gemini provider error:", toRuntimeErrorCode(errorCode));
       sendEvent({
-        warning: "Gemini provider unavailable. Falling back to mock/degraded mode.",
+        warning: geminiErr instanceof ProviderError ? geminiErr.message : "Gemini sağlayıcısı kullanılamıyor.",
         requestedProvider: provider,
         requestedModel: model,
         provider: "gemini",
@@ -746,9 +764,26 @@ app.post("/api/chat", async (req, res) => {
         providerStatus: errorCode === "configuration_required" ? "configuration_required" : "failed",
         errorCode: toRuntimeErrorCode(errorCode),
       });
+      if (provider === "gemini") {
+        sendEvent({
+          done: true,
+          provider: "gemini",
+          model: validation.resolvedModel,
+          resolvedProvider: "gemini",
+          resolvedModel: validation.resolvedModel,
+          fallbackUsed: false,
+          providerStatus: "failed",
+          error: geminiErr instanceof ProviderError ? geminiErr.message : "Gemini isteği başarısız oldu.",
+          errorCode: toRuntimeErrorCode(errorCode),
+        });
+        res.end();
+        return true;
+      }
       return false;
     }
   };
+
+  if (provider === "gemini" && await streamGemini(model)) return;
 
   for (const candidate of modelRoute.candidates) {
     if (candidate.skippedReason || candidate.provider === "mock") continue;

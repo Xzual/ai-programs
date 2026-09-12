@@ -276,7 +276,7 @@ def _handle_steam_profile_selection() -> bool:
     print("[GameUpdater] 👤 Profil seçimi tespit edildi — ilk profile tıklanıyor")
     return _click_first_profile_by_screenshot()
 
-def _find_best_drive() -> dict | None:
+def _find_best_drive(preferred_drive: str | None = None) -> dict | None:
     import shutil, string
     drives = []
     for letter in string.ascii_uppercase:
@@ -288,6 +288,11 @@ def _find_best_drive() -> dict | None:
                     drives.append({"letter": letter, "path": drive_path, "free_gb": free_gb})
             except Exception:
                 continue
+    if preferred_drive:
+        preferred = preferred_drive.rstrip(':').upper()
+        selected = next((drive for drive in drives if drive["letter"] == preferred), None)
+        if selected:
+            return selected
     return max(drives, key=lambda d: d["free_gb"]) if drives else None
 
 
@@ -383,10 +388,12 @@ def _handle_install_dialog_pyautogui(game_name: str, best_drive: dict) -> str:
     return f"Attempted drive {drive_label} selection and Install click for '{game_name}'."
 
 
-def _handle_install_dialog(game_name: str) -> str:
-    best_drive = _find_best_drive()
+def _handle_install_dialog(game_name: str, preferred_drive: str | None = None) -> str:
+    best_drive = _find_best_drive(preferred_drive)
     if not best_drive:
         return f"Install dialog opened for '{game_name}'. Could not detect drives."
+    if preferred_drive and best_drive["letter"] != preferred_drive.rstrip(':').upper():
+        return f"Requested drive '{preferred_drive}' was not found. Installation was not continued."
 
     drive_letter = best_drive["letter"]
     drive_label  = f"{drive_letter}:"
@@ -560,7 +567,7 @@ def _update_steam_games(steam_path: Path, game_name: str = None) -> str:
     return " ".join(parts) if parts else "No games to update."
 
 def _install_steam_game(steam_path: Path, game_name: str = None,
-                        app_id: str = None) -> str:
+                        app_id: str = None, target_drive: str | None = None) -> str:
     if not _ensure_steam_running(steam_path):
         return "Could not start Steam."
 
@@ -604,7 +611,7 @@ def _install_steam_game(steam_path: Path, game_name: str = None,
         if is_windows():
             threading.Thread(
                 target=_handle_install_dialog,
-                args=(game_name or str(app_id),),
+                args=(game_name or str(app_id), target_drive),
                 daemon=True
             ).start()
         return f"Install started for '{game_name}'. Steam will open the download dialog."
@@ -935,6 +942,7 @@ def game_updater(parameters: dict, player=None, speak=None) -> str:
     platform  = p.get("platform",  "both").lower().strip()
     game_name = (p.get("game_name") or "").strip() or None
     app_id    = (p.get("app_id")    or "").strip() or None
+    target_drive = (p.get("target_drive") or "").strip() or None
     hour      = int(p.get("hour",   3))
     minute    = int(p.get("minute", 0))
     shutdown  = str(p.get("shutdown_when_done", "false")).lower() == "true"
@@ -995,7 +1003,7 @@ def game_updater(parameters: dict, player=None, speak=None) -> str:
                     )
                     if not is_installed:
                         msg = _install_steam_game(
-                            steam_path, game_name=game_name, app_id=app_id
+                            steam_path, game_name=game_name, app_id=app_id, target_drive=target_drive
                         )
                         if shutdown:
                             threading.Thread(

@@ -1,5 +1,7 @@
 import { Router } from "express";
 import type { Request } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import type { AiProvider } from "../../src/types";
 import { setGeminiRuntimeApiKey } from "../providers/gemini";
 import { providerRegistry } from "../providers/registry";
@@ -23,6 +25,17 @@ function setRuntimeProviderApiKey(provider: AiProvider, apiKey: string): string 
   return envName;
 }
 
+function persistLocalEnvValue(name: string, value: string): void {
+  const envPath = path.resolve(process.cwd(), ".env");
+  const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+  const line = `${name}=${JSON.stringify(value)}`;
+  const pattern = new RegExp(`^${name}=.*$`, "m");
+  const content = pattern.test(existing)
+    ? existing.replace(pattern, line)
+    : `${existing.trimEnd()}${existing.trimEnd() ? "\n" : ""}${line}\n`;
+  fs.writeFileSync(envPath, content, { encoding: "utf8", mode: 0o600 });
+}
+
 function toProviderPayload(provider: ProviderMetadata) {
   const modelExamples = provider.models.map((model) => model.id);
   return {
@@ -32,9 +45,9 @@ function toProviderPayload(provider: ProviderMetadata) {
     privacy: provider.privacyMode,
     modelExamples,
     tasks: ["conversation"],
-    requiredEnv: provider.id === "gemini" ? ["GEMINI_API_KEY"] : [],
+    requiredEnv: provider.id === "gemini" ? ["GEMINI_API_KEY", "GOOGLE_API_KEY"] : [],
     notes: provider.id === "gemini"
-      ? "Cloud provider. Set GEMINI_API_KEY on the backend environment; the key value is never returned to frontend."
+      ? "Cloud provider. Set GEMINI_API_KEY on the backend environment, or GOOGLE_API_KEY for Google SDK compatibility; key values are never returned to frontend."
       : provider.id === "ollama"
       ? "Local HTTP runtime. Availability is detected by health check; EDITH does not start Ollama."
       : "Offline degraded fallback for development, demo, and last-resort chat.",
@@ -106,15 +119,30 @@ export function createProvidersRouter(): Router {
       });
     }
 
-    const metadata = providerRegistry.get(provider)?.metadata();
+    try {
+      persistLocalEnvValue(envName, apiKey);
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error: `API anahtarı yerel .env dosyasına yazılamadı: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+
+    const adapter = providerRegistry.get(provider);
+    const health = adapter ? await adapter.healthCheck({ timeoutMs: 8000 }) : undefined;
 
     res.json({
       success: true,
       provider,
-      configured: metadata ? Boolean(metadata.configured) : true,
-      status: metadata?.status ?? "unknown",
+      configured: health ? Boolean(health.configured) : true,
+      available: health ? Boolean(health.available) : false,
+      status: health?.status ?? "unknown",
+      errorCode: health?.errorCode,
+      error: health?.error,
       requiredEnv: [envName],
-      message: `${envName} accepted for this running backend session. The key value is not returned.`,
+      message: health?.available
+        ? `${envName} doğrulandı. Anahtar değeri geri döndürülmedi.`
+        : `${envName} alındı ancak Gemini doğrulaması başarısız oldu. Anahtar değeri geri döndürülmedi.`,
     });
   });
 

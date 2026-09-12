@@ -1,4 +1,5 @@
 import os from 'os';
+import path from 'path';
 import { spawn } from 'child_process';
 import {
   EdithPermissionError,
@@ -201,6 +202,49 @@ function runPythonModule(moduleName: string, args: string[]): Promise<EdithToolR
         error: error.message,
         structuredOutput: { capability: 'CONFIGURATION_REQUIRED' },
       });
+    });
+  });
+}
+
+function runSteamGameManager(toolId: string, request: Record<string, unknown>): Promise<EdithToolResult> {
+  return new Promise((resolve) => {
+    const scriptPath = path.resolve(process.cwd(), 'scripts', 'steam-game-manager.py');
+    const child = spawn('python', [scriptPath, JSON.stringify(request)], {
+      cwd: process.cwd(),
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve({ success: false, toolId, error: 'Steam işlemi zaman aşımına uğradı.', structuredOutput: { timeout: true } });
+    }, 120000);
+
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const output = stdout.trim();
+      let structuredOutput: Record<string, unknown> = { exitCode: code };
+      try {
+        const parsed = JSON.parse(output) as Record<string, unknown>;
+        structuredOutput = { ...structuredOutput, ...parsed };
+      } catch {
+        // Preserve raw Python output when the bridge fails before emitting JSON.
+      }
+      resolve({
+        success: code === 0,
+        toolId,
+        result: output || stderr || `Process exited with code ${code}`,
+        error: code === 0 ? undefined : (stderr || output || 'Steam işlemi başarısız oldu.').slice(0, 4000),
+        structuredOutput,
+      });
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      resolve({ success: false, toolId, error: error.message, structuredOutput: { capability: 'CONFIGURATION_REQUIRED' } });
     });
   });
 }
@@ -655,6 +699,71 @@ edithToolRegistry.register({
     getStringArg(args, 'simulationType') ?? 'Simulation engine',
     'Engineering simulation'
   ),
+});
+
+edithToolRegistry.register({
+  id: 'steam_game_search',
+  metadata: {
+    name: 'Steam Oyun Kütüphanesi',
+    version: '1.0.0',
+    description: 'Yerel Steam kütüphanesini okur ve oyun adına göre arama yapar.',
+    category: 'system',
+    inputSchema: {
+      gameName: { type: 'string', required: false, description: 'Aranacak oyun adı veya parçası.' },
+    },
+    outputSchema: { games: { type: 'array' } },
+    requiredPermissions: ['system:read'],
+    riskLevel: 1,
+    timeoutMs: 30000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['Mark-L-main/actions/game_updater.py'],
+  },
+  handler: (args): Promise<EdithToolResult> => runSteamGameManager('steam_game_search', {
+    action: 'search',
+    game_name: getStringArg(args, 'gameName') ?? '',
+  }),
+});
+
+edithToolRegistry.register({
+  id: 'steam_game_install',
+  metadata: {
+    name: 'Steam Oyunu Kur',
+    version: '1.0.0',
+    description: 'Steam oyununu bulur, Steam kurulum penceresini açar ve istenen diski seçer.',
+    category: 'system',
+    inputSchema: {
+      gameName: { type: 'string', required: true, description: 'Kurulacak Steam oyununun adı.' },
+      targetDrive: { type: 'string', required: false, description: 'Hedef disk harfi; örneğin D veya D:.' },
+      appId: { type: 'string', required: false, description: 'Biliniyorsa Steam AppID.' },
+    },
+    outputSchema: { result: { type: 'string' } },
+    requiredPermissions: ['computer:control', 'system:exec'],
+    riskLevel: 5,
+    timeoutMs: 120000,
+    retryLimit: 0,
+    supportsDryRun: true,
+    supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'],
+    dependencies: ['Mark-L-main/actions/game_updater.py', 'Steam'],
+  },
+  handler: async (args, context): Promise<EdithToolResult> => {
+    const unavailable = highRiskUnavailable('steam_game_install', context);
+    if (unavailable) return unavailable;
+    const gameName = getStringArg(args, 'gameName');
+    if (!gameName) {
+      return { success: false, toolId: 'steam_game_install', error: 'Kurulacak oyun adı gerekli.' };
+    }
+    return runSteamGameManager('steam_game_install', {
+      action: 'install',
+      platform: 'steam',
+      game_name: gameName,
+      app_id: getStringArg(args, 'appId'),
+      target_drive: getStringArg(args, 'targetDrive'),
+    });
+  },
 });
 
 edithToolRegistry.register({

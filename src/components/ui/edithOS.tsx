@@ -23,6 +23,7 @@ import {
   Radar,
   RadioTower,
   Route,
+  Search,
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
@@ -650,179 +651,357 @@ export function KnowledgeGraphScreen({
   tools?: AutomationTool[];
   logs?: ToolExecutionLog[];
 }) {
-  const nodes = [
-    { id: 'edith', label: 'E.D.I.T.H.', type: 'Project', x: 50, y: 46, size: 'xl', count: 1 },
-    { id: 'memory', label: 'Memory', type: 'Memory', x: 28, y: 28, size: 'lg', count: memories.length },
-    { id: 'agents', label: 'Agents', type: 'Agent', x: 70, y: 25, size: 'lg', count: 6 },
-    { id: 'tools', label: 'Tools', type: 'Tool', x: 78, y: 55, size: 'md', count: tools.length },
-    { id: 'tasks', label: 'Tasks', type: 'Task', x: 35, y: 62, size: 'md', count: logs.length },
-    { id: 'browser', label: 'Browser', type: 'Website', x: 58, y: 72, size: 'sm', count: 0 },
-    { id: 'model', label: 'Model Router', type: 'Model', x: 17, y: 52, size: 'sm', count: 1 },
-    { id: 'security', label: 'Security', type: 'Concept', x: 52, y: 18, size: 'sm', count: 4 },
-    { id: 'files', label: 'Files', type: 'File', x: 18, y: 77, size: 'sm', count: 0 },
-  ];
-  const edges = [
-    ['edith', 'memory', 'uses'],
-    ['edith', 'agents', 'orchestrates'],
-    ['agents', 'tools', 'calls'],
-    ['tasks', 'agents', 'assigned to'],
-    ['tasks', 'memory', 'learns from'],
-    ['tools', 'browser', 'opens'],
-    ['security', 'tools', 'guards'],
-    ['model', 'agents', 'routes'],
-    ['files', 'memory', 'indexes'],
-    ['edith', 'tasks', 'creates'],
-  ];
-  const [selectedId, setSelectedId] = React.useState('edith');
-  const [filter, setFilter] = React.useState('All');
-  const selected = nodes.find((node) => node.id === selectedId) ?? nodes[0];
-  const nodeTypes = ['All', ...Array.from(new Set(nodes.map((node) => node.type)))];
-  const visibleNodes = filter === 'All' ? nodes : nodes.filter((node) => node.type === filter || node.id === selectedId);
-  const visibleNodeIds = new Set(visibleNodes.map((node) => node.id));
-  const visibleEdges = edges.filter(([from, to]) => visibleNodeIds.has(from) && visibleNodeIds.has(to));
-  const typeClass: Record<string, string> = {
-    Project: 'from-cyan-300 to-blue-500',
-    Memory: 'from-fuchsia-300 to-violet-500',
-    Agent: 'from-emerald-300 to-teal-500',
-    Tool: 'from-amber-300 to-orange-500',
-    Task: 'from-sky-300 to-cyan-500',
-    Website: 'from-blue-300 to-indigo-500',
-    Model: 'from-slate-100 to-slate-400',
-    Concept: 'from-red-300 to-rose-500',
-    File: 'from-lime-300 to-green-500',
+  type GraphNode = {
+    id: string;
+    title: string;
+    type: string;
+    source: string;
+    path?: string;
+    folder?: string;
+    tags?: string[];
+    importance?: number;
+    recentActivityAt?: string;
+    properties?: Record<string, unknown>;
   };
-  const selectedRelations = edges.filter(([from, to]) => from === selected.id || to === selected.id);
+  type GraphEdge = { id: string; from: string; to: string; type: string; strength?: number; source?: string; evidence?: string; updatedAt?: string };
+  type GraphStatus = {
+    connectionStatus?: string;
+    indexedNotes?: number;
+    chunks?: number;
+    watcherActive?: boolean;
+    lastSyncAt?: string;
+    settings?: { vaultPath?: string };
+    recentEvents?: Array<{ id: string; action: string; path: string; status: string; createdAt: string }>;
+  };
+
+  const [graphNodes, setGraphNodes] = React.useState<GraphNode[]>([]);
+  const [graphEdges, setGraphEdges] = React.useState<GraphEdge[]>([]);
+  const [status, setStatus] = React.useState<GraphStatus | null>(null);
+  const [activity, setActivity] = React.useState<{ auditEvents?: any[]; syncEvents?: any[]; toolRuns?: any[]; realtime?: string } | null>(null);
+  const [selectedId, setSelectedId] = React.useState('core:edith');
+  const [filter, setFilter] = React.useState('All');
+  const [mode, setMode] = React.useState<'Graph' | 'Timeline' | 'Clusters' | 'Insights'>('Graph');
+  const [query, setQuery] = React.useState('');
+
+  const requestJson = React.useCallback((path: string) => {
+    return new Promise<any>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', path, true);
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(`Knowledge API ${xhr.status}: ${path}`));
+          return;
+        }
+        try {
+          resolve(xhr.responseText ? JSON.parse(xhr.responseText) : {});
+        } catch (error) {
+          reject(error);
+        }
+      };
+      xhr.onerror = () => reject(new Error(`Knowledge API network error: ${path}`));
+      xhr.send();
+    });
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const [graphJson, statusJson, activityJson] = await Promise.all([
+          requestJson('/api/knowledge/graph?limit=900'),
+          requestJson('/api/knowledge/status'),
+          requestJson('/api/knowledge-graph/activity'),
+        ]);
+        if (!alive) return;
+        setGraphNodes(graphJson.graph?.nodes ?? []);
+        setGraphEdges(graphJson.graph?.relationships ?? []);
+        setStatus(statusJson.status ?? null);
+        setActivity(activityJson.activity ?? null);
+      } catch {
+        if (!alive) return;
+        setGraphNodes([]);
+        setGraphEdges([]);
+      }
+    };
+    load();
+    const interval = window.setInterval(load, 10000);
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+    };
+  }, [requestJson]);
+
+  const domains = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const node of graphNodes) counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+    const priority = ['Memory', 'Agent', 'Project', 'Task', 'Tool', 'Vault', 'Note', 'Conversation', 'Website', 'File', 'Model', 'SecurityEvent', 'Trade'];
+    const items = priority
+      .filter((type) => counts.has(type))
+      .map((type) => ({ type, count: counts.get(type) ?? 0 }));
+    for (const [type, count] of counts) if (!items.some((item) => item.type === type)) items.push({ type, count });
+    return items.slice(0, 10);
+  }, [graphNodes]);
+
+  const displayNodes = React.useMemo(() => {
+    const q = query.trim().toLocaleLowerCase('tr-TR');
+    let sourceNodes = graphNodes;
+    if (filter !== 'All') sourceNodes = sourceNodes.filter((node) => node.type === filter || node.id === selectedId);
+    if (q) sourceNodes = sourceNodes.filter((node) => `${node.title} ${node.type} ${node.source} ${node.path ?? ''}`.toLocaleLowerCase('tr-TR').includes(q));
+    const core = sourceNodes.find((node) => node.id === 'core:edith') ?? graphNodes.find((node) => node.id === 'core:edith');
+    const selectedSet = new Map<string, GraphNode>();
+    if (core) selectedSet.set(core.id, core);
+    for (const item of domains) {
+      const candidate = sourceNodes.find((node) => node.type === item.type && node.id !== core?.id);
+      if (candidate) selectedSet.set(candidate.id, candidate);
+    }
+    for (const node of sourceNodes) {
+      if (selectedSet.size >= 42) break;
+      selectedSet.set(node.id, node);
+    }
+    return Array.from(selectedSet.values());
+  }, [domains, filter, graphNodes, query, selectedId]);
+
+  const displayIds = new Set(displayNodes.map((node) => node.id));
+  const displayEdges = graphEdges.filter((edge) => displayIds.has(edge.from) && displayIds.has(edge.to)).slice(0, 90);
+  const selected = displayNodes.find((node) => node.id === selectedId) ?? displayNodes[0] ?? graphNodes[0];
+  const selectedRelations = selected ? graphEdges.filter((edge) => edge.from === selected.id || edge.to === selected.id).slice(0, 8) : [];
+  const nodeTypes = ['All', ...Array.from(new Set(graphNodes.map((node) => node.type))).sort()];
+  const statusOnline = status?.connectionStatus === 'synced' || status?.connectionStatus === 'connected';
+  const typeColor: Record<string, string> = {
+    Agent: '#22d3ee',
+    Memory: '#a78bfa',
+    Tool: '#38bdf8',
+    Task: '#34d399',
+    Project: '#06b6d4',
+    Vault: '#8b5cf6',
+    Note: '#60a5fa',
+    Conversation: '#818cf8',
+    Website: '#0ea5e9',
+    File: '#5eead4',
+    Model: '#e2e8f0',
+    SecurityEvent: '#fb7185',
+    Trade: '#f59e0b',
+  };
+  const iconFor = (type: string) => {
+    if (type === 'Memory') return Brain;
+    if (type === 'Agent') return Bot;
+    if (type === 'Tool') return Wrench;
+    if (type === 'Task') return CheckCircle2;
+    if (type === 'Project') return Archive;
+    if (type === 'Vault') return Database;
+    if (type === 'Website') return Globe2;
+    if (type === 'File') return FileText;
+    if (type === 'SecurityEvent') return ShieldCheck;
+    return Network;
+  };
+  const positionedNodes = displayNodes.map((node, index) => {
+    if (node.id === 'core:edith') return { ...node, x: 50, y: 49, size: 126 };
+    const featuredSlots = [
+      [50, 14],
+      [72, 24],
+      [83, 42],
+      [78, 63],
+      [64, 77],
+      [49, 82],
+      [34, 77],
+      [21, 63],
+      [16, 44],
+      [25, 27],
+      [38, 19],
+      [62, 17],
+    ];
+    if (index <= featuredSlots.length) {
+      const [x, y] = featuredSlots[index - 1];
+      return { ...node, x, y, size: 78 };
+    }
+    const angle = (Math.PI * 2 * (index - featuredSlots.length - 1)) / Math.max(1, displayNodes.length - featuredSlots.length - 1);
+    const lane = index % 3;
+    const radiusX = 34 + lane * 7;
+    const radiusY = 22 + lane * 4;
+    return {
+      ...node,
+      x: 50 + Math.cos(angle) * radiusX,
+      y: 50 + Math.sin(angle) * radiusY,
+      size: 28 + (index % 4) * 2,
+    };
+  });
+  const starredNodes = graphNodes.slice(0, 72).map((node, index) => {
+    let seed = index * 17;
+    for (let i = 0; i < node.id.length; i += 1) seed += node.id.charCodeAt(i);
+    return {
+      id: node.id,
+      x: 3 + ((seed * 37) % 9400) / 100,
+      y: 5 + ((seed * 53) % 8800) / 100,
+      size: 1.5 + (seed % 5) * 0.55,
+      delay: (seed % 19) * 0.18,
+      color: typeColor[node.type] ?? '#38bdf8',
+    };
+  });
+  const flowingEdges = displayEdges
+    .map((edge) => {
+      const a = positionedNodes.find((node) => node.id === edge.from);
+      const b = positionedNodes.find((node) => node.id === edge.to);
+      return a && b ? { edge, a, b } : null;
+    })
+    .filter(Boolean)
+    .slice(0, 32) as Array<{ edge: GraphEdge; a: typeof positionedNodes[number]; b: typeof positionedNodes[number] }>;
 
   return (
-    <ScreenFrame title="Bilgi Haritası" icon={<Network className="h-5 w-5" />} subtitle="Bellekler, ajanlar, araçlar, dosyalar ve görev ilişkileri için anlamsal harita">
-      <div className="grid min-h-[calc(100vh-10rem)] grid-cols-1 gap-4 xl:grid-cols-[17rem_1fr_22rem]">
-        <OSPanel title="Map Controls" eyebrow="FILTERS" icon={<SlidersHorizontal className="h-4 w-4" />}>
-          <div className="space-y-3">
-            <div className="rounded-lg border border-white/10 bg-slate-950/55 p-3">
-              <div className="edith-eyebrow">Data Sources</div>
-              <div className="mt-3 space-y-2">
-                <ActionRow label="Memory records" value={String(memories.length)} />
-                <ActionRow label="Tool registry" value={String(tools.length)} />
-                <ActionRow label="Audit events" value={String(logs.length)} />
-              </div>
+    <div className="-m-4 min-h-[calc(100vh-5.5rem)] overflow-hidden bg-[#020713] p-3 text-slate-100">
+      <style>{`
+        @keyframes edith-flow-dash { to { stroke-dashoffset: -34; } }
+        @keyframes edith-star-pulse { 0%, 100% { opacity: .24; transform: scale(.78); } 45% { opacity: .95; transform: scale(1.28); } }
+        @keyframes edith-core-breathe { 0%, 100% { transform: translate(-50%, -50%) scale(.96); opacity: .72; } 50% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; } }
+        @keyframes edith-orbit-spin { to { transform: rotate(360deg); } }
+      `}</style>
+      <div className="grid h-[calc(100vh-6.5rem)] min-h-[760px] grid-cols-[minmax(34rem,1fr)_350px] grid-rows-[62px_minmax(0,1fr)] gap-3">
+        <header className="col-span-2 flex items-center justify-between rounded-2xl border border-cyan-300/20 bg-[#041421]/86 px-5 shadow-[0_0_38px_rgba(14,165,233,0.14)]">
+          <div>
+            <h1 className="text-xl font-semibold text-cyan-50">KNOWLEDGE MAP</h1>
+            <p className="text-xs text-slate-400">Everything connected. Greater together.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-mono ${statusOnline ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200' : 'border-red-300/30 bg-red-400/10 text-red-200'}`}>
+              <span className="h-2 w-2 rounded-full bg-current shadow-[0_0_12px_currentColor]" />
+              {statusOnline ? 'SYSTEM ONLINE' : (status?.connectionStatus ?? 'DEGRADED').toUpperCase()}
             </div>
-            <div>
-              <div className="edith-eyebrow mb-2">Node Types</div>
-              <div className="flex flex-wrap gap-2 xl:block xl:space-y-2">
-                {nodeTypes.map((type) => (
-                  <button
-                    key={type}
-                    onClick={() => setFilter(type)}
-                    className={`w-auto rounded-md border px-3 py-2 text-left text-xs transition xl:w-full ${
-                      filter === type
-                        ? 'border-[var(--assistant-primary)] bg-[var(--assistant-primary)]/15 text-slate-100 shadow-[0_0_18px_var(--assistant-glow)]'
-                        : 'border-white/10 bg-white/[0.025] text-slate-400 hover:border-[var(--assistant-primary)]/35 hover:text-slate-200'
-                    }`}
-                  >
-                    {type}
-                  </button>
-                ))}
-              </div>
+            <div className="relative w-72">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search anything..." className="w-full rounded-xl border border-cyan-300/16 bg-black/30 py-2.5 pl-9 pr-3 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-300/45" />
             </div>
           </div>
-        </OSPanel>
+        </header>
 
-        <OSPanel title="Anlamsal Grafik Tuvali" eyebrow="BİLGİ HARİTASI" icon={<Network className="h-4 w-4" />}>
-          <div className="relative min-h-[34rem] overflow-hidden rounded-lg border border-white/10 bg-[#030817]">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_46%,var(--assistant-glow),transparent_24rem),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(rgba(255,255,255,0.022)_1px,transparent_1px)] bg-[size:auto,36px_36px,36px_36px]" />
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-              <defs>
-                <linearGradient id="edith-graph-edge" x1="0%" x2="100%">
-                  <stop offset="0%" stopColor="var(--assistant-primary)" stopOpacity="0.12" />
-                  <stop offset="50%" stopColor="var(--assistant-accent)" stopOpacity="0.62" />
-                  <stop offset="100%" stopColor="var(--assistant-primary)" stopOpacity="0.12" />
-                </linearGradient>
-              </defs>
-              {visibleEdges.map(([from, to]) => {
-                const a = nodes.find((node) => node.id === from)!;
-                const b = nodes.find((node) => node.id === to)!;
-                const active = selected.id === from || selected.id === to;
-                return (
-                  <line
-                    key={`${from}-${to}`}
-                    x1={a.x}
-                    y1={a.y}
-                    x2={b.x}
-                    y2={b.y}
-                    stroke="url(#edith-graph-edge)"
-                    strokeWidth={active ? 0.42 : 0.18}
-                    strokeDasharray={active ? '0' : '1.4 1.8'}
-                  />
-                );
-              })}
-            </svg>
-
-            {visibleNodes.map((node) => {
-              const active = node.id === selected.id;
-              const scale = node.size === 'xl' ? 'h-24 w-24' : node.size === 'lg' ? 'h-20 w-20' : node.size === 'md' ? 'h-16 w-16' : 'h-13 w-13';
+        <section className="relative overflow-hidden rounded-2xl border border-cyan-300/20 bg-[#020713] shadow-[0_0_90px_rgba(14,165,233,0.22)]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,rgba(34,211,238,0.36),transparent_17rem),radial-gradient(circle_at_50%_52%,rgba(37,99,235,0.24),transparent_28rem),radial-gradient(circle_at_40%_45%,rgba(124,58,237,0.22),transparent_20rem),linear-gradient(90deg,rgba(34,211,238,.055)_1px,transparent_1px),linear-gradient(rgba(34,211,238,.04)_1px,transparent_1px)] bg-[size:auto,auto,auto,48px_48px,48px_48px]" />
+          <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle_at_20%_18%,rgba(125,211,252,.26)_0_1px,transparent_2px),radial-gradient(circle_at_71%_22%,rgba(255,255,255,.38)_0_1px,transparent_2px),radial-gradient(circle_at_42%_77%,rgba(45,212,191,.28)_0_1px,transparent_2px),radial-gradient(circle_at_84%_69%,rgba(147,197,253,.28)_0_1px,transparent_2px)] [background-size:92px_80px,126px_118px,154px_130px,198px_176px]" />
+          {starredNodes.map((node) => (
+            <span
+              key={node.id}
+              className="pointer-events-none absolute rounded-full"
+              style={{
+                left: `${node.x}%`,
+                top: `${node.y}%`,
+                width: node.size,
+                height: node.size,
+                backgroundColor: node.color,
+                boxShadow: `0 0 ${node.size * 5}px ${node.color}`,
+                animation: `edith-star-pulse ${2.6 + node.size * 0.35}s ease-in-out ${node.delay}s infinite`,
+              }}
+            />
+          ))}
+          <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="edith-cockpit-edge" x1="0%" x2="100%">
+                <stop offset="0%" stopColor="#22d3ee" stopOpacity=".12" />
+                <stop offset="50%" stopColor="#93c5fd" stopOpacity=".78" />
+                <stop offset="100%" stopColor="#8b5cf6" stopOpacity=".2" />
+              </linearGradient>
+              <radialGradient id="edith-core-glow">
+                <stop offset="0%" stopColor="#e0f2fe" stopOpacity=".95" />
+                <stop offset="38%" stopColor="#22d3ee" stopOpacity=".56" />
+                <stop offset="100%" stopColor="#0284c7" stopOpacity="0" />
+              </radialGradient>
+            </defs>
+            <circle cx="50" cy="50" r="18" fill="url(#edith-core-glow)" opacity=".82" />
+            {[14, 22, 30, 39, 48].map((rx, index) => <ellipse key={rx} cx="50" cy="50" rx={rx} ry={rx * 0.56} fill="none" stroke="#38bdf8" strokeOpacity={index < 2 ? .34 : .22} strokeWidth={index < 2 ? .28 : .16} strokeDasharray={index % 2 ? '1.2 2.2' : '0'} />)}
+            {flowingEdges.map(({ edge, a, b }, index) => {
+              const active = selected && (edge.from === selected.id || edge.to === selected.id);
+              const path = `M ${a.x} ${a.y} L ${b.x} ${b.y}`;
               return (
-                <button
-                  key={node.id}
-                  onClick={() => setSelectedId(node.id)}
-                  className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border text-center transition duration-300 ${
-                    active
-                      ? 'border-white/45 bg-white/[0.09] shadow-[0_0_36px_var(--assistant-glow)]'
-                      : 'border-white/15 bg-slate-950/70 hover:border-[var(--assistant-primary)]/45 hover:bg-white/[0.06]'
-                  } ${scale}`}
-                  style={{ left: `${node.x}%`, top: `${node.y}%` }}
-                >
-                  <span className={`absolute inset-2 rounded-full bg-gradient-to-br ${typeClass[node.type]} opacity-20 blur-md`} />
-                  <span className={`absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br ${typeClass[node.type]} ${node.size === 'xl' ? 'h-8 w-8' : 'h-5 w-5'} shadow-[0_0_20px_currentColor]`} />
-                  <span className="absolute left-1/2 top-full mt-2 w-28 -translate-x-1/2 text-xs font-semibold text-slate-100">{node.label}</span>
-                  <span className="absolute left-1/2 top-[calc(100%+1.55rem)] w-28 -translate-x-1/2 font-mono text-[10px] text-slate-500">{node.type} · {node.count}</span>
+                <g key={edge.id}>
+                  <path d={path} fill="none" stroke="url(#edith-cockpit-edge)" strokeWidth={active ? .5 : .18} strokeDasharray={active ? '0' : '1.4 2.4'} opacity={active ? .92 : .55} style={{ animation: active ? undefined : `edith-flow-dash ${3.4 + (index % 5) * .45}s linear infinite` }} />
+                  <circle r={active ? .7 : .38} fill={active ? '#e0f2fe' : '#22d3ee'} opacity={active ? .95 : .66}>
+                    <animateMotion dur={`${2.8 + (index % 7) * .45}s`} repeatCount="indefinite" path={path} />
+                  </circle>
+                </g>
+              );
+            })}
+          </svg>
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[19rem] w-[19rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-200/24 shadow-[0_0_80px_rgba(34,211,238,.55),inset_0_0_48px_rgba(34,211,238,.26)]" style={{ animation: 'edith-core-breathe 4.4s ease-in-out infinite' }} />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[34rem] w-[34rem] -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-300/10" style={{ animation: 'edith-orbit-spin 34s linear infinite' }} />
+          <div className="pointer-events-none absolute left-4 top-24 font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70">Ideas<br />People<br />Data<br />Knowledge<br />Actions</div>
+          <div className="pointer-events-none absolute right-5 top-24 text-right font-mono text-[10px] uppercase leading-[1.7] tracking-[0.32em] text-cyan-200/70">Higher<br />Context<br />Greater<br />Possibilities</div>
+          <div className="absolute inset-0 [perspective:900px]">
+            {positionedNodes.map((node, index) => {
+              const active = selected?.id === node.id;
+              const Icon = iconFor(node.type);
+              const color = typeColor[node.type] ?? '#38bdf8';
+              const compact = index > 13;
+              const core = node.id === 'core:edith';
+              return (
+                <button key={node.id} onClick={() => setSelectedId(node.id)} className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border text-center transition duration-300 ${active ? 'border-white/70 bg-white/12 shadow-[0_0_64px_rgba(34,211,238,.86)]' : 'border-cyan-200/24 bg-black/58 hover:border-cyan-300/60'} ${compact ? 'opacity-90 hover:scale-125' : ''}`} style={{ left: `${node.x}%`, top: `${node.y}%`, width: compact ? Math.max(14, node.size * .48) : node.size, height: compact ? Math.max(14, node.size * .48) : node.size, color, transform: 'translate(-50%, -50%)' }}>
+                  <span className="absolute inset-0 rounded-full opacity-30 blur-xl" style={{ backgroundColor: color }} />
+                  <span className="absolute inset-2 rounded-full border border-white/15 bg-slate-950/60" />
+                  {!compact && !core && <Icon className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2" />}
+                  {core && (
+                    <span className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-xl font-black tracking-[0.28em] text-cyan-50">E.D.I.T.H.</span>
+                      <span className="mt-1 text-[10px] text-cyan-100/70">Knowledge Core</span>
+                    </span>
+                  )}
+                  {!compact && !core && <span className="absolute left-1/2 top-full mt-2 w-36 -translate-x-1/2 text-xs font-semibold text-slate-100 drop-shadow-[0_0_10px_rgba(2,6,23,.95)]">{node.title}</span>}
+                  {!compact && !core && <span className="absolute left-1/2 top-[calc(100%+1.55rem)] w-32 -translate-x-1/2 text-[10px] text-slate-400">{node.type}</span>}
                 </button>
               );
             })}
-
-            <div className="absolute left-4 top-4 rounded-lg border border-white/10 bg-black/40 p-3 backdrop-blur-xl">
-              <div className="edith-eyebrow">Active Layer</div>
-              <div className="mt-2 text-sm font-semibold text-slate-100">{filter === 'All' ? 'All node types' : filter}</div>
-            </div>
-
-            <div className="absolute bottom-3 left-4 right-4 flex flex-wrap gap-2 rounded-lg border border-white/10 bg-black/45 p-2 backdrop-blur-xl">
-              {['zoom shell', 'drag placeholder', 'expand selected', 'isolate view', 'timeline placeholder'].map((control) => (
-                <StatusPill key={control} label={control} tone="muted" />
-              ))}
-            </div>
           </div>
-        </OSPanel>
-
-        <OSPanel title="Node Inspector" eyebrow={selected.type} icon={<Eye className="h-4 w-4" />}>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-              <div className="text-lg font-semibold text-slate-100">{selected.label}</div>
-              <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                Seçili node E.D.I.T.H. knowledge layer içinde ilişkileriyle birlikte incelenir. Gerçek veri geldikçe bu panel kaynak, confidence ve son kullanım bilgisiyle dolar.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <StatusPill label={selected.type} tone="info" />
-                <StatusPill label="records" value={String(selected.count)} tone="muted" />
-              </div>
-            </div>
-            <div>
-              <div className="edith-eyebrow mb-2">Relations</div>
-              <div className="space-y-2">
-                {selectedRelations.map(([from, to, relation]) => {
-                  const other = from === selected.id ? to : from;
-                  const otherNode = nodes.find((node) => node.id === other);
-                  return (
-                    <button key={`${from}-${to}-${relation}`} onClick={() => setSelectedId(other)} className="w-full rounded-md border border-white/10 bg-slate-950/45 px-3 py-2 text-left hover:border-[var(--assistant-primary)]/35">
-                      <div className="text-xs font-semibold text-slate-200">{relation}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">{otherNode?.label}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+          <div className="absolute left-4 top-4 flex rounded-xl border border-cyan-300/18 bg-black/42 p-1 backdrop-blur-xl">
+            {(['Graph', 'Timeline', 'Clusters', 'Insights'] as const).map((item) => (
+              <button key={item} onClick={() => setMode(item)} className={`rounded-lg px-4 py-2 text-xs ${mode === item ? 'bg-cyan-300/16 text-cyan-50' : 'text-slate-500 hover:text-slate-200'}`}>{item}</button>
+            ))}
           </div>
-        </OSPanel>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-2xl border border-cyan-300/18 bg-black/52 px-5 py-3 text-[11px] text-slate-300 backdrop-blur-xl">
+            <span className="text-emerald-300">●</span> {domains.length} knowledge domains · {graphNodes.length} total nodes · {activity?.realtime ?? 'polling'} synchronization
+          </div>
+        </section>
+
+        <aside className="rounded-2xl border border-cyan-300/20 bg-[#041421]/84 p-4 shadow-[0_0_38px_rgba(14,165,233,0.12)]">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-[11px] font-semibold text-cyan-100">NODE DETAILS</div>
+            <StatusPill label={statusOnline ? 'online' : 'degraded'} tone={statusOnline ? 'success' : 'warning'} />
+          </div>
+          {selected ? (
+            <>
+              <div className="rounded-xl border border-cyan-300/14 bg-black/24 p-4">
+                <div className="text-lg font-semibold text-slate-100">{selected.title}</div>
+                <div className="mt-1 text-xs text-slate-500">{selected.type} · {selected.source}</div>
+                <p className="mt-4 text-xs leading-relaxed text-slate-400">{selected.path ?? selected.folder ?? 'Runtime knowledge entity'}</p>
+                <div className="mt-4 grid grid-cols-4 rounded-xl border border-cyan-300/12 bg-black/22 text-center text-xs">
+                  <div className="p-2"><b>{status?.indexedNotes ?? 0}</b><div className="text-[10px] text-slate-500">Notes</div></div>
+                  <div className="p-2"><b>{status?.recentEvents?.length ?? 0}</b><div className="text-[10px] text-slate-500">Recent</div></div>
+                  <div className="p-2"><b>{selectedRelations.length}</b><div className="text-[10px] text-slate-500">Linked</div></div>
+                  <div className="p-2"><b>{selected.tags?.length ?? 0}</b><div className="text-[10px] text-slate-500">Tags</div></div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-xl border border-emerald-300/16 bg-emerald-400/7 p-3">
+                <div className="text-xs font-semibold text-emerald-100">Vault Connected</div>
+                <div className="mt-2 text-[11px] text-slate-400">Vault Path <span className="float-right max-w-44 truncate text-slate-300">{status?.settings?.vaultPath ?? 'D:\\EDİTH\\EDİTH'}</span></div>
+                <div className="mt-2 text-[11px] text-slate-400">Last Sync <span className="float-right text-slate-300">{status?.lastSyncAt ? 'synced' : 'waiting'}</span></div>
+              </div>
+              <div className="mt-4">
+                <div className="mb-2 text-[11px] font-semibold text-cyan-100">CONNECTED NODES</div>
+                <div className="space-y-2">
+                  {selectedRelations.map((edge) => {
+                    const otherId = edge.from === selected.id ? edge.to : edge.from;
+                    const other = graphNodes.find((node) => node.id === otherId);
+                    return (
+                      <button key={edge.id} onClick={() => other && setSelectedId(other.id)} className="flex w-full items-center justify-between rounded-lg border border-cyan-300/12 bg-black/24 px-3 py-2 text-left text-xs hover:border-cyan-300/35">
+                        <span className="truncate text-slate-300">{other?.title ?? otherId}</span>
+                        <span className="text-cyan-300">{edge.type}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          ) : (
+            <EmptyState icon={<Network className="h-4 w-4" />} title="Graph data yok" text="Backend knowledge graph cevap verdiğinde node detayları burada görünür." />
+          )}
+        </aside>
+
       </div>
-    </ScreenFrame>
+    </div>
   );
 }
 
@@ -931,6 +1110,8 @@ type CryptoServiceStatus = {
   startedAt?: string;
   error?: string;
   overview?: Record<string, any>;
+  health?: Record<string, any>;
+  obsidian?: Record<string, any>;
   runtime?: {
     state?: string;
     observerRunning?: boolean;
@@ -987,7 +1168,7 @@ const SAFE_SYMBOL_PERMISSIONS: CryptoSymbolPermission[] = [
 ];
 
 const SAFE_CATEGORY_RULES = [
-  ['Majors', 'Watch enabled', 'Paper trading allowed', 'Live locked'],
+  ['Majors', 'Watch enabled', 'Paper trading disabled', 'Live locked'],
   ['Meme', 'Watch enabled', 'Decision disabled', 'Paper blocked, approval required'],
   ['Stablecoins', 'Watch only', 'Trading blocked', 'Live locked'],
 ] as const;
@@ -1004,7 +1185,7 @@ const SAFE_OBSERVATIONS: MarketObservation[] = [
 ];
 
 const SAFE_LEARNING_NOTES: LearningNote[] = [
-  { title: 'No live learning notes connected', detail: 'This is a placeholder until /api/learning-notes or /api/obsidian-status responds.' },
+  { title: 'Vault connected, no recent notes yet', detail: 'Learning folder: Trading/Crypto Market Learning' },
 ];
 
 async function optionalCryptoEndpoint(path: string): Promise<Record<string, any> | undefined> {
@@ -1162,12 +1343,15 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const serviceOnline = Boolean(serviceStatus?.healthy);
   const runtime = serviceStatus?.runtime;
   const runtimeMeta = runtime as Record<string, any> | undefined;
+  const serviceObsidianStatus = serviceStatus?.obsidian ?? (serviceStatus?.health?.obsidian as Record<string, any> | undefined);
+  const obsidianStatus = cryptoData.obsidianStatus ?? serviceObsidianStatus ?? {};
+  const canonicalObsidianStatus = serviceObsidianStatus ?? {};
   const observerState = observerStateFromRuntime(runtime, serviceOnline, observerAction, Boolean(actionError));
   const observerRunning = observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'PAUSED';
   const ollamaOnline = Boolean(runtime?.ollamaAvailable);
-  const obsidianReady = Boolean(runtime?.obsidianAvailable ?? cryptoData.obsidianStatus?.writable);
+  const obsidianReady = canonicalObsidianStatus.status === 'connected' && Boolean(canonicalObsidianStatus.writable ?? canonicalObsidianStatus.available);
   const pauseResumeSupported = Boolean(runtimeMeta?.supportsPauseResume);
-  const canStartObserver = serviceOnline && (observerState === 'STOPPED' || observerState === 'PAUSED') && !observerAction && ollamaOnline;
+  const canStartObserver = (!serviceOnline || observerState === 'STOPPED' || observerState === 'PAUSED') && !observerAction;
   const canStopObserver = serviceOnline && ['OBSERVING', 'STARTING', 'PAUSED'].includes(observerState) && !observerAction;
   const marketOnline = Boolean(runtime?.marketDataAvailable ?? cryptoData.markets?.online ?? cryptoData.markets?.available ?? cryptoData.overview?.marketDataOnline ?? false);
   const symbolsFromBackend = asArray(cryptoData.symbols?.symbols ?? cryptoData.watchlist?.symbols ?? cryptoData.permissions?.symbols);
@@ -1177,7 +1361,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
         category: String(item.category ?? 'Uncategorized'),
         watch: Boolean(item.watch ?? item.watchEnabled ?? item.watch_only ?? true),
         decision: Boolean(item.decision ?? item.decisionEnabled ?? item.aiDecision ?? false),
-        paper: Boolean(serviceOnline && (item.paper ?? item.paperAllowed ?? item.paperTradingAllowed ?? false)),
+        paper: false,
         live: false,
         risk: cryptoRisk(item.risk ?? item.riskLevel),
         approvalRequired: Boolean(item.approvalRequired ?? item.requiresApproval),
@@ -1187,18 +1371,17 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const trades = asArray(cryptoData.trades?.trades ?? overview.trades);
   const openPositions = asArray(portfolio.positions);
   const risk = cryptoData.risk ?? {};
-  const modeLabel = String(runtime?.mode ?? cryptoData.mode?.trading_mode ?? cryptoData.mode?.mode ?? overview.mode ?? 'observer_only').replaceAll('_', ' ').toUpperCase();
-  const paperTradingEnabled = Boolean(runtime?.paperTradingEnabled);
+  const modeLabel = String(serviceStatus?.health?.mode ?? runtime?.mode ?? cryptoData.mode?.trading_mode ?? cryptoData.mode?.mode ?? overview.mode ?? 'OBSERVER_ONLY').replaceAll('_', ' ').toUpperCase();
+  const paperTradingEnabled = false;
   const observations = asArray(cryptoData.observations?.observations ?? cryptoData.analysis?.observations);
   const learningNotes = asArray(cryptoData.learningNotes?.notes ?? cryptoData.obsidianStatus?.notes ?? cryptoData.obsidianStatus?.recentNotes);
-  const obsidianStatus = cryptoData.obsidianStatus ?? {};
   const serviceUrl = serviceStatus?.dashboardUrl ?? 'http://localhost:5000';
   const lastChecked = lastCheckedAt ? lastCheckedAt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending';
   const startupCommand = 'npm run crypto:observer';
   const watchedSymbols = Array.isArray(runtime?.watchedSymbols) ? runtime.watchedSymbols : symbolRows.filter((symbol) => symbol.watch).map((symbol) => symbol.symbol);
   const ignoredSymbols = symbolRows.filter((symbol) => !symbol.watch || symbol.approvalRequired).map((symbol) => symbol.symbol);
-  const lastLearningNote = learningNotes[0]?.title ?? learningNotes[0]?.path ?? 'not connected';
-  const portfolioDataLabel = paperTradingEnabled && serviceOnline ? 'PAPER BACKEND DATA' : serviceOnline ? 'PAPER DISABLED' : 'STALE / DEMO MEMORY';
+  const lastLearningNote = learningNotes[0]?.title ?? learningNotes[0]?.path ?? (obsidianReady ? 'vault connected, no recent notes yet' : 'not connected');
+  const portfolioDataLabel = serviceOnline ? 'PAPER DISABLED' : 'STALE / DEMO MEMORY';
 
   return (
     <div className="edith-workspace overflow-y-auto bg-[#05070b] p-4 custom-scrollbar">
@@ -1210,9 +1393,10 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 <StatusPill label="CRYPTO OBSERVER MODE" tone={serviceOnline ? 'success' : 'warning'} value={serviceOnline ? 'SERVICE READY' : 'OFFLINE'} />
                 <StatusPill label={`OBSERVER ${observerState}`} tone={observerTone(observerState)} />
+                {!ollamaOnline && serviceOnline && <StatusPill label="AI DEPENDENCY OFFLINE" tone="warning" />}
                 <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
                 <StatusPill label="EXECUTION NO ACTION" tone="danger" />
-                <StatusPill label={paperTradingEnabled ? 'PAPER BACKEND ENABLED' : 'PAPER DISABLED'} tone={paperTradingEnabled ? 'warning' : 'muted'} />
+                <StatusPill label="PAPER TRADING DISABLED" tone="muted" />
               </div>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
@@ -1233,10 +1417,10 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <CryptoMetric label="Mode" value={modeLabel} tone="cyan" />
+              <CryptoMetric label="Mode" value={modeLabel.includes('OBSERVER') ? 'OBSERVER_ONLY' : modeLabel} tone="cyan" />
               <CryptoMetric label="Service" value={serviceOnline ? 'ONLINE' : 'OFFLINE'} tone={serviceOnline ? 'green' : 'amber'} />
               <CryptoMetric label="Observer" value={observerState} tone={observerState === 'OBSERVING' ? 'green' : observerState === 'ERROR' ? 'amber' : 'slate'} />
-              <CryptoMetric label="Ollama" value={ollamaOnline ? 'ONLINE' : 'OFFLINE'} tone={ollamaOnline ? 'green' : 'amber'} />
+              <CryptoMetric label="AI Dependency" value={ollamaOnline ? 'ONLINE' : 'OFFLINE'} tone={ollamaOnline ? 'green' : 'amber'} />
               <CryptoMetric label="Market Data" value={marketOnline ? 'AVAILABLE' : 'STANDBY'} tone={marketOnline ? 'green' : 'amber'} />
               <CryptoMetric label="Last Check" value={lastChecked} tone="slate" />
             </div>
@@ -1255,7 +1439,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                 type="button"
                 onClick={() => void runObserverAction('start')}
                 disabled={!canStartObserver}
-                title={!serviceOnline ? 'Crypto service is offline.' : !ollamaOnline ? 'Ollama is offline. AI market analysis cannot start.' : canStartObserver ? 'Start observer loop only; trading remains locked.' : 'Start is available only when observer is stopped or paused.'}
+                title={!serviceOnline ? 'Start the safe crypto service, then request observer mode. Trading remains locked.' : !ollamaOnline ? 'AI dependency is offline; crypto service can still be online.' : canStartObserver ? 'Start observer loop only; trading remains locked.' : 'Start is available only when observer is stopped or paused.'}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Play className={`h-3.5 w-3.5 ${observerAction === 'start' ? 'animate-pulse' : ''}`} />
@@ -1307,7 +1491,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
           <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
             {!ollamaOnline && (
               <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
-                Ollama is offline. AI market analysis cannot start.
+                AI dependency offline. Crypto service status is tracked separately.
               </div>
             )}
             {!obsidianReady && (
@@ -1366,32 +1550,15 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
           <div>
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[24rem_1fr]">
               <CryptoPanel title="Market Radar" eyebrow={endpointConnected ? 'LIVE FEED' : 'SAFE PLACEHOLDER'} icon={<Radar className="h-4 w-4" />}>
-                <div className="relative mx-auto aspect-square max-w-[19rem] rounded-full border border-cyan-300/20 bg-[radial-gradient(circle,rgba(14,165,233,0.16)_0%,rgba(14,165,233,0.04)_38%,rgba(15,23,42,0.08)_70%)]">
-                  <div className="absolute inset-[13%] rounded-full border border-cyan-300/12" />
-                  <div className="absolute inset-[27%] rounded-full border border-cyan-300/12" />
-                  <div className="absolute inset-1/2 h-px w-[46%] origin-left bg-cyan-200/45" />
-                  <div className="absolute left-1/2 top-1/2 h-[47%] w-px origin-top bg-cyan-200/12" />
-                  <div className="absolute inset-0 animate-spin rounded-full [animation-duration:9s]">
-                    <div className="absolute left-1/2 top-1/2 h-[45%] w-px origin-top bg-gradient-to-b from-cyan-200/70 to-transparent" />
-                  </div>
-                  {symbolRows.slice(0, 5).map((symbol, index) => (
-                    <div
-                      key={symbol.symbol}
-                      className={`absolute h-2.5 w-2.5 rounded-full border ${symbol.live ? 'border-red-200 bg-red-300' : symbol.decision ? 'border-cyan-100 bg-cyan-300' : 'border-amber-100 bg-amber-300'} shadow-[0_0_16px_currentColor]`}
-                      style={{
-                        left: `${48 + Math.cos((index / 5) * Math.PI * 2) * (22 + index * 3)}%`,
-                        top: `${47 + Math.sin((index / 5) * Math.PI * 2) * (22 + index * 2)}%`,
-                      }}
-                      aria-label={`${symbol.symbol} radar node`}
-                    />
-                  ))}
-                <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="rounded-lg border border-cyan-300/25 bg-black/55 px-3 py-2 text-center backdrop-blur">
-                      <div className="font-mono text-xs text-cyan-100">{observerRunning ? 'SCAN ACTIVE' : 'SCAN STOPPED'}</div>
-                      <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">Observer only</div>
-                    </div>
-                  </div>
-                </div>
+                <CryptoMarketTerminal
+                  symbols={symbolRows}
+                  observerRunning={observerRunning}
+                  marketOnline={marketOnline}
+                  lastChecked={lastChecked}
+                  markets={cryptoData.markets?.markets}
+                  risk={cryptoData.risk?.risk ?? cryptoData.risk}
+                  overview={overview}
+                />
               </CryptoPanel>
 
               <CryptoPanel title="Watchlist Matrix" eyebrow="SYMBOL CONTROL" icon={<Database className="h-4 w-4" />}>
@@ -1467,11 +1634,11 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                   <ActionRow label="Vault path" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
                   <ActionRow label="Learning folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
                   <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no / not reported'} />
-                  <ActionRow label="Sync status" value={String(obsidianStatus.status ?? (runtime?.obsidianAvailable ? 'ready' : 'paused / service offline'))} />
+                  <ActionRow label="Sync status" value={obsidianReady ? 'connected' : String(canonicalObsidianStatus.status ?? obsidianStatus.status ?? 'not connected')} />
                   <ActionRow label="Last sync" value={displayTime(obsidianStatus.lastSync ?? obsidianStatus.updatedAt ?? runtime?.lastObservationAt)} />
                 </div>
                 <div className="mt-3 space-y-2">
-                  {(learningNotes.length ? learningNotes : SAFE_LEARNING_NOTES).slice(0, 3).map((note: any, index: number) => (
+                  {(learningNotes.length ? learningNotes : obsidianReady ? SAFE_LEARNING_NOTES : [{ title: 'Obsidian not connected', detail: 'Vault status is not connected/writable from backend status.' }]).slice(0, 3).map((note: any, index: number) => (
                     <div key={`${note.title ?? 'note'}-${index}`} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
                       <div className="text-xs font-semibold text-slate-200">{note.title ?? 'Learning note'}</div>
                       <div className="mt-1 text-[11px] text-slate-500">{note.detail ?? note.summary ?? note.path ?? 'No note detail connected.'}</div>
@@ -1482,7 +1649,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
 
               <CryptoPanel title="Paper Portfolio" eyebrow={portfolioDataLabel} icon={<TrendingUp className="h-4 w-4" />}>
                 <div className="mb-3 flex flex-wrap gap-2">
-                  <StatusPill label={portfolioDataLabel} tone={paperTradingEnabled ? 'warning' : 'muted'} />
+                  <StatusPill label={portfolioDataLabel} tone="muted" />
                   <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
                   <StatusPill label="NOT LIVE PERFORMANCE" tone="warning" />
                 </div>
@@ -1519,7 +1686,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               </div>
             </CryptoPanel>
 
-            <CryptoPanel title="Ollama Status" eyebrow="LOCAL AI DEPENDENCY" icon={<Cpu className="h-4 w-4" />}>
+            <CryptoPanel title="AI Dependency Status" eyebrow="OLLAMA / LOCAL MODEL" icon={<Cpu className="h-4 w-4" />}>
               <div className="space-y-2">
                 <ActionRow label="Status" value={ollamaOnline ? 'Online' : 'Offline'} />
                 <ActionRow label="Model" value={String(runtimeMeta?.currentModel ?? runtimeMeta?.model ?? cryptoData.mode?.model ?? 'not reported')} />
@@ -1528,12 +1695,12 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               </div>
               {!ollamaOnline && (
                 <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
-                  Ollama is offline. AI market analysis cannot start.
+                  AI dependency offline. Crypto service may still be online and observer status remains separate.
                 </p>
               )}
             </CryptoPanel>
 
-            <CryptoPanel title="Obsidian Status" eyebrow={obsidianReady ? 'WRITABLE' : 'CONFIGURATION REQUIRED'} icon={<Archive className="h-4 w-4" />}>
+            <CryptoPanel title="Obsidian Status" eyebrow={obsidianReady ? 'CONNECTED' : 'CONFIGURATION REQUIRED'} icon={<Archive className="h-4 w-4" />}>
               <div className="space-y-2">
                 <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
                 <ActionRow label="Folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
@@ -1619,6 +1786,268 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
       </div>
     </div>
   );
+}
+
+type MarketSnapshot = {
+  price?: number;
+  rsi?: number;
+  atr?: number;
+  volume?: number;
+  trend?: string;
+  macd_signal?: string;
+  timestamp?: string;
+};
+
+function CryptoMarketTerminal({
+  symbols,
+  observerRunning,
+  marketOnline,
+  lastChecked,
+  markets,
+  risk,
+  overview,
+}: {
+  symbols: CryptoSymbolPermission[];
+  observerRunning: boolean;
+  marketOnline: boolean;
+  lastChecked: string;
+  markets?: Record<string, MarketSnapshot>;
+  risk?: Record<string, any>;
+  overview?: Record<string, any>;
+}) {
+  const [selectedSymbol, setSelectedSymbol] = React.useState(symbols[0]?.symbol ?? 'BTC/USDT');
+  const marketMap = markets && typeof markets === 'object' ? markets : {};
+  const radarSymbols = React.useMemo(() => symbols.slice(0, 12), [symbols]);
+  const rows = radarSymbols.map((symbol) => ({
+    ...symbol,
+    market: marketMap[symbol.symbol] ?? {},
+  }));
+  const selected = radarSymbols.find((symbol) => symbol.symbol === selectedSymbol) ?? radarSymbols[0];
+  const selectedMarket = marketMap[selected?.symbol ?? ''] ?? {};
+  const marketValues = rows.filter((row) => typeof row.market.price === 'number');
+  const bullishCount = rows.filter((row) => String(row.market.trend ?? '').toLowerCase().includes('bull')).length;
+  const bearishCount = rows.filter((row) => String(row.market.trend ?? '').toLowerCase().includes('bear')).length;
+  const avgRsi = average(rows.map((row) => row.market.rsi));
+  const atrPctValues = rows.map((row) => percentOf(row.market.atr, row.market.price));
+  const avgAtrPct = average(atrPctValues);
+  const volumes = rows.map((row) => Number(row.market.volume ?? 0));
+  const maxVolume = Math.max(...volumes, 1);
+  const volumeIndex = volumes.reduce((sum, value) => sum + value, 0);
+  const exposurePct = Number(risk?.exposure_ratio ?? 0) * 100;
+  const drawdownPct = Number(risk?.drawdown_pct ?? 0);
+  const regime = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'MIXED';
+  const selectedAtrPct = percentOf(selectedMarket.atr, selectedMarket.price);
+  const selectedVolumePct = Math.round((Number(selectedMarket.volume ?? 0) / maxVolume) * 100);
+
+  return (
+    <div className="space-y-2 font-mono" data-testid="crypto-market-terminal">
+      <div className="rounded-md border border-white/10 bg-[#080806]">
+        <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            CRYPTOBASE <span className="text-amber-400">/ OBSERVER TERMINAL</span>
+          </div>
+          <div className="text-[9px] uppercase tracking-wide text-slate-500">
+            {observerRunning ? 'OBSERVER LIVE' : 'OBSERVER STOPPED'} / {lastChecked}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 border-b border-white/10 lg:grid-cols-5">
+          <TerminalMetric title="Regime" value={regime} detail={`${bullishCount} bull / ${bearishCount} bear`} tone={regime === 'BULLISH' ? 'green' : regime === 'BEARISH' ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="Trend Strength" value={`${Math.round((bullishCount / Math.max(rows.length, 1)) * 100)}%`} detail={`${marketValues.length}/${rows.length} live symbols`} tone="cyan" values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="Avg RSI" value={Number.isFinite(avgRsi) ? avgRsi.toFixed(1) : '--'} detail={avgRsi >= 60 ? 'momentum elevated' : avgRsi <= 40 ? 'pressure elevated' : 'neutral band'} tone={avgRsi >= 60 ? 'green' : avgRsi <= 40 ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="ATR Volatility" value={`${Number.isFinite(avgAtrPct) ? avgAtrPct.toFixed(2) : '--'}%`} detail="avg atr / price" tone="amber" values={atrPctValues.map((value) => value * 100)} />
+          <TerminalMetric title="Liquidity Index" value={compactNumber(volumeIndex)} detail={marketOnline ? 'public market feed' : 'feed standby'} tone="green" values={volumes} />
+        </div>
+        <div className="border-b border-amber-400/15 bg-amber-400/[0.035] px-3 py-1.5 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-500/80">
+          READ-ONLY MARKET SIGNALS / NO ORDER EXECUTION / PAPER DISABLED / LIVE LOCKED
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 xl:grid-cols-[1fr_1.05fr]">
+        <div className="rounded-md border border-white/10 bg-[#0a0a08]">
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+            <div>
+              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Crypto Signals</div>
+              <div className="text-[9px] uppercase text-slate-500">allocation shown as current indicator strength</div>
+            </div>
+            <div className="text-[10px] text-cyan-300">{marketValues.length} live</div>
+          </div>
+          <div className="grid grid-cols-2 gap-px bg-white/10 p-px">
+            {rows.slice(0, 12).map((row) => {
+              const rsi = Number(row.market.rsi ?? 50);
+              const strength = Math.max(8, Math.min(100, Math.round(rsi)));
+              const blocked = !row.decision || row.approvalRequired;
+              return (
+                <button
+                  key={row.symbol}
+                  type="button"
+                  onClick={() => setSelectedSymbol(row.symbol)}
+                  className={`min-h-[4.3rem] bg-[#11110f] p-2 text-left transition hover:bg-[#171712] ${selected?.symbol === row.symbol ? 'outline outline-1 outline-cyan-300/70' : ''}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-[10px] font-semibold text-slate-100">{row.symbol}</div>
+                    <div className={`rounded border px-1.5 py-0.5 text-[8px] uppercase ${blocked ? 'border-amber-400/40 text-amber-300' : String(row.market.trend).toLowerCase().includes('bull') ? 'border-emerald-400/35 text-emerald-300' : 'border-cyan-400/35 text-cyan-300'}`}>
+                      {blocked ? 'blocked' : row.market.trend ?? 'watch'}
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-sm bg-black/50">
+                    <div className={blocked ? 'h-full bg-amber-400' : 'h-full bg-emerald-400'} style={{ width: `${strength}%` }} />
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-1 text-[9px] text-slate-500">
+                    <span>RSI <b className="text-slate-300">{formatNumber(row.market.rsi, 1)}</b></span>
+                    <span>ATR <b className="text-slate-300">{formatNumber(percentOf(row.market.atr, row.market.price), 2)}%</b></span>
+                    <span>VOL <b className="text-slate-300">{Math.round((Number(row.market.volume ?? 0) / maxVolume) * 100)}%</b></span>
+                  </div>
+                </button>
+              );
+            })}
+            {rows.length % 2 === 1 && <div className="min-h-[4.3rem] bg-[#11110f]" aria-hidden="true" />}
+          </div>
+        </div>
+
+        <div className="rounded-md border border-white/10 bg-[#0a0a08]">
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+            <div>
+              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Indicator Spread</div>
+              <div className="text-[9px] uppercase text-slate-500">RSI / ATR% / relative volume by symbol</div>
+            </div>
+            <span className="rounded border border-white/10 px-2 py-1 text-[9px] uppercase text-slate-400">
+              Snapshot
+            </span>
+          </div>
+          <SignalSpreadChart
+            labels={rows.map((row) => row.symbol.replace('/USDT', ''))}
+            series={[
+              { name: 'RSI', color: '#22d3ee', values: rows.map((row) => row.market.rsi ?? 50) },
+              { name: 'ATR%', color: '#f59e0b', values: atrPctValues.map((value) => value * 100) },
+              { name: 'VOL', color: '#f472b6', values: volumes.map((value) => (value / maxVolume) * 100) },
+            ]}
+          />
+          <div className="grid grid-cols-2 gap-px border-t border-white/10 bg-white/10 p-px text-[10px]">
+            <TerminalReadout label="Selected" value={selected?.symbol ?? 'not connected'} />
+            <TerminalReadout label="Price" value={formatMoney(selectedMarket.price)} />
+            <TerminalReadout label="RSI" value={formatNumber(selectedMarket.rsi, 2)} />
+            <TerminalReadout label="ATR / Price" value={`${formatNumber(selectedAtrPct, 2)}%`} />
+            <TerminalReadout label="Volume Index" value={`${selectedVolumePct}%`} />
+            <TerminalReadout label="Risk Engine" value={String(risk?.risk_level ?? selected?.risk ?? 'not connected')} />
+            <TerminalReadout label="Exposure" value={`${formatNumber(exposurePct, 2)}%`} />
+            <TerminalReadout label="Drawdown" value={`${formatNumber(drawdownPct, 2)}%`} />
+            <TerminalReadout label="Trade Count" value={String(overview?.stats?.total_trades ?? 'not connected')} />
+            <TerminalReadout label="Execution" value="LOCKED" danger />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TerminalMetric({ title, value, detail, tone, values }: { title: string; value: string; detail: string; tone: 'cyan' | 'green' | 'amber'; values: Array<number | undefined> }) {
+  const toneClass = {
+    cyan: 'text-cyan-300',
+    green: 'text-emerald-300',
+    amber: 'text-amber-300',
+  }[tone];
+  return (
+    <div className="min-h-[5.5rem] border-r border-white/10 px-3 py-2 last:border-r-0">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-slate-400">{title}</div>
+      <div className={`mt-1 text-lg font-semibold ${toneClass}`}>{value}</div>
+      <div className="text-[9px] uppercase text-slate-500">{detail}</div>
+      <Sparkline values={values} color={tone === 'green' ? '#34d399' : tone === 'amber' ? '#f59e0b' : '#22d3ee'} />
+    </div>
+  );
+}
+
+function Sparkline({ values, color }: { values: Array<number | undefined>; color: string }) {
+  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  const points = polylinePoints(nums.length > 1 ? nums : [0, 0], 150, 24, 3);
+  return (
+    <svg viewBox="0 0 150 24" className="mt-1 h-6 w-full" role="img" aria-label="Real market metric sparkline">
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function SignalSpreadChart({ labels, series }: { labels: string[]; series: Array<{ name: string; color: string; values: number[] }> }) {
+  return (
+    <div className="p-3">
+      <svg viewBox="0 0 360 190" className="h-[13.5rem] w-full" role="img" aria-label="Real crypto indicator spread chart">
+        {[0, 1, 2, 3, 4].map((line) => (
+          <line key={`h-${line}`} x1="22" x2="344" y1={24 + line * 32} y2={24 + line * 32} stroke="rgba(148,163,184,0.13)" />
+        ))}
+        {labels.map((label, index) => {
+          const x = 28 + (index / Math.max(labels.length - 1, 1)) * 306;
+          return (
+            <g key={label}>
+              <line x1={x} x2={x} y1="20" y2="154" stroke="rgba(148,163,184,0.08)" />
+              <text x={x} y="174" textAnchor="middle" fill="rgb(100,116,139)" fontSize="8">{label}</text>
+            </g>
+          );
+        })}
+        {series.map((item) => (
+          <polyline key={item.name} points={polylinePoints(item.values, 322, 132, 22, 20)} fill="none" stroke={item.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        ))}
+      </svg>
+      <div className="flex flex-wrap gap-2 text-[9px] uppercase text-slate-500">
+        {series.map((item) => (
+          <span key={item.name} className="inline-flex items-center gap-1">
+            <span className="h-1.5 w-3 rounded-sm" style={{ backgroundColor: item.color }} />
+            {item.name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TerminalReadout({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-2 bg-[#11110f] px-3 py-2">
+      <span className="uppercase text-slate-500">{label}</span>
+      <span className={danger ? 'font-semibold text-red-300' : 'text-slate-200'}>{value}</span>
+    </div>
+  );
+}
+
+function average(values: Array<number | undefined>): number {
+  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!nums.length) return NaN;
+  return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
+function percentOf(value: unknown, base: unknown): number {
+  const num = Number(value);
+  const den = Number(base);
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return 0;
+  return (num / den) * 100;
+}
+
+function formatNumber(value: unknown, digits = 0): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  return num.toFixed(digits);
+}
+
+function formatMoney(value: unknown): string {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '--';
+  if (Math.abs(num) < 1) return num.toFixed(4);
+  return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function compactNumber(value: number): string {
+  if (!Number.isFinite(value)) return '--';
+  return Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
+}
+
+function polylinePoints(values: number[], width: number, height: number, pad = 0, offsetX = 0): string {
+  const nums = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const range = max - min || 1;
+  return nums.map((value, index) => {
+    const x = offsetX + pad + (index / Math.max(nums.length - 1, 1)) * (width - pad * 2);
+    const y = pad + (1 - ((value - min) / range)) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
 }
 
 function CryptoPanel({
@@ -1853,7 +2282,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
                 </div>
                 <div className="mt-3 grid grid-cols-1 gap-2">
                   <ActionRow label="Mode" value={capability.mode} />
-                  <ActionRow label="Permissions" value={capability.requiredPermissions.join(', ') || 'none'} />
+                  <ActionRow label="Permissions" value={Array.isArray(capability.requiredPermissions) ? capability.requiredPermissions.join(', ') || 'none' : 'none'} />
                 </div>
                 <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-500">{capability.verification}</p>
               </div>

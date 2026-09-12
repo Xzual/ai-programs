@@ -43,7 +43,7 @@ const PROVIDER_DEFINITIONS: Array<Omit<EdithProviderProfile, 'status'>> = [
     displayName: 'Google Gemini',
     privacy: 'cloud',
     defaultModel: 'gemini-2.5-flash',
-    modelExamples: ['gemini-2.5-flash'],
+    modelExamples: ['gemini-2.5-flash', 'gemini-2.5-pro'],
     tasks: ['conversation', 'classification', 'planning', 'verification', 'coding', 'vision'],
     capabilities: ['text', 'vision', 'streaming'],
     requiredEnv: ['GEMINI_API_KEY'],

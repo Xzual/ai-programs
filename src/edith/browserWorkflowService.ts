@@ -1,4 +1,4 @@
-import type { BrowserWorkflowRequest, EdithToolResult } from './core';
+import type { BrowserWorkflowRequest, EdithRiskLevel, EdithToolResult } from './core';
 import { executeEdithTool } from './serverRegistry';
 
 export interface BrowserWorkflowCapability {
@@ -9,11 +9,15 @@ export interface BrowserWorkflowCapability {
   requiresQuery: boolean;
   requiresFilePath: boolean;
   verification: string;
+  runtimeStatus: 'AVAILABLE' | 'CONFIGURATION_REQUIRED' | 'BLOCKED';
+  riskLevel: EdithRiskLevel;
+  requiredPermissions: string[];
+  requiresApproval: boolean;
 }
 
 export class BrowserWorkflowService {
   capabilities(): BrowserWorkflowCapability[] {
-    return [
+    const capabilities: Array<Omit<BrowserWorkflowCapability, 'runtimeStatus' | 'riskLevel' | 'requiredPermissions' | 'requiresApproval'>> = [
       {
         action: 'search',
         toolPath: ['browser_search'],
@@ -87,6 +91,13 @@ export class BrowserWorkflowService {
         verification: 'Selectors are validated; form submission requires explicit permission and post-action evidence.',
       },
     ];
+    return capabilities.map((capability) => ({
+      ...capability,
+      runtimeStatus: (capability.action === 'search' ? 'AVAILABLE' : 'CONFIGURATION_REQUIRED') as BrowserWorkflowCapability['runtimeStatus'],
+      riskLevel: (capability.sideEffects === 'none' ? 1 : capability.sideEffects === 'browser_navigation' ? 3 : 4) as EdithRiskLevel,
+      requiredPermissions: capability.sideEffects === 'none' ? ['network:read'] : ['network:read', 'browser:control', ...(capability.sideEffects === 'file_write' ? ['file:write'] : [])],
+      requiresApproval: capability.sideEffects !== 'none',
+    }));
   }
 
   async run(request: BrowserWorkflowRequest, actor = 'edith-browser-workflow'): Promise<EdithToolResult> {

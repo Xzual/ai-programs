@@ -526,6 +526,14 @@ export default function App() {
               accumulatedText += data.text;
               updateAssistantMessageText(assistantMsgId, accumulatedText, true);
             }
+            if (!data.text && typeof data.warning === 'string') {
+              accumulatedText += `${data.warning}\n`;
+              updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+            }
+            if (!data.text && typeof data.error === 'string') {
+              accumulatedText += `${data.error}\n`;
+              updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+            }
             const metadata = chatMetadataFromSse(data);
             if (Object.keys(metadata).length) {
               updateAssistantMessageText(assistantMsgId, accumulatedText, true, metadata);

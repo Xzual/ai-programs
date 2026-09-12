@@ -56,7 +56,7 @@ export const EDITH_AGENTS: EdithAgentMetadata[] = [
     version: '0.1.0',
     responsibility: 'Controls high-risk browser or desktop adapters only after explicit backend permission.',
     capabilities: ['browser-control', 'desktop-control', 'screen-operation'],
-    allowedTools: ['browser_use_agent', 'playwright_browser_agent', 'computer_control_agent', 'computer_use_guard', 'open_interpreter_agent'],
+    allowedTools: ['browser_use_agent', 'playwright_browser_agent', 'computer_control_agent', 'computer_use_guard', 'steam_game_search', 'steam_game_install', 'open_interpreter_agent'],
     requiredPermissions: ['network:read', 'browser:control', 'computer:control', 'system:exec'],
     inputSchema: { instruction: { type: 'string', required: true } },
     outputSchema: { artifact: { type: 'object' }, status: { type: 'string' } },

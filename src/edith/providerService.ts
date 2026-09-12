@@ -507,7 +507,7 @@ export function modelDisabledReason(
   if (status === 'offline') return 'provider offline';
   if (status === 'unavailable' || status === 'error') return 'provider unavailable';
   if (status === 'rate_limited') return 'provider rate limited';
-  if (status === 'unknown') return 'provider status unknown';
+  if (status === 'unknown' && provider !== 'gemini') return 'provider status unknown';
   if (provider === 'ollama' && availableModels.length > 0 && !availableModels.includes(model)) return 'model unavailable';
   const models = providerModels(provider, providerProfiles, availableModels);
   if (models.length > 0 && !models.includes(model)) return 'model unavailable';

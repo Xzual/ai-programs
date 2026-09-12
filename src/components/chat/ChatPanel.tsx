@@ -34,6 +34,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const activeProvider = providerProfiles.find((profile) => profile.provider === settings.aiProvider);
   const geminiProvider = providerProfiles.find((profile) => profile.provider === 'gemini');
+  const geminiStatus = geminiProvider?.status ?? 'configuration_required';
+  const geminiConfigured = Boolean(geminiProvider?.configured);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -91,14 +93,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         </div>
       )}
 
-      {settings.aiProvider === 'gemini' && (geminiProvider?.status ?? 'configuration_required') !== 'available' && (
+      {settings.aiProvider === 'gemini' && geminiStatus !== 'available' && (
         <div className="relative m-3 rounded-lg border border-amber-300/35 bg-amber-500/13 p-3 text-xs text-amber-200 shadow-[0_14px_36px_rgba(245,158,11,0.12)] backdrop-blur-xl">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
             <div>
-              <p className="font-medium text-amber-200">Gemini sağlayıcısı yapılandırılmamış.</p>
+              <p className="font-medium text-amber-200">
+                {geminiConfigured ? 'Gemini anahtarı doğrulanamadı.' : 'Gemini sağlayıcısı yapılandırılmamış.'}
+              </p>
               <p className="mt-0.5 text-[11px] leading-relaxed text-amber-100/80">
-                Ortam yapılandırmasına <code className="rounded bg-amber-950/70 px-1 py-0.5 font-mono">GEMINI_API_KEY</code> ekleyin. E.D.I.T.H. anahtarı arayüzde göstermez veya istemez.
+                {geminiConfigured
+                  ? 'Backend anahtarı okudu ancak Gemini API doğrulaması başarılı olmadı. API key yetkisini ve Google AI Studio projesini kontrol edin.'
+                  : <>Ortam yapılandırmasına <code className="rounded bg-amber-950/70 px-1 py-0.5 font-mono">GEMINI_API_KEY</code> ekleyin. E.D.I.T.H. anahtarı arayüzde göstermez veya istemez.</>}
               </p>
             </div>
           </div>

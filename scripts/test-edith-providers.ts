@@ -124,6 +124,52 @@ try {
   });
 }
 
+setGeminiRuntimeApiKey("AIza-test-runtime-key-shape-only");
+globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (url.endsWith("/v1beta/models?pageSize=100") || url.includes("/v1beta/models?")) {
+    return new Response(JSON.stringify({
+      models: [
+        { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", supportedActions: ["generateContent"] },
+        { name: "models/gemini-2.0-flash", displayName: "Gemini 2.0 Flash", supportedActions: ["generateContent"] },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (url.includes("/v1beta/models/gemini-2.5-flash:generateContent")) {
+    return new Response(JSON.stringify({
+      error: {
+        code: 404,
+        status: "NOT_FOUND",
+        message: "This model models/gemini-2.5-flash is no longer available to new users.",
+      },
+    }), { status: 404, headers: { "Content-Type": "application/json" } });
+  }
+  if (url.includes("/v1beta/models/gemini-2.0-flash:generateContent")) {
+    return new Response(JSON.stringify({
+      candidates: [
+        { content: { parts: [{ text: "OK" }], role: "model" }, finishReason: "STOP" },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return originalFetch(input, init);
+};
+try {
+  const dynamicGeminiModels = await geminiProvider.getModels();
+  assert.equal(dynamicGeminiModels.some((model) => model.id === "gemini-2.5-flash"), true);
+  assert.equal(dynamicGeminiModels.some((model) => model.id === "models/gemini-2.5-flash"), false);
+
+  const fallbackGeminiHealth = await geminiProvider.healthCheck({ timeoutMs: 1000 });
+  assert.equal(fallbackGeminiHealth.available, true);
+  assert.equal(fallbackGeminiHealth.healthy, true);
+  assert.equal(fallbackGeminiHealth.defaultModel, "gemini-2.0-flash");
+  assert.equal(fallbackGeminiHealth.errorCode, "model_unavailable");
+  assert.match(fallbackGeminiHealth.error ?? "", /gemini-3\.8-flash/);
+  assert.equal(JSON.stringify(fallbackGeminiHealth).includes("AIza-test-runtime-key-shape-only"), false);
+} finally {
+  globalThis.fetch = originalFetch;
+  setGeminiRuntimeApiKey("MY_GEMINI_API_KEY");
+}
+
 const mockResult = await mock.generate({ messages: [{ role: "user", content: "hello" }] });
 assert.equal(mockResult.provider, "mock");
 assert.equal(mockResult.model, "edith-mock");

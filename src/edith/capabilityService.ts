@@ -75,6 +75,9 @@ function inferTools(objective: string): string[] {
   if (/\b(kontrol|control|masaüstü|desktop|ekranı yönet|bilgisayarı yönet|computer use)\b/i.test(lower)) {
     tools.push('computer_control_agent', 'computer_use_guard');
   }
+  if (/\b(steam|oyun|oyunu|oyununu|kütüphane|kur|yükle|indir)\b/i.test(lower)) {
+    tools.push(/\b(kur|yükle|indir)\b/i.test(lower) ? 'steam_game_install' : 'steam_game_search');
+  }
   if (/\b(iot|akıllı ev|smart home|ışık|lamba|cihaz|device feedback)\b/i.test(lower)) {
     tools.push('iot_feedback_stub');
   }

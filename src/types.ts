@@ -259,6 +259,7 @@ export interface ProviderProfile {
   supportsVision?: boolean;
   supportsTools?: boolean;
   errorCode?: string;
+  error?: string;
   lastCheckedAt?: number;
   requiredEnv: string[];
   status: ProviderRuntimeStatus;

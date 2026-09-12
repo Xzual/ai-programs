@@ -21,6 +21,7 @@ export interface CryptoAgentStatus {
   overview?: unknown;
   health?: unknown;
   runtime?: unknown;
+  obsidian?: unknown;
   error?: string;
 }
 
@@ -49,17 +50,18 @@ export class CryptoService {
   async status(): Promise<CryptoAgentStatus> {
     const base = this.baseStatus();
     try {
-      const [healthResponse, overviewResponse] = await Promise.all([
-        this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`),
-        this.fetchWithTimeout(`${DASHBOARD_URL}/api/overview`),
-      ]);
+      const healthResponse = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`);
       const health = healthResponse.ok ? await healthResponse.json() : undefined;
+      const healthRecord = health && typeof health === 'object' ? health as Record<string, unknown> : {};
+      const overviewResult = await this.readOptionalJson(`${DASHBOARD_URL}/api/overview`);
       return {
         ...base,
         healthy: healthResponse.ok,
         health,
-        runtime: health?.runtime,
-        overview: overviewResponse.ok ? await overviewResponse.json() : undefined,
+        runtime: healthRecord.runtime,
+        obsidian: healthRecord.obsidian,
+        overview: overviewResult.value,
+        error: healthResponse.ok ? overviewResult.error : `Crypto health check failed: ${healthResponse.status}`,
       };
     } catch (error) {
       return {
@@ -209,6 +211,16 @@ export class CryptoService {
       return await fetch(url, { ...init, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+
+  private async readOptionalJson(url: string): Promise<{ value?: unknown; error?: string }> {
+    try {
+      const response = await this.fetchWithTimeout(url);
+      if (!response.ok) return { error: `Optional crypto endpoint failed: ${response.status}` };
+      return { value: await response.json() };
+    } catch (error) {
+      return { error: this.readableConnectionError(error) };
     }
   }
 
