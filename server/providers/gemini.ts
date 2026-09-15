@@ -3,14 +3,15 @@ import { logProviderEvent } from "./logger";
 import type { AIProviderAdapter, GenerateOptions, GenerateResult, ProviderHealth, ProviderMetadata, StreamChunk } from "./types";
 import { ProviderError } from "./types";
 
-const GEMINI_API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta";
-const DEFAULT_MODEL = "gemini-2.5-flash";
-const DEFAULT_MODELS = ["gemini-2.5-flash", "gemini-2.5-pro"];
+const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_MODELS = ["gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.1-flash-live-preview"];
+const UNSUPPORTED_GEMINI_MODELS = new Set(["gemini-2.5-flash"]);
 const INVALID_KEY_LOG_THROTTLE_MS = 60_000;
 const INVALID_HEALTH_CACHE_MS = 60_000;
 
 let lastInvalidKeyLogAt = 0;
 let cachedInvalidHealth: { keyMarker: string; health: ProviderHealth; expiresAt: number } | undefined;
+let cachedHealth: { keyMarker: string; model: string; health: ProviderHealth; expiresAt: number } | undefined;
 
 function envNumber(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] || "", 10);
@@ -40,13 +41,14 @@ function readGeminiConfig() {
     syntheticInvalid,
     defaultModel: process.env.GEMINI_DEFAULT_MODEL || DEFAULT_MODEL,
     timeoutMs: envNumber("GEMINI_TIMEOUT_MS", 30_000),
-    apiBaseUrl: (process.env.GEMINI_API_BASE_URL || GEMINI_API_ENDPOINT).replace(/\/+$/, ""),
+    apiBaseUrl: process.env.GEMINI_API_BASE_URL?.trim().replace(/\/+$/, ""),
     keyMarker: apiKey ? `${apiKey.length}:${apiKey.slice(0, 4)}` : "missing",
   };
 }
 
 function uniqueModels(models: string[]): ProviderMetadata["models"] {
-  return Array.from(new Set(models.filter(Boolean))).map((model) => ({ id: model, name: model }));
+  return Array.from(new Set(models.filter((model) => model && !UNSUPPORTED_GEMINI_MODELS.has(model))))
+    .map((model) => ({ id: model, name: model }));
 }
 
 function normalizeGeminiModelName(name: unknown): string | undefined {
@@ -190,7 +192,10 @@ export class GeminiProvider implements AIProviderAdapter {
     const startedAt = Date.now();
     const base = this.metadata();
     const config = readGeminiConfig();
-    const timeoutMs = typeof options.timeoutMs === "number" ? options.timeoutMs : config.timeoutMs;
+    const timeoutMs = Math.max(
+      typeof options.timeoutMs === "number" ? options.timeoutMs : config.timeoutMs,
+      envNumber("GEMINI_HEALTH_TIMEOUT_MS", 15_000),
+    );
     const checkedModel = typeof options.model === "string" && options.model !== "auto" ? options.model : config.defaultModel;
 
     if (!config.configured) {
@@ -231,6 +236,13 @@ export class GeminiProvider implements AIProviderAdapter {
         latencyMs: 0,
       };
     }
+    if (cachedHealth?.keyMarker === config.keyMarker && cachedHealth.model === checkedModel && cachedHealth.expiresAt > Date.now()) {
+      return {
+        ...cachedHealth.health,
+        checkedAt: new Date().toISOString(),
+        latencyMs: 0,
+      };
+    }
 
     try {
       const models = await this.getModels({ timeoutMs });
@@ -243,7 +255,7 @@ export class GeminiProvider implements AIProviderAdapter {
         timeoutMs,
       });
       if (!result.text.trim()) throw new ProviderError("empty_response", "Gemini returned an empty health response.", 502);
-      return {
+      const health: ProviderHealth = {
         ...base,
         models,
         defaultModel: model,
@@ -255,6 +267,13 @@ export class GeminiProvider implements AIProviderAdapter {
         checkedModel: model,
         latencyMs: Date.now() - startedAt,
       };
+      cachedHealth = {
+        keyMarker: config.keyMarker,
+        model,
+        health,
+        expiresAt: Date.now() + envNumber("GEMINI_HEALTH_CACHE_MS", 60_000),
+      };
+      return health;
     } catch (error) {
       const providerError = normalizeGeminiError(error);
       if (providerError.code === "invalid_api_key") throttledInvalidKeyLog(checkedModel);
@@ -302,7 +321,7 @@ export class GeminiProvider implements AIProviderAdapter {
     for await (const model of pager) {
       if (!modelSupportsGenerate(model)) continue;
       const id = normalizeGeminiModelName((model as { name?: unknown; id?: unknown }).name ?? (model as { id?: unknown }).id);
-      if (id?.startsWith("gemini-")) models.push(id);
+      if (id?.startsWith("gemini-") && !UNSUPPORTED_GEMINI_MODELS.has(id)) models.push(id);
     }
     return models.length ? uniqueModels(models) : this.metadata().models;
   }

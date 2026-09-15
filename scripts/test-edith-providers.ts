@@ -155,6 +155,56 @@ try {
     assert.match(chatText, /event: done/);
     assert.match(chatText, /"resolvedProvider":"ollama"/);
     assert.match(chatText, /"finalState":"completed"/);
+
+    const originalGeminiHealthCheck = geminiProvider.healthCheck.bind(geminiProvider);
+    const originalGeminiStream = geminiProvider.stream.bind(geminiProvider);
+    geminiProvider.healthCheck = async () => ({
+      id: "gemini",
+      name: "Google Gemini",
+      configured: true,
+      available: false,
+      healthy: false,
+      modelAvailable: false,
+      status: "timeout",
+      privacyMode: "cloud",
+      models: [{ id: "gemini-3.6-flash", name: "gemini-3.6-flash" }],
+      defaultModel: "gemini-3.6-flash",
+      capabilities: ["text", "streaming"],
+      supportsStreaming: true,
+      supportsVision: false,
+      supportsTools: false,
+      checkedAt: new Date().toISOString(),
+      checkedModel: "gemini-3.6-flash",
+      latencyMs: 0,
+      errorCode: "timeout",
+      error: "Gemini request timed out.",
+      errorMessage: "Gemini request timed out.",
+    });
+    geminiProvider.stream = async function* () {
+      yield { text: "GEMINI_OK", status: "streaming" };
+      yield { done: true, status: "completed" };
+    };
+    try {
+      const geminiChatResponse = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: "gemini",
+          model: "gemini-3.6-flash",
+          messages: [{ sender: "user", text: "Reply with exactly: GEMINI_OK" }],
+        }),
+      });
+      assert.equal(geminiChatResponse.ok, true);
+      const geminiChatText = await geminiChatResponse.text();
+      assert.match(geminiChatText, /GEMINI_OK/);
+      assert.match(geminiChatText, /event: done/);
+      assert.match(geminiChatText, /"resolvedProvider":"gemini"/);
+      assert.match(geminiChatText, /"fallbackUsed":false/);
+      assert.match(geminiChatText, /"finalState":"completed"/);
+    } finally {
+      geminiProvider.healthCheck = originalGeminiHealthCheck;
+      geminiProvider.stream = originalGeminiStream;
+    }
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
@@ -171,6 +221,7 @@ try {
       "missing_ollama_model_reports_model_not_available",
       "ollama_models_endpoint_delegates_to_provider",
       "chat_stream_emits_done",
+      "manual_gemini_chat_attempts_stream_after_health_timeout",
       "mock_provider_registered",
     ],
   }, null, 2));

@@ -49,6 +49,36 @@ function mockText(userText: string): string {
     : "EDITH mock fallback is responding in degraded mode.";
 }
 
+function maybeForceManualGeminiAttempt(route: ProviderRouteResult, health: Awaited<ReturnType<typeof providerRegistry.health>>): ProviderRouteResult {
+  if (route.requestedProvider !== "gemini") return route;
+  if (route.resolvedProvider === "gemini" && route.modelAvailable) return route;
+
+  const gemini = health.find((provider) => provider.id === "gemini");
+  if (!gemini?.configured) return route;
+  if (gemini.errorCode === "configuration_required" || gemini.errorCode === "invalid_api_key" || gemini.status === "invalid_api_key") return route;
+
+  const requestedModel = route.requestedModel && route.requestedModel !== "auto"
+    ? route.requestedModel
+    : gemini.defaultModel;
+  const modelAvailable = gemini.models.some((model) => model.id === requestedModel);
+  if (!modelAvailable) return route;
+
+  return {
+    ...route,
+    resolvedProvider: "gemini",
+    resolvedModel: requestedModel,
+    providerStatus: "attempting",
+    fallbackUsed: false,
+    fallbackProvider: undefined,
+    fallbackModel: undefined,
+    errorCode: undefined,
+    errorMessage: undefined,
+    modelAvailable: true,
+    configured: true,
+    available: false,
+  };
+}
+
 export function createChatRouter(): Router {
   const router = Router();
 
@@ -127,6 +157,7 @@ export function createChatRouter(): Router {
       fallbackEnabled,
       health,
     });
+    route = maybeForceManualGeminiAttempt(route, health);
 
     sendEvent({
       type: "route",
@@ -170,7 +201,8 @@ export function createChatRouter(): Router {
     }
 
     try {
-      if (!route.available || !route.modelAvailable) {
+      const attemptingManualGemini = route.resolvedProvider === "gemini" && route.providerStatus === "attempting";
+      if ((!route.available || !route.modelAvailable) && !attemptingManualGemini) {
         throw new ProviderError(
           route.errorCode === "MODEL_NOT_AVAILABLE" ? "model_unavailable" : "provider_unavailable",
           route.errorMessage ?? "Selected provider/model is unavailable.",
@@ -190,6 +222,13 @@ export function createChatRouter(): Router {
         });
       } else {
         await streamProvider(route.resolvedProvider);
+        route = {
+          ...route,
+          providerStatus: "available",
+          available: true,
+          configured: true,
+          modelAvailable: true,
+        };
       }
       sendDone(route, false);
     } catch (error) {

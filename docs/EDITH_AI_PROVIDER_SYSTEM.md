@@ -15,7 +15,8 @@ Providers expose normalized metadata, health, model listing, and generation/stre
 
 ```env
 GEMINI_API_KEY=
-GEMINI_DEFAULT_MODEL=gemini-2.5-flash
+GEMINI_DEFAULT_MODEL=gemini-3.6-flash
+GEMINI_HEALTH_TIMEOUT_MS=15000
 GEMINI_TIMEOUT_MS=30000
 
 OLLAMA_HOST=http://localhost:11434

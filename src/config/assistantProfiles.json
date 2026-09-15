@@ -33,7 +33,7 @@
     "taskReportSignature": "JARVIS / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["system_monitor", "vision_observe", "browser_workflow"],
     "agentPolicy": "Prefer planning, verification, and concise operational reporting."
   },
@@ -71,7 +71,7 @@
     "taskReportSignature": "FRIDAY / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["system_monitor", "browser_workflow"],
     "agentPolicy": "Prioritize speed, summaries, and clean handoffs."
   },
@@ -109,7 +109,7 @@
     "taskReportSignature": "ULTRON / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["system_monitor", "vision_observe"],
     "agentPolicy": "Prioritize risk analysis, verification, and exact status."
   },
@@ -147,7 +147,7 @@
     "taskReportSignature": "KAREN / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["browser_workflow", "system_monitor"],
     "agentPolicy": "Prefer action-ready summaries with safety checks."
   },
@@ -185,7 +185,7 @@
     "taskReportSignature": "ALFRED / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["system_monitor"],
     "agentPolicy": "Prefer careful confirmation and restrained language."
   },
@@ -223,7 +223,7 @@
     "taskReportSignature": "HOMER / EDITH task report",
     "preferredModel": "auto",
     "preferredProvider": "auto",
-    "fallbackModels": ["gemini-2.5-flash", "llama3.2"],
+    "fallbackModels": ["gemini-3.6-flash", "llama3.2"],
     "tools": ["system_monitor", "browser_workflow"],
     "agentPolicy": "Keep the tone approachable without hiding uncertainty."
   }
