@@ -43,6 +43,8 @@ import { createPermissionsRouter } from "./server/routes/permissions";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createStatusRouter } from "./server/routes/status";
 import { createTasksRouter } from "./server/routes/tasks";
+import { createVoiceRouter } from "./server/routes/voice";
+import { voiceSessionManager } from "./server/voice/voiceSessionManager";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -59,6 +61,7 @@ app.use(createKillSwitchRouter());
 app.use(createPermissionsRouter());
 app.use(createTasksRouter());
 app.use(createMemoryRouter());
+app.use(createVoiceRouter());
 
 app.post("/api/voice/tts", async (req, res) => {
   const { text, apiKey, voiceId = "pNInz6obpgDQGcFmaJgB" } = req.body ?? {};
@@ -1675,7 +1678,9 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = http.createServer(app);
+  voiceSessionManager.handleUpgrade(server);
+  server.listen(PORT, "0.0.0.0", () => {
     console.log(`[EDITH Server] Running on http://0.0.0.0:${PORT}`);
   });
 }

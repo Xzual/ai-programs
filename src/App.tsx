@@ -990,24 +990,26 @@ export default function App() {
 
         {/* Main Content Workspace */}
         <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        <Header
-          settings={settings}
-          activeAssistant={activeAssistant}
-          assistantProfiles={assistantProfiles}
-          authSession={authSession}
-          ollamaConnected={ollamaConnected}
-          providerProfiles={providerProfiles}
-          providerHealth={providerHealth}
-          availableModels={availableModels}
-          onNewChat={handleNewChat}
-          onResetChat={handleResetActiveChat}
-          onTestConnection={checkHealth}
-          onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
-          onUpdateSettings={updateSettings}
-          onEmergencyStop={handleEmergencyStop}
-          onLogout={handleLogout}
-          isTestingConnection={isTestingConnection}
-        />
+        {activeTab !== 'voice' && (
+          <Header
+            settings={settings}
+            activeAssistant={activeAssistant}
+            assistantProfiles={assistantProfiles}
+            authSession={authSession}
+            ollamaConnected={ollamaConnected}
+            providerProfiles={providerProfiles}
+            providerHealth={providerHealth}
+            availableModels={availableModels}
+            onNewChat={handleNewChat}
+            onResetChat={handleResetActiveChat}
+            onTestConnection={checkHealth}
+            onToggleAutoSpeech={() => handleSaveSettings({ ...settings, autoSpeech: !settings.autoSpeech })}
+            onUpdateSettings={updateSettings}
+            onEmergencyStop={handleEmergencyStop}
+            onLogout={handleLogout}
+            isTestingConnection={isTestingConnection}
+          />
+        )}
 
         {/* Dynamic Tab Views */}
         <main className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -1085,7 +1087,7 @@ export default function App() {
 
           {activeTab === 'tools' && <ToolsRegistryScreen tools={tools} logs={logs} />}
 
-          {activeTab === 'voice' && <VoiceScreen />}
+          {activeTab === 'voice' && <VoiceScreen onBack={() => setActiveTab('dashboard')} />}
 
           {activeTab === 'crypto' && <TradingScreen integrations={integrations} tools={tools} logs={logs} />}
 
@@ -1113,7 +1115,7 @@ export default function App() {
               isTestingConnection={isTestingConnection}
             />
           )}
-          {!['dashboard', 'chat', 'knowledge', 'crypto', 'settings', 'system'].includes(activeTab) && (
+          {!['dashboard', 'chat', 'knowledge', 'crypto', 'settings', 'system', 'voice'].includes(activeTab) && (
             <ContextPanel aiState={aiState} assistant={activeAssistant} tools={tools} logs={logs} />
           )}
         </main>

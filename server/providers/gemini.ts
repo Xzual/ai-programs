@@ -4,7 +4,7 @@ import type { AIProviderAdapter, GenerateOptions, GenerateResult, ProviderHealth
 import { ProviderError } from "./types";
 
 const DEFAULT_MODEL = "gemini-3.6-flash";
-const DEFAULT_MODELS = ["gemini-3.6-flash", "gemini-2.5-pro", "gemini-3.1-flash-live-preview"];
+const DEFAULT_MODELS = ["gemini-3.6-flash", "gemini-2.5-pro"];
 const UNSUPPORTED_GEMINI_MODELS = new Set(["gemini-2.5-flash"]);
 const INVALID_KEY_LOG_THROTTLE_MS = 60_000;
 const INVALID_HEALTH_CACHE_MS = 60_000;

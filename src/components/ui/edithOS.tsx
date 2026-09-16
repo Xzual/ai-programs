@@ -17,11 +17,13 @@ import {
   KeyRound,
   LockKeyhole,
   Mic2,
+  MicOff,
   Network,
   Pause,
   Play,
   Radar,
   RadioTower,
+  RotateCcw,
   Route,
   Search,
   ShieldAlert,
@@ -31,12 +33,30 @@ import {
   Square,
   Terminal,
   TrendingUp,
+  WifiOff,
   Wrench,
   Zap,
 } from 'lucide-react';
 import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
 import { modelDisabledReason, modelsForProvider, providerDisplayName, providerStatusLabel, providerTone, selectValidModelForProvider } from '../../edith/providerService';
 import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
+import {
+  EDITH_VOICE_ROOM_ASSISTANT,
+  EDITH_VOICE_ROOM_MODEL,
+  getVoiceRoomCapabilitySnapshot,
+  normalizeVoiceRoomStatusPayload,
+  type VoiceRoomState,
+  voiceRoomStateLabel,
+} from '../../edith/voiceRoomService';
+import {
+  base64ToInt16Pcm,
+  downsampleFloat32ToInt16Pcm,
+  int16PcmToBase64,
+  parseVoiceLiveServerEvent,
+  VOICE_LIVE_INPUT_MIME,
+  VOICE_LIVE_OUTPUT_RATE,
+  voiceLiveSocketUrl,
+} from '../../edith/voiceLiveClient';
 
 export interface AssistantTheme {
   primary: string;
@@ -1108,22 +1128,447 @@ export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: Au
   );
 }
 
-export function VoiceScreen() {
+const voiceRoomStateTone: Record<VoiceRoomState, 'info' | 'success' | 'warning' | 'danger' | 'muted'> = {
+  idle: 'muted',
+  connecting: 'warning',
+  listening: 'success',
+  thinking: 'info',
+  speaking: 'info',
+  muted: 'warning',
+  disconnected: 'warning',
+  error: 'danger',
+};
+
+export function VoiceScreen({ onBack }: { onBack?: () => void }) {
   const safety = useInteractionSafetySnapshot();
+  const [roomState, setRoomState] = React.useState<VoiceRoomState>('idle');
+  const [micSupported, setMicSupported] = React.useState(false);
+  const [muted, setMuted] = React.useState(false);
+  const [voiceCapabilities, setVoiceCapabilities] = React.useState(() => getVoiceRoomCapabilitySnapshot());
+  const [partialTranscript, setPartialTranscript] = React.useState('');
+  const [finalTranscript, setFinalTranscript] = React.useState('');
+  const [jarvisReply, setJarvisReply] = React.useState(() => getVoiceRoomCapabilitySnapshot().statusMessage);
+  const [voiceError, setVoiceError] = React.useState<string | null>(null);
+  const [audioChunkCount, setAudioChunkCount] = React.useState(0);
+  const [lastAudioMimeType, setLastAudioMimeType] = React.useState<string>('none');
+  const socketRef = React.useRef<WebSocket | null>(null);
+  const mediaStreamRef = React.useRef<MediaStream | null>(null);
+  const captureContextRef = React.useRef<AudioContext | null>(null);
+  const playbackContextRef = React.useRef<AudioContext | null>(null);
+  const processorRef = React.useRef<ScriptProcessorNode | null>(null);
+  const playbackSourcesRef = React.useRef<AudioBufferSourceNode[]>([]);
+  const playbackTimeRef = React.useRef(0);
+  const mutedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    mutedRef.current = muted;
+  }, [muted]);
+
+  React.useEffect(() => {
+    const supported = Boolean(navigator.mediaDevices?.getUserMedia);
+    setMicSupported(supported);
+    setVoiceCapabilities((current) => getVoiceRoomCapabilitySnapshot({
+      localSpeechRecognitionSupported: supported,
+      liveConnectorBound: current.liveConnectorBound,
+      geminiApiKeyConfigured: current.geminiApiKeyConfigured,
+      ttsOutputConnected: current.ttsOutputConnected,
+      bargeInEnabled: current.bargeInEnabled,
+      runtimeStatus: current.runtimeStatus,
+      statusMessage: current.statusMessage,
+    }));
+
+    if (!supported) {
+      setRoomState('disconnected');
+    }
+
+    return () => {
+      stopLiveSession('component_unmount');
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch('/api/voice/live/status')
+      .then((response) => response.ok ? readJsonResponse(response) : undefined)
+      .then((payload) => {
+        if (!cancelled && payload?.success) {
+          setVoiceCapabilities(normalizeVoiceRoomStatusPayload(payload, micSupported));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setVoiceCapabilities(getVoiceRoomCapabilitySnapshot({ localSpeechRecognitionSupported: micSupported }));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [micSupported]);
+
+  const displayState: VoiceRoomState = muted ? 'muted' : roomState;
+  const liveStatusLabel = voiceCapabilities.runtimeStatus === 'connected'
+    ? 'Connected'
+    : voiceCapabilities.runtimeStatus === 'connecting'
+    ? 'Connecting'
+    : voiceCapabilities.runtimeStatus === 'configuration_required'
+    ? 'Configuration required'
+    : 'Offline';
+  const liveStatusTone = voiceCapabilities.runtimeStatus === 'connected'
+    ? 'success'
+    : voiceCapabilities.runtimeStatus === 'configuration_required'
+    ? 'warning'
+    : 'warning';
+
+  const playPcmAudio = React.useCallback((base64Audio: string) => {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) {
+      setVoiceError('Audio playback is not supported in this runtime.');
+      return;
+    }
+
+    const context = playbackContextRef.current ?? new AudioContextCtor({ sampleRate: VOICE_LIVE_OUTPUT_RATE });
+    playbackContextRef.current = context;
+    void context.resume();
+
+    const pcm = base64ToInt16Pcm(base64Audio);
+    const buffer = context.createBuffer(1, pcm.length, VOICE_LIVE_OUTPUT_RATE);
+    const channel = buffer.getChannelData(0);
+    for (let i = 0; i < pcm.length; i += 1) {
+      channel[i] = pcm[i] / 0x8000;
+    }
+
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    const startAt = Math.max(context.currentTime + 0.02, playbackTimeRef.current || context.currentTime);
+    source.start(startAt);
+    playbackTimeRef.current = startAt + buffer.duration;
+    playbackSourcesRef.current.push(source);
+    source.onended = () => {
+      playbackSourcesRef.current = playbackSourcesRef.current.filter((candidate) => candidate !== source);
+    };
+  }, []);
+
+  const stopPlayback = React.useCallback(() => {
+    playbackSourcesRef.current.forEach((source) => {
+      try {
+        source.stop();
+      } catch {
+        // Source may already be stopped.
+      }
+    });
+    playbackSourcesRef.current = [];
+    playbackTimeRef.current = 0;
+  }, []);
+
+  const stopCapture = React.useCallback(() => {
+    processorRef.current?.disconnect();
+    processorRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    void captureContextRef.current?.close();
+    captureContextRef.current = null;
+  }, []);
+
+  const stopLiveSession = React.useCallback((reason = 'client_stop') => {
+    stopCapture();
+    stopPlayback();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'session:stop' }));
+    }
+    socketRef.current?.close(1000, reason);
+    socketRef.current = null;
+    setRoomState('idle');
+  }, [stopCapture, stopPlayback]);
+
+  const startCapture = React.useCallback(async (socket: WebSocket) => {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) {
+      throw new Error('Web Audio API is not supported in this runtime.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    mediaStreamRef.current = stream;
+
+    const context = new AudioContextCtor();
+    captureContextRef.current = context;
+    const source = context.createMediaStreamSource(stream);
+    const processor = context.createScriptProcessor(4096, 1, 1);
+    processorRef.current = processor;
+
+    processor.onaudioprocess = (event) => {
+      if (mutedRef.current || socket.readyState !== WebSocket.OPEN) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const pcm = downsampleFloat32ToInt16Pcm(input, context.sampleRate);
+      const audio = int16PcmToBase64(pcm);
+      socket.send(JSON.stringify({ type: 'audio:chunk', audio, mimeType: VOICE_LIVE_INPUT_MIME }));
+    };
+
+    source.connect(processor);
+    processor.connect(context.destination);
+    await context.resume();
+  }, []);
+
+  const interruptLiveSession = () => {
+    stopPlayback();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'interrupt' }));
+    }
+    setRoomState('listening');
+  };
+
+  const handleServerEvent = React.useCallback((raw: MessageEvent<string>) => {
+    const event = parseVoiceLiveServerEvent(String(raw.data));
+    if (!event) return;
+
+    if (event.type === 'status') {
+      setRoomState(event.state);
+      if (event.safeMessage) setVoiceError(event.state === 'error' ? event.safeMessage : null);
+      return;
+    }
+
+    if (event.type === 'session:ready') {
+      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connected', liveConnectorBound: true }));
+      setRoomState('listening');
+      if (socketRef.current && !mediaStreamRef.current) {
+        void startCapture(socketRef.current).catch((error: any) => {
+          setRoomState('error');
+          setVoiceError(error?.name === 'NotAllowedError' ? 'Microphone permission was denied.' : error?.message ?? 'Could not start microphone capture.');
+        });
+      }
+      return;
+    }
+
+    if (event.type === 'transcript:user') {
+      if (event.partial) {
+        setPartialTranscript(event.text);
+      } else {
+        setFinalTranscript((current) => `${current} ${event.text}`.trim());
+        setPartialTranscript('');
+      }
+      setRoomState('thinking');
+      return;
+    }
+
+    if (event.type === 'transcript:assistant') {
+      setJarvisReply(event.text);
+      setRoomState('speaking');
+      return;
+    }
+
+    if (event.type === 'audio:chunk') {
+      setRoomState('speaking');
+      setAudioChunkCount((count) => count + 1);
+      setLastAudioMimeType(event.mimeType);
+      playPcmAudio(event.audio);
+      return;
+    }
+
+    if (event.type === 'error') {
+      setRoomState('error');
+      setVoiceError(event.safeMessage);
+      return;
+    }
+
+    if (event.type === 'session:ended') {
+      stopCapture();
+      setRoomState('idle');
+    }
+  }, [playPcmAudio, startCapture, stopCapture]);
+
+  const startListening = async () => {
+    if (muted) {
+      setVoiceError('Microphone is muted. Unmute before starting push-to-talk.');
+      return;
+    }
+
+    if (!micSupported) {
+      setRoomState('disconnected');
+      setVoiceError('Push-to-talk requires microphone access in this desktop WebView/browser.');
+      return;
+    }
+
+    try {
+      setVoiceError(null);
+      setPartialTranscript('');
+      setRoomState('connecting');
+      stopLiveSession('restart');
+      const socket = new WebSocket(voiceLiveSocketUrl());
+      socketRef.current = socket;
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'session:start' }));
+      };
+      socket.onmessage = handleServerEvent;
+      socket.onerror = () => {
+        setRoomState('error');
+        setVoiceError('Voice Room WebSocket failed.');
+      };
+      socket.onclose = () => {
+        stopCapture();
+        setRoomState((current) => current === 'error' ? current : 'idle');
+      };
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error('Voice Room socket open timeout.')), 7000);
+        socket.addEventListener('open', () => {
+          window.clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+        socket.addEventListener('error', () => {
+          window.clearTimeout(timeout);
+          reject(new Error('Voice Room socket connection failed.'));
+        }, { once: true });
+      });
+    } catch (error: any) {
+      setRoomState('error');
+      const message = error?.name === 'NotAllowedError'
+        ? 'Microphone permission was denied.'
+        : error?.message
+        ? `Could not start live voice: ${error.message}`
+        : 'Could not start live voice.';
+      setVoiceError(message);
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({ type: 'session:stop' }));
+      }
+      socketRef.current?.close();
+    }
+  };
+
+  const stopListening = () => {
+    stopLiveSession('button_stop');
+  };
+
+  const resetSession = () => {
+    stopLiveSession('reset');
+    setPartialTranscript('');
+    setFinalTranscript('');
+    setJarvisReply(voiceCapabilities.statusMessage);
+    setAudioChunkCount(0);
+    setLastAudioMimeType('none');
+    setVoiceError(null);
+  };
+
+  const previewStates: VoiceRoomState[] = ['idle', 'listening', 'thinking', 'speaking'];
+
   return (
-    <ScreenFrame title="Ses" icon={<Mic2 className="h-5 w-5" />} subtitle="Uyandırma sözcüğü, ses tanıma, niyet, asistan yanıtı ve ses sentezi akışı" variant="readable">
-      <OSPanel title="Ses Akışı" eyebrow="SES DÖNGÜSÜ" icon={<Mic2 className="h-4 w-4" />}>
-        <LoopBar items={['Wake Word', 'Speech Recognition', 'Intent', 'Assistant', 'Model', 'Response', 'TTS']} active={0} />
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <ActionRow label="Voice mode" value={safety?.voice?.mode ?? 'DISABLED'} />
-          <ActionRow label="Microphone" value="permission required" />
-          <ActionRow label="Wake word" value={safety?.voice?.wakeWord ?? 'BLOCKED'} />
-          <ActionRow label="STT" value={safety?.voice?.stt ?? 'browser only'} />
-          <ActionRow label="TTS" value={safety?.voice?.tts ?? 'configuration dependent'} />
-          <ActionRow label="Barge-in" value="not active" />
+    <div className="edith-voice-room custom-scrollbar">
+      <div className="edith-voice-stars" />
+      <header className="edith-voice-header">
+        <div className="min-w-0">
+          <div className="edith-eyebrow">E.D.I.T.H. / Voice Room</div>
+          <h2 className="mt-2 text-xl font-semibold text-slate-100 sm:text-2xl">JARVIS conversation chamber</h2>
         </div>
-      </OSPanel>
-    </ScreenFrame>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <StatusPill label={liveStatusLabel} tone={liveStatusTone} />
+          <StatusPill label="Model" value={EDITH_VOICE_ROOM_MODEL} tone="info" />
+          {onBack && (
+            <button onClick={onBack} className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/35 hover:bg-cyan-300/10">
+              Back
+            </button>
+          )}
+        </div>
+      </header>
+
+      <section className="edith-voice-stage">
+        <div className="edith-voice-core-wrap" data-state={displayState}>
+          <div className="edith-voice-orbit edith-voice-orbit-one" />
+          <div className="edith-voice-orbit edith-voice-orbit-two" />
+          <div className="edith-voice-orbit edith-voice-orbit-three" />
+          <div className="edith-voice-wave edith-voice-wave-one" />
+          <div className="edith-voice-wave edith-voice-wave-two" />
+          <div className="edith-voice-core">
+            <div className="edith-voice-core-inner">
+              <Sparkles className="h-10 w-10 text-cyan-100 drop-shadow-[0_0_18px_rgba(103,232,249,0.95)]" />
+            </div>
+          </div>
+          <div className="edith-voice-particle edith-voice-particle-a" />
+          <div className="edith-voice-particle edith-voice-particle-b" />
+          <div className="edith-voice-particle edith-voice-particle-c" />
+        </div>
+
+        <div className="edith-voice-status-strip">
+          <StatusPill label={voiceRoomStateLabel[displayState]} tone={voiceRoomStateTone[displayState]} />
+          <StatusPill label="Assistant" value={EDITH_VOICE_ROOM_ASSISTANT} tone="muted" />
+          <StatusPill label="Mode" value={safety?.voice?.mode ?? 'PUSH_TO_TALK'} tone="muted" />
+        </div>
+      </section>
+
+      <section className="edith-voice-transcript">
+        <div className="edith-voice-transcript-line">
+          <span>You said</span>
+          <p>{partialTranscript || finalTranscript || 'Awaiting push-to-talk input. No wake word listener is active.'}</p>
+        </div>
+        <div className="edith-voice-transcript-line">
+          <span>JARVIS replied</span>
+          <p>{jarvisReply}</p>
+        </div>
+        {voiceError && (
+          <div className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+            {voiceError}
+          </div>
+        )}
+      </section>
+
+      <footer className="edith-voice-controls">
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            onClick={displayState === 'listening' ? stopListening : startListening}
+            className={cx(
+              'edith-voice-control-button',
+              displayState === 'listening' ? 'edith-voice-control-button-active' : ''
+            )}
+            title={micSupported ? 'Start or stop Gemini Live push-to-talk' : 'Microphone capture is unavailable in this runtime'}
+          >
+            {displayState === 'listening' ? <Square className="h-5 w-5" /> : <Mic2 className="h-5 w-5" />}
+            <span>{displayState === 'listening' ? 'Stop listening' : 'Start listening'}</span>
+          </button>
+          <button
+            onClick={() => setMuted((current) => !current)}
+            className="edith-voice-icon-button"
+            title={muted ? 'Unmute microphone controls' : 'Mute microphone controls'}
+          >
+            {muted ? <MicOff className="h-5 w-5" /> : <Mic2 className="h-5 w-5" />}
+          </button>
+          <button onClick={resetSession} className="edith-voice-icon-button" title="End and reset the local voice room session">
+            <RotateCcw className="h-5 w-5" />
+          </button>
+          <button onClick={interruptLiveSession} className="edith-voice-icon-button" title="Interrupt current Gemini Live audio playback">
+            {displayState === 'speaking' ? <Square className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+          </button>
+        </div>
+
+        <div className="edith-voice-meter" aria-label="Input meter">
+          {Array.from({ length: 20 }).map((_, index) => (
+            <span key={index} className={displayState === 'listening' && index < 12 ? 'edith-voice-meter-active' : ''} />
+          ))}
+        </div>
+
+        <div className="edith-voice-safety-grid">
+          <ActionRow label="Gemini Live" value={voiceCapabilities.liveConnectorBound ? 'backend connector bound' : 'backend connector not wired'} />
+          <ActionRow label="Wake word" value={safety?.voice?.wakeWord ?? 'Not enabled'} />
+          <ActionRow label="Barge-in" value={voiceCapabilities.bargeInEnabled ? 'Enabled' : 'Not enabled'} />
+          <ActionRow label="Audio output" value={audioChunkCount > 0 ? `${audioChunkCount} chunks / ${lastAudioMimeType}` : 'waiting'} />
+          <ActionRow label="API key exposure" value={voiceCapabilities.frontendCanReadApiKey ? 'Unsafe' : 'Frontend has no key access'} />
+        </div>
+
+        <div className="edith-voice-preview">
+          <span>Animation preview</span>
+          {previewStates.map((state) => (
+            <button key={state} onClick={() => setRoomState(state)} className={displayState === state ? 'active' : ''}>
+              {voiceRoomStateLabel[state]}
+            </button>
+          ))}
+          <span className="inline-flex items-center gap-1 text-amber-200"><WifiOff className="h-3.5 w-3.5" /> UI-only preview, not a live session</span>
+        </div>
+      </footer>
+    </div>
   );
 }
 

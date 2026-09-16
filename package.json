@@ -44,6 +44,7 @@
     "test:edith-obsidian-knowledge": "tsx scripts/test-edith-obsidian-knowledge.ts",
     "test:edith-awesome-agent-skills": "tsx scripts/test-edith-awesome-agent-skills.ts",
     "test:edith-interaction-safety": "tsx scripts/test-edith-interaction-safety.ts",
+    "test:edith-voice-room": "tsx scripts/test-edith-voice-room.ts",
     "test:edith-providers": "tsx scripts/test-edith-providers.ts",
     "smoke:gemini": "node scripts/test-gemini-key.mjs gemini-3.6-flash",
     "tauri:dev": "node scripts/tauri-dev-preflight.mjs",
@@ -59,6 +60,7 @@
     "@tauri-apps/api": "^2.5.0",
     "@tauri-apps/plugin-shell": "^2.2.0",
     "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -68,7 +70,8 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "three": "^0.185.1",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.5.0",
