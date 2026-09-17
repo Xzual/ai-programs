@@ -69,7 +69,12 @@ def main():
     print(f"Trading      : {'ENABLED' if CONFIG.CRYPTO_TRADING_ENABLED else 'DISABLED'}")
     print(f"Paper        : {'ENABLED' if CONFIG.PAPER_TRADING else 'DISABLED'}")
     print(f"Live         : {'ENABLED' if CONFIG.live_trading_active else 'DISABLED'}")
-    print(f"Dongu Suresi : {CONFIG.LOOP_INTERVAL_MINUTES} dakika")
+    loop_label = (
+        f"{CONFIG.LOOP_INTERVAL_MINUTES} dakika"
+        if CONFIG.LOOP_INTERVAL_MINUTES > 0
+        else f"SUREKLI demo izleme ({CONFIG.CONTINUOUS_LOOP_DELAY_SECONDS} sn guvenli bekleme)"
+    )
+    print(f"Demo Dongusu : {loop_label}")
     print(f"Izleme Lst.  : {', '.join(CONFIG.WATCHLIST)}")
     print(f"Dashboard    : http://localhost:5000")
     if CONFIG.OBSIDIAN_PATH_ERROR_CODE:

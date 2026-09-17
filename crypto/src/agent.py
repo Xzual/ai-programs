@@ -18,6 +18,7 @@ from llm_decision_engine import LLMDecisionEngine
 from result_analyzer import ResultAnalyzer
 from coin_permissions import CoinPermissionManager
 from obsidian_exporter import ObsidianMarketExporter
+from demo_portfolio import DemoPortfolioEngine
 
 # Setup logging — ensure log dir exists before FileHandler
 import os as _os
@@ -48,9 +49,22 @@ class CryptoAgent:
         self.llm = LLMDecisionEngine()
         self.analyzer = ResultAnalyzer(self.memory, self.llm)
         self.obsidian = ObsidianMarketExporter(enabled=self.permissions.get_observer_config().get("obsidianExportEnabled"))
+        self.demo_portfolio = DemoPortfolioEngine(CONFIG.DB_PATH)
         
         self.is_running = False
         self.llm_available = True
+
+    def _loop_wait_seconds(self):
+        interval_minutes = CONFIG.LOOP_INTERVAL_MINUTES
+        try:
+            settings = self.demo_portfolio.loop_settings()
+            interval_minutes = float(settings.get("intervalMinutes", interval_minutes))
+        except Exception as exc:
+            logger.warning("Could not read demo loop settings; using config default: %s", exc)
+
+        if interval_minutes > 0:
+            return max(int(interval_minutes * 60), 1), f"{interval_minutes:g} minutes"
+        return max(CONFIG.CONTINUOUS_LOOP_DELAY_SECONDS, 1), f"continuous demo loop ({CONFIG.CONTINUOUS_LOOP_DELAY_SECONDS}s safety delay)"
 
     def _fallback_market_observation(self, symbol, ta_results, reason):
         return {
@@ -297,16 +311,17 @@ class CryptoAgent:
                 runtime.set_state("OBSERVING")
 
         self._pause_wait = _pause_wait
-        logger.info(f"Agent started. Loop interval: {CONFIG.LOOP_INTERVAL_MINUTES} minutes.")
+        _, loop_label = self._loop_wait_seconds()
+        logger.info(f"Agent started. Loop interval: {loop_label}.")
         
         while self.is_running and not self._stop_requested():
             _pause_wait()
             if self._stop_requested():
                 break
             self.run_cycle()
-            logger.info(f"Sleeping for {CONFIG.LOOP_INTERVAL_MINUTES} minutes...")
-            total_seconds = int(CONFIG.LOOP_INTERVAL_MINUTES * 60)
-            for _ in range(max(total_seconds, 1)):
+            total_seconds, loop_label = self._loop_wait_seconds()
+            logger.info("Next cycle in %s seconds (%s).", total_seconds, loop_label)
+            for _ in range(total_seconds):
                 if self._stop_requested():
                     break
                 _pause_wait()

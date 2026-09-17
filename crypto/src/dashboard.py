@@ -12,12 +12,21 @@ from config import CONFIG
 from memory_manager import MemoryManager
 from risk_manager import RiskManager
 from coin_permissions import CoinPermissionManager
+from asset_modes import AssetModeManager
+from crypto_models import CryptoModelManager
+from demo_analysis import DemoAnalysisEngine
+from demo_portfolio import DemoPortfolioEngine
+from news_intelligence import enrich_news_rows
 from obsidian_exporter import ObsidianMarketExporter
 from runtime_controller import runtime_controller
 
 app = Flask(__name__, template_folder='../templates')
 memory = MemoryManager()
 permission_manager = CoinPermissionManager()
+asset_mode_manager = AssetModeManager()
+demo_portfolio = DemoPortfolioEngine()
+crypto_model_manager = CryptoModelManager()
+demo_analysis = DemoAnalysisEngine(demo_portfolio, asset_mode_manager, crypto_model_manager)
 risk_manager = RiskManager(permission_manager)
 obsidian_exporter = ObsidianMarketExporter(enabled=permission_manager.get_observer_config().get("obsidianExportEnabled"))
 
@@ -409,7 +418,178 @@ def api_obsidian_status():
 
 @app.route('/api/crypto/status')
 def api_crypto_status():
-    return jsonify(runtime_controller.status())
+    runtime_status = runtime_controller.status()
+    return jsonify({
+        **runtime_status,
+        "demoMode": True,
+        "demoTradingEnabled": True,
+        "demoInitialBalance": 100,
+        "realMoneyUsed": False,
+        "liveExecutionEnabled": False,
+        "paperTradingEnabled": False,
+        "safetyLabels": ["DEMO MODE", "REAL MONEY NOT USED", "NO LIVE EXECUTION", "PAPER / SIMULATION ONLY"],
+        "portfolio": demo_portfolio.summary(),
+        "demoLoop": demo_portfolio.loop_settings(),
+        "models": crypto_model_manager.public_status(),
+        "obsidian": obsidian_exporter.status(),
+    })
+
+
+def _recent_news_rows(limit: int = 80):
+    try:
+        conn = _db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM news_items ORDER BY id DESC LIMIT ?", (limit,))
+        rows = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return rows
+    except Exception:
+        return []
+
+
+@app.route('/api/crypto/portfolio')
+def api_crypto_portfolio():
+    return jsonify({"portfolio": demo_portfolio.summary(), "demoLoop": demo_portfolio.loop_settings()})
+
+
+@app.route('/api/crypto/demo-loop', methods=['GET', 'POST'])
+def api_crypto_demo_loop():
+    if request.method == 'GET':
+        return jsonify({"settings": demo_portfolio.loop_settings()})
+    payload = request.get_json(silent=True) or {}
+    result = demo_portfolio.update_loop_settings(
+        interval_minutes=payload.get("intervalMinutes"),
+        auto_execute_demo_trades=payload.get("autoExecuteDemoTrades"),
+    )
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route('/api/crypto/watchlist')
+def api_crypto_watchlist():
+    markets = {}
+    try:
+        conn = _db()
+        c = conn.cursor()
+        for row in asset_mode_manager.list_modes():
+            symbol = row["symbol"]
+            c.execute("SELECT * FROM market_snapshots WHERE symbol=? ORDER BY id DESC LIMIT 1", (symbol,))
+            snap = c.fetchone()
+            if snap:
+                ta = json.loads(snap["ta_data"] or "{}")
+                markets[symbol] = {
+                    "price": snap["price"],
+                    "trend": ta.get("trend"),
+                    "confidence": 0.0,
+                    "signal": "WATCH",
+                    "sentiment": "unknown",
+                    "lastAnalyzed": snap["timestamp"],
+                }
+            else:
+                markets[symbol] = {
+                    "price": None,
+                    "trend": "unavailable",
+                    "confidence": 0.0,
+                    "signal": "NO_DATA",
+                    "sentiment": "unknown",
+                    "lastAnalyzed": None,
+                }
+        conn.close()
+    except Exception as exc:
+        return jsonify({"watchlist": asset_mode_manager.list_modes(), "error": str(exc)})
+
+    watchlist = []
+    for row in asset_mode_manager.list_modes():
+        watchlist.append({**row, **markets.get(row["symbol"], {})})
+    return jsonify({
+        "watchlist": watchlist,
+        "assetModes": asset_mode_manager.public_summary(),
+        "liveTradingAllowedSymbols": [],
+    })
+
+
+@app.route('/api/crypto/news')
+def api_crypto_news():
+    return jsonify(enrich_news_rows(_recent_news_rows()))
+
+
+@app.route('/api/crypto/trades')
+def api_crypto_trades():
+    return jsonify({"trades": demo_portfolio.trades(), "mode": "DEMO", "realOrderSent": False})
+
+
+@app.route('/api/crypto/decisions')
+def api_crypto_demo_decisions():
+    return jsonify({"decisions": demo_portfolio.decisions(), "mode": "DEMO"})
+
+
+@app.route('/api/crypto/lessons')
+def api_crypto_lessons():
+    return jsonify({
+        "lessons": demo_portfolio.lessons(),
+        "mode": "DEMO_TRADE_LESSONS",
+        "source": "demo_trades_only",
+        "message": "Lessons are recorded only when a simulated demo trade is executed or closed.",
+    })
+
+
+@app.route('/api/crypto/models')
+def api_crypto_models():
+    return jsonify(crypto_model_manager.public_status())
+
+
+@app.route('/api/crypto/obsidian/status')
+def api_crypto_obsidian_status_v2():
+    status = obsidian_exporter.status()
+    return jsonify({
+        **status,
+        "cryptoGraphFolder": "Trading/Crypto",
+        "marketLearningFolder": status.get("folder"),
+        "lastNote": None,
+    })
+
+
+@app.route('/api/crypto/analyze', methods=['POST'])
+def api_crypto_analyze():
+    payload = request.get_json(silent=True) or {}
+    raw_symbols = payload.get("symbols")
+    if isinstance(raw_symbols, str):
+        symbols = [raw_symbols]
+    elif isinstance(raw_symbols, list):
+        symbols = [str(item) for item in raw_symbols]
+    else:
+        symbols = [str(payload.get("symbol") or "BTC/USDT")]
+    result = demo_analysis.analyze(symbols=symbols, news_rows=_recent_news_rows())
+    export_results = []
+    for decision in result.get("results", []):
+        export_results.append(obsidian_exporter.export_demo_decision(decision, result.get("portfolio") or {}))
+    result["obsidianExports"] = export_results
+    return jsonify(result)
+
+
+@app.route('/api/crypto/demo-trade', methods=['POST'])
+def api_crypto_demo_trade():
+    payload = request.get_json(silent=True) or {}
+    decision_id = payload.get("decisionId") or payload.get("decision_id")
+    try:
+        result = demo_portfolio.execute_decision(int(decision_id))
+    except Exception as exc:
+        result = {"ok": False, "error": "INVALID_DECISION_ID", "detail": str(exc)}
+    status_code = 200 if result.get("ok") else 409
+    return jsonify({**result, "liveExecutionEnabled": False, "realOrderSent": False}), status_code
+
+
+@app.route('/api/crypto/watchlist/update', methods=['POST'])
+def api_crypto_watchlist_update():
+    payload = request.get_json(silent=True) or {}
+    result = asset_mode_manager.update_mode(payload.get("symbol"), payload.get("mode"))
+    return jsonify(result), 200 if result.get("ok") else 400
+
+
+@app.route('/api/crypto/model/select', methods=['POST'])
+def api_crypto_model_select():
+    payload = request.get_json(silent=True) or {}
+    result = crypto_model_manager.select_model(payload.get("role"), payload.get("model"))
+    return jsonify(result), 200 if result.get("ok") else 400
 
 
 @app.route('/api/crypto/start-observer', methods=['POST'])

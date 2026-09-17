@@ -1,0 +1,13 @@
+{
+  "defaultMode": "WATCH_ONLY",
+  "symbols": {
+    "BTC/USDT": "ANALYZE_ONLY",
+    "ETH/USDT": "ANALYZE_ONLY",
+    "SOL/USDT": "ANALYZE_ONLY",
+    "BNB/USDT": "ANALYZE_ONLY",
+    "XRP/USDT": "ANALYZE_ONLY",
+    "DOGE/USDT": "WATCH_ONLY",
+    "ADA/USDT": "ANALYZE_ONLY",
+    "AVAX/USDT": "ANALYZE_ONLY"
+  }
+}

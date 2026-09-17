@@ -1614,6 +1614,9 @@ type CryptoServiceStatus = {
   overview?: Record<string, any>;
   health?: Record<string, any>;
   obsidian?: Record<string, any>;
+  portfolio?: Record<string, any>;
+  models?: Record<string, any>;
+  demoLoop?: Record<string, any>;
   runtime?: {
     state?: string;
     observerRunning?: boolean;
@@ -1670,24 +1673,19 @@ const SAFE_SYMBOL_PERMISSIONS: CryptoSymbolPermission[] = [
 ];
 
 const SAFE_CATEGORY_RULES = [
-  ['Majors', 'Watch enabled', 'Paper trading disabled', 'Live locked'],
-  ['Meme', 'Watch enabled', 'Decision disabled', 'Paper blocked, approval required'],
-  ['Stablecoins', 'Watch only', 'Trading blocked', 'Live locked'],
-] as const;
-
-const SAFE_DECISIONS = [
-  { symbol: 'BTC/USDT', decision: 'HOLD', provider: 'backend not connected', confidence: '-', riskResult: 'Pending', reason: 'No connected decision feed. Safe placeholder only.' },
-  { symbol: 'DOGE/USDT', decision: 'SKIPPED', provider: 'backend not connected', confidence: '-', riskResult: 'Rejected', reason: 'WATCH_ONLY / DECISION_DISABLED' },
+  ['Majors', 'İzleme açık', 'Demo analiz açık', 'Canlı kilitli'],
+  ['Meme', 'İzleme açık', 'Karar kapalı', 'Demo işlem kapalı, onay gerekir'],
+  ['Stablecoins', 'Sadece izleme', 'İşlem kapalı', 'Canlı kilitli'],
 ] as const;
 
 const SAFE_OBSERVATIONS: MarketObservation[] = [
-  { title: 'Market radar standing by', detail: 'Observer service is offline, so no live market observations are being displayed.', signal: 'PLACEHOLDER', source: 'safe-ui' },
-  { title: 'Execution layer locked', detail: 'No order actions are exposed in this cockpit. Live trading remains disabled.', signal: 'SAFETY', source: 'safe-ui' },
-  { title: 'Learning stream paused', detail: 'Start the crypto observer service to sync fresh notes into the Obsidian learning path.', signal: 'PENDING', source: 'safe-ui' },
+  { title: 'Piyasa radarı beklemede', detail: 'Observer servisi kapalı; canlı piyasa gözlemi gösterilmiyor.', signal: 'BEKLEME', source: 'safe-ui' },
+  { title: 'Emir katmanı kilitli', detail: 'Bu kokpitte gerçek emir aksiyonu yok. Canlı trading kapalıdır.', signal: 'GÜVENLİK', source: 'safe-ui' },
+  { title: 'Demo trade bekleniyor', detail: 'Ders kaydı sadece simüle demo işlem açılıp/kapanınca oluşur.', signal: 'BEKLİYOR', source: 'safe-ui' },
 ];
 
 const SAFE_LEARNING_NOTES: LearningNote[] = [
-  { title: 'Vault connected, no recent notes yet', detail: 'Learning folder: Trading/Crypto Market Learning' },
+  { title: 'Henüz demo işlem dersi yok', detail: 'E.D.I.T.H. ayrı öğrenme yapmaz; sadece demo trade geçmişinden ders çıkarır.' },
 ];
 
 async function optionalCryptoEndpoint(path: string): Promise<Record<string, any> | undefined> {
@@ -1704,12 +1702,12 @@ function asArray(value: unknown): any[] {
   return Array.isArray(value) ? value : [];
 }
 
-function money(value: unknown, fallback = 'not connected'): string {
+function money(value: unknown, fallback = 'bağlı değil'): string {
   if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDT`;
 }
 
-function pct(value: unknown, fallback = 'not connected'): string {
+function pct(value: unknown, fallback = 'bağlı değil'): string {
   if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
   return `${value.toFixed(2)}%`;
 }
@@ -1753,7 +1751,12 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const [cryptoData, setCryptoData] = React.useState<Record<string, any>>({});
   const [loading, setLoading] = React.useState(false);
   const [observerAction, setObserverAction] = React.useState<'start' | 'stop' | null>(null);
+  const [cryptoAction, setCryptoAction] = React.useState<'analyze' | 'trade' | 'model' | null>(null);
+  const [analysisSymbol, setAnalysisSymbol] = React.useState('BTC/USDT');
+  const [selectedCryptoModel, setSelectedCryptoModel] = React.useState('');
+  const [demoLoopMinutes, setDemoLoopMinutes] = React.useState('0');
   const [actionError, setActionError] = React.useState<string | null>(null);
+  const [cryptoError, setCryptoError] = React.useState<string | null>(null);
   const [lastCheckedAt, setLastCheckedAt] = React.useState<Date | null>(null);
   const financeTools = tools.filter((tool) => tool.category === 'finance' || tool.permissions.includes('trading:execute'));
   const financeIntegrations = integrations.filter((integration) => integration.id.includes('finance') || integration.id.includes('trading') || integration.id.includes('binance'));
@@ -1781,6 +1784,15 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
           observations,
           learningNotes,
           obsidianStatus,
+          demoPortfolio,
+          cryptoWatchlist,
+          cryptoNews,
+          demoTrades,
+          demoDecisions,
+          cryptoLessons,
+          cryptoModels,
+          cryptoGraphStatus,
+          demoLoop,
         ] = await Promise.all([
           optionalCryptoEndpoint('/api/permissions'),
           optionalCryptoEndpoint('/api/symbols'),
@@ -1796,8 +1808,20 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
           optionalCryptoEndpoint('/api/observations'),
           optionalCryptoEndpoint('/api/learning-notes'),
           optionalCryptoEndpoint('/api/obsidian-status'),
+          optionalCryptoEndpoint('/api/crypto/portfolio'),
+          optionalCryptoEndpoint('/api/crypto/watchlist'),
+          optionalCryptoEndpoint('/api/crypto/news'),
+          optionalCryptoEndpoint('/api/crypto/trades'),
+          optionalCryptoEndpoint('/api/crypto/decisions'),
+          optionalCryptoEndpoint('/api/crypto/lessons'),
+          optionalCryptoEndpoint('/api/crypto/models'),
+          optionalCryptoEndpoint('/api/crypto/obsidian/status'),
+          optionalCryptoEndpoint('/api/crypto/demo-loop'),
         ]);
-        nextData = { permissions, symbols, categories, watchlist, risk, mode, overview, trades, decisions, markets, analysis, observations, learningNotes, obsidianStatus };
+        nextData = {
+          permissions, symbols, categories, watchlist, risk, mode, overview, trades, decisions, markets, analysis, observations, learningNotes, obsidianStatus,
+          demoPortfolio, cryptoWatchlist, cryptoNews, demoTrades, demoDecisions, cryptoLessons, cryptoModels, cryptoGraphStatus, demoLoop,
+        };
       }
       setServiceStatus(status ?? {
         healthy: false,
@@ -1815,6 +1839,70 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   React.useEffect(() => {
     void loadCryptoCockpit();
   }, [loadCryptoCockpit]);
+
+  const runCryptoAnalyze = React.useCallback(async () => {
+    setCryptoAction('analyze');
+    setCryptoError(null);
+    try {
+      const response = await fetch('/api/crypto/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbols: [analysisSymbol] }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data?.ok) {
+        throw new Error(String(data?.error ?? `Analysis failed with ${response.status}`));
+      }
+      await loadCryptoCockpit();
+    } catch (error) {
+      setCryptoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCryptoAction(null);
+    }
+  }, [analysisSymbol, loadCryptoCockpit]);
+
+  const selectCryptoModel = React.useCallback(async () => {
+    if (!selectedCryptoModel) return;
+    setCryptoAction('model');
+    setCryptoError(null);
+    try {
+      const response = await fetch('/api/crypto/model/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'primary', model: selectedCryptoModel }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data?.ok) {
+        throw new Error(String(data?.error ?? `Model select failed with ${response.status}`));
+      }
+      await loadCryptoCockpit();
+    } catch (error) {
+      setCryptoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCryptoAction(null);
+    }
+  }, [selectedCryptoModel, loadCryptoCockpit]);
+
+  const updateDemoLoop = React.useCallback(async () => {
+    setCryptoAction('model');
+    setCryptoError(null);
+    try {
+      const response = await fetch('/api/crypto/demo-loop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ intervalMinutes: Number(demoLoopMinutes || 0), autoExecuteDemoTrades: false }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data?.ok) {
+        throw new Error(String(data?.error ?? `Demo döngüsü güncellenemedi: ${response.status}`));
+      }
+      await loadCryptoCockpit();
+    } catch (error) {
+      setCryptoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCryptoAction(null);
+    }
+  }, [demoLoopMinutes, loadCryptoCockpit]);
 
   const runObserverAction = React.useCallback(async (action: 'start' | 'stop') => {
     setObserverAction(action);
@@ -1839,14 +1927,15 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   }, [loadCryptoCockpit]);
 
   const overview = cryptoData.overview ?? serviceStatus?.overview ?? {};
-  const portfolio = overview.portfolio ?? {};
-  const performance = overview.performance ?? {};
+  const demoPortfolio = cryptoData.demoPortfolio?.portfolio ?? serviceStatus?.portfolio ?? {};
+  const demoLoop = cryptoData.demoLoop?.settings ?? cryptoData.demoPortfolio?.demoLoop ?? serviceStatus?.demoLoop ?? {};
+  const portfolio = demoPortfolio.currentEquity !== undefined ? demoPortfolio : (overview.portfolio ?? {});
   const endpointConnected = Object.values(cryptoData).some(Boolean);
   const serviceOnline = Boolean(serviceStatus?.healthy);
   const runtime = serviceStatus?.runtime;
   const runtimeMeta = runtime as Record<string, any> | undefined;
   const serviceObsidianStatus = serviceStatus?.obsidian ?? (serviceStatus?.health?.obsidian as Record<string, any> | undefined);
-  const obsidianStatus = cryptoData.obsidianStatus ?? serviceObsidianStatus ?? {};
+  const obsidianStatus = cryptoData.cryptoGraphStatus ?? cryptoData.obsidianStatus ?? serviceObsidianStatus ?? {};
   const canonicalObsidianStatus = serviceObsidianStatus ?? {};
   const observerState = observerStateFromRuntime(runtime, serviceOnline, observerAction, Boolean(actionError));
   const observerRunning = observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'PAUSED';
@@ -1856,6 +1945,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
   const canStartObserver = (!serviceOnline || observerState === 'STOPPED' || observerState === 'PAUSED') && !observerAction;
   const canStopObserver = serviceOnline && ['OBSERVING', 'STARTING', 'PAUSED'].includes(observerState) && !observerAction;
   const marketOnline = Boolean(runtime?.marketDataAvailable ?? cryptoData.markets?.online ?? cryptoData.markets?.available ?? cryptoData.overview?.marketDataOnline ?? false);
+  const cryptoWatchlistRows = asArray(cryptoData.cryptoWatchlist?.watchlist);
   const symbolsFromBackend = asArray(cryptoData.symbols?.symbols ?? cryptoData.watchlist?.symbols ?? cryptoData.permissions?.symbols);
   const symbolRows: CryptoSymbolPermission[] = symbolsFromBackend.length
     ? symbolsFromBackend.map((item) => ({
@@ -1869,43 +1959,86 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
         approvalRequired: Boolean(item.approvalRequired ?? item.requiresApproval),
       }))
     : SAFE_SYMBOL_PERMISSIONS;
-  const decisions = asArray(cryptoData.decisions?.decisions ?? cryptoData.analysis?.decisions);
-  const trades = asArray(cryptoData.trades?.trades ?? overview.trades);
-  const openPositions = asArray(portfolio.positions);
+  const decisions = asArray(cryptoData.demoDecisions?.decisions ?? cryptoData.decisions?.decisions ?? cryptoData.analysis?.decisions);
+  const trades = asArray(cryptoData.demoTrades?.trades ?? cryptoData.trades?.trades ?? overview.trades);
+  const openPositions = asArray(demoPortfolio.openPositions ?? portfolio.positions);
+  const newsItems = asArray(cryptoData.cryptoNews?.items);
+  const cryptoLessons = asArray(cryptoData.cryptoLessons?.lessons);
+  const cryptoModels = cryptoData.cryptoModels ?? serviceStatus?.models ?? {};
+  const availableCryptoModels = asArray(cryptoModels.models).map(String);
+  const selectedModel = String(cryptoModels.selected?.primary ?? runtimeMeta?.currentModel ?? runtimeMeta?.model ?? cryptoData.mode?.model ?? 'not reported');
   const risk = cryptoData.risk ?? {};
   const modeLabel = String(serviceStatus?.health?.mode ?? runtime?.mode ?? cryptoData.mode?.trading_mode ?? cryptoData.mode?.mode ?? overview.mode ?? 'OBSERVER_ONLY').replaceAll('_', ' ').toUpperCase();
   const paperTradingEnabled = false;
   const observations = asArray(cryptoData.observations?.observations ?? cryptoData.analysis?.observations);
-  const learningNotes = asArray(cryptoData.learningNotes?.notes ?? cryptoData.obsidianStatus?.notes ?? cryptoData.obsidianStatus?.recentNotes);
   const serviceUrl = serviceStatus?.dashboardUrl ?? 'http://localhost:5000';
   const lastChecked = lastCheckedAt ? lastCheckedAt.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'pending';
   const startupCommand = 'npm run crypto:observer';
   const watchedSymbols = Array.isArray(runtime?.watchedSymbols) ? runtime.watchedSymbols : symbolRows.filter((symbol) => symbol.watch).map((symbol) => symbol.symbol);
   const ignoredSymbols = symbolRows.filter((symbol) => !symbol.watch || symbol.approvalRequired).map((symbol) => symbol.symbol);
-  const lastLearningNote = learningNotes[0]?.title ?? learningNotes[0]?.path ?? (obsidianReady ? 'vault connected, no recent notes yet' : 'not connected');
-  const portfolioDataLabel = serviceOnline ? 'PAPER DISABLED' : 'STALE / DEMO MEMORY';
+  const tradeLessonNotes = cryptoLessons;
+  const lastLearningNote = tradeLessonNotes[0]?.title ?? (obsidianReady ? 'demo trade dersi bekleniyor' : 'bağlı değil');
+  const portfolioDataLabel = serviceOnline ? '100 USD DEMO MODU' : 'DEMO SERVİSİ KAPALI';
+  const lastDecision = decisions[0];
+  const demoOverview = {
+    ...overview,
+    stats: {
+      ...(overview.stats ?? {}),
+      total_trades: demoPortfolio.numberOfTrades ?? 0,
+    },
+    portfolio: demoPortfolio,
+  };
+  const hasPortfolioData = Boolean(
+    demoPortfolio.initialBalance !== undefined
+      || demoPortfolio.currentEquity !== undefined
+      || demoPortfolio.currentCash !== undefined
+      || demoPortfolio.numberOfTrades !== undefined
+      || trades.length
+  );
+  const modelIsWorking = cryptoAction === 'analyze' || observerState === 'OBSERVING' || observerState === 'STARTING';
+  const newsOnline = newsItems.length > 0;
+  const safeWatchlistFallback = !cryptoWatchlistRows.length && !cryptoData.symbols && !cryptoData.watchlist;
+  const totalDemoTrades = Number(demoPortfolio.numberOfTrades ?? trades.length ?? 0);
+  const closedDemoTrades = asArray(demoPortfolio.closedTrades).length;
+  const noTradeCount = Number(
+    demoPortfolio.numberOfNoTradeDecisions
+      ?? decisions.filter((decision: any) => String(decision.decision ?? decision.action ?? '').toUpperCase().includes('NO')).length
+      ?? 0
+  );
+  const bestDecision = demoPortfolio.bestDecision ?? demoPortfolio.best_decision ?? overview?.stats?.bestDecision ?? overview?.stats?.best_decision;
+  const worstDecision = demoPortfolio.worstDecision ?? demoPortfolio.worst_decision ?? overview?.stats?.worstDecision ?? overview?.stats?.worst_decision;
+  const strongestLesson = tradeLessonNotes[0]?.title ?? demoPortfolio.strongestLesson ?? demoPortfolio.strongest_lesson;
+  const marketImpactSummary = cryptoData.news?.marketImpact ?? cryptoData.news?.impactSummary ?? {};
+
+  React.useEffect(() => {
+    if (demoLoop.intervalMinutes !== undefined && !Number.isNaN(Number(demoLoop.intervalMinutes))) {
+      setDemoLoopMinutes(String(demoLoop.intervalMinutes));
+    }
+  }, [demoLoop.intervalMinutes]);
 
   return (
     <div className="edith-workspace edith-responsive-pad overflow-y-auto bg-[#05070b] custom-scrollbar">
-      <div className="edith-responsive-container-cockpit space-y-4">
-        <section className="relative overflow-hidden rounded-lg border border-cyan-300/18 bg-[radial-gradient(circle_at_18%_0%,rgba(14,165,233,0.17),transparent_34%),linear-gradient(135deg,rgba(8,13,23,0.96),rgba(2,6,12,0.98))] p-4 shadow-[0_0_42px_rgba(14,165,233,0.12)]">
+      <div className="edith-responsive-container-cockpit edith-crypto-cockpit space-y-4">
+        <section className="edith-crypto-hero edith-crypto-panel-reveal relative overflow-hidden rounded-lg border border-cyan-300/18 bg-[radial-gradient(circle_at_18%_0%,rgba(14,165,233,0.17),transparent_34%),linear-gradient(135deg,rgba(8,13,23,0.96),rgba(2,6,12,0.98))] p-4 shadow-[0_0_42px_rgba(14,165,233,0.12)]">
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/70 to-transparent" />
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_clamp(22rem,22vw,30rem)]">
             <div className="min-w-0">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <StatusPill label="CRYPTO OBSERVER MODE" tone={serviceOnline ? 'success' : 'warning'} value={serviceOnline ? 'SERVICE READY' : 'OFFLINE'} />
-                <StatusPill label={`OBSERVER ${observerState}`} tone={observerTone(observerState)} />
-                {!ollamaOnline && serviceOnline && <StatusPill label="AI DEPENDENCY OFFLINE" tone="warning" />}
-                <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
-                <StatusPill label="EXECUTION NO ACTION" tone="danger" />
-                <StatusPill label="PAPER TRADING DISABLED" tone="muted" />
-              </div>
+              <CryptoStatusBar
+                serviceOnline={serviceOnline}
+                marketOnline={marketOnline}
+                newsOnline={newsOnline}
+                ollamaOnline={ollamaOnline}
+                obsidianReady={obsidianReady}
+                selectedModel={selectedModel}
+                demoLoopLabel={demoLoop.label ?? (Number(demoLoop.intervalMinutes ?? 0) <= 0 ? 'SÜREKLİ' : `${demoLoop.intervalMinutes} DK`)}
+                lastAnalysisTime={displayTime(runtime?.lastAnalysisAt ?? lastDecision?.timestamp ?? runtime?.lastObservationAt)}
+              />
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                  <div className="edith-eyebrow">E.D.I.T.H. / MARKET INTELLIGENCE</div>
-                  <h1 className="mt-1 text-2xl font-semibold tracking-[0.16em] text-slate-100 sm:text-3xl">CRYPTO INTELLIGENCE COCKPIT</h1>
+                  <div className="edith-eyebrow">E.D.I.T.H. / KRİPTO ZEKA PANELİ</div>
+                  <h1 className="mt-1 text-2xl font-semibold tracking-[0.16em] text-slate-100 sm:text-3xl">DEMO TRADING KOKPİTİ</h1>
                   <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
-                    Read-only market awareness, permission visibility, risk veto state and learning sync. This screen never exposes secrets and never places orders.
+                    Modelin piyasada neye baktığını, neden işlem yapıp yapmadığını ve 100 USD sanal portföyün durumunu gösterir. Canlı Binance emri ve gerçek para kullanımı kapalıdır.
                   </p>
                 </div>
                 <button
@@ -1914,66 +2047,66 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                   className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-300/15"
                 >
                   <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                  Refresh Cockpit
+                  Yenile
                 </button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <CryptoMetric label="Mode" value={modeLabel.includes('OBSERVER') ? 'OBSERVER_ONLY' : modeLabel} tone="cyan" />
-              <CryptoMetric label="Service" value={serviceOnline ? 'ONLINE' : 'OFFLINE'} tone={serviceOnline ? 'green' : 'amber'} />
-              <CryptoMetric label="Observer" value={observerState} tone={observerState === 'OBSERVING' ? 'green' : observerState === 'ERROR' ? 'amber' : 'slate'} />
-              <CryptoMetric label="AI Dependency" value={ollamaOnline ? 'ONLINE' : 'OFFLINE'} tone={ollamaOnline ? 'green' : 'amber'} />
-              <CryptoMetric label="Market Data" value={marketOnline ? 'AVAILABLE' : 'STANDBY'} tone={marketOnline ? 'green' : 'amber'} />
-              <CryptoMetric label="Last Check" value={lastChecked} tone="slate" />
+              <CryptoAnimatedMetric label="Mod" value={modeLabel.includes('OBSERVER') ? 'DEMO / İZLEME' : modeLabel} tone="cyan" />
+              <CryptoAnimatedMetric label="Başlangıç" value="100 USD" tone="green" />
+              <CryptoAnimatedMetric label="Servis" value={serviceOnline ? 'AÇIK' : 'KAPALI'} tone={serviceOnline ? 'green' : 'amber'} />
+              <CryptoAnimatedMetric label="Döngü" value={demoLoop.label ?? 'SÜREKLİ'} tone="cyan" />
+              <CryptoAnimatedMetric label="Ollama" value={ollamaOnline ? selectedModel : 'KAPALI'} tone={ollamaOnline ? 'green' : 'amber'} />
+              <CryptoAnimatedMetric label="Piyasa Verisi" value={marketOnline ? 'AKTİF' : 'BEKLİYOR'} tone={marketOnline ? 'green' : 'amber'} />
             </div>
           </div>
         </section>
 
-        <CryptoPanel title="CRYPTO OBSERVER CONTROL" eyebrow="MISSION CONTROL / FRONTEND SAFE" icon={<RadioTower className="h-4 w-4" />}>
+        <CryptoPanel title="Demo Döngü Kontrolü" eyebrow="GÜVENLİ SİMÜLASYON / CANLI EMİR YOK" icon={<RadioTower className="h-4 w-4" />}>
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_auto]">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <ControlReadout label="Status" value={observerState} tone={observerTone(observerState)} pulse={observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'STOPPING'} />
-              <ControlReadout label="Mode" value="OBSERVER_ONLY" tone="info" />
-              <ControlReadout label="Safety" value="ORDER EXECUTION BLOCKED" tone="danger" />
+              <ControlReadout label="Durum" value={observerState === 'OBSERVING' ? 'ÇALIŞIYOR' : observerState} tone={observerTone(observerState)} pulse={observerState === 'OBSERVING' || observerState === 'STARTING' || observerState === 'STOPPING'} />
+              <ControlReadout label="Demo Döngü" value={demoLoop.label ?? 'SÜREKLİ'} tone="info" />
+              <ControlReadout label="Güvenlik" value="CANLI EMİR KAPALI" tone="danger" />
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
               <button
                 type="button"
                 onClick={() => void runObserverAction('start')}
                 disabled={!canStartObserver}
-                title={!serviceOnline ? 'Start the safe crypto service, then request observer mode. Trading remains locked.' : !ollamaOnline ? 'AI dependency is offline; crypto service can still be online.' : canStartObserver ? 'Start observer loop only; trading remains locked.' : 'Start is available only when observer is stopped or paused.'}
+                title={!serviceOnline ? 'Önce güvenli crypto servisini başlat; canlı işlem yine kilitli kalır.' : !ollamaOnline ? 'Ollama kapalı; servis yine durum raporlayabilir.' : canStartObserver ? 'Demo observer döngüsünü başlatır; gerçek emir göndermez.' : 'Başlatma sadece döngü durduğunda kullanılabilir.'}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Play className={`h-3.5 w-3.5 ${observerAction === 'start' ? 'animate-pulse' : ''}`} />
-                Start Market Observer
+                Demo Döngüyü Başlat
               </button>
               <button
                 type="button"
                 onClick={() => void runObserverAction('stop')}
                 disabled={!canStopObserver}
-                title={canStopObserver ? 'Stop observer loop; no destructive action.' : 'Stop is available only while observer is running, starting, or paused.'}
+                title={canStopObserver ? 'Demo observer döngüsünü durdurur; yıkıcı işlem yapmaz.' : 'Durdurma sadece döngü çalışırken kullanılabilir.'}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-red-300/30 bg-red-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-red-100 transition hover:bg-red-300/15 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Square className={`h-3.5 w-3.5 ${observerAction === 'stop' ? 'animate-pulse' : ''}`} />
-                Stop Observer
+                Döngüyü Durdur
               </button>
               <button
                 type="button"
                 disabled={!pauseResumeSupported || observerState !== 'OBSERVING'}
-                title={pauseResumeSupported ? 'Pause observer loop.' : 'Pause endpoint is not exposed by the backend yet.'}
+                title={pauseResumeSupported ? 'Demo observer döngüsünü geçici duraklat.' : 'Duraklatma endpointi henüz bağlı değil.'}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 transition hover:border-amber-300/35 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Pause className="h-3.5 w-3.5" />
-                Pause
+                Duraklat
               </button>
               <button
                 type="button"
                 disabled={!pauseResumeSupported || observerState !== 'PAUSED'}
-                title={pauseResumeSupported ? 'Resume observer loop.' : 'Resume endpoint is not exposed by the backend yet.'}
+                title={pauseResumeSupported ? 'Demo observer döngüsünü sürdür.' : 'Sürdürme endpointi henüz bağlı değil.'}
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-300 transition hover:border-cyan-300/35 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Play className="h-3.5 w-3.5" />
-                Resume
+                Sürdür
               </button>
               <button
                 type="button"
@@ -1981,24 +2114,24 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-300/15"
               >
                 <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                Refresh Status
+                Durumu Yenile
               </button>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
-            <ActionRow label="Live trading" value="LOCKED" />
-            <ActionRow label="Paper trading" value="DISABLED" />
-            <ActionRow label="Order execution" value="BLOCKED" />
+            <ActionRow label="Canlı trading" value="KİLİTLİ" />
+            <ActionRow label="Demo trading" value="100 USD SANAL" />
+            <ActionRow label="Gerçek emir" value="YOK" />
           </div>
           <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
             {!ollamaOnline && (
               <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
-                AI dependency offline. Crypto service status is tracked separately.
+                Ollama kapalı. Crypto servisi yine açık/kapalı durumunu dürüst şekilde raporlar.
               </div>
             )}
             {!obsidianReady && (
               <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
-                Obsidian export is not configured.
+                Obsidian bağlantısı hazır değil veya yazılabilir değil.
               </div>
             )}
             {actionError && (
@@ -2017,21 +2150,21 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                   <AlertTriangle className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="text-lg font-semibold text-amber-100">Crypto Service Offline</div>
+                  <div className="text-lg font-semibold text-amber-100">Crypto Servisi Kapalı</div>
                   <p className="mt-1 max-w-3xl text-sm leading-relaxed text-amber-100/78">
-                    Observer service is not running, so live market feeds and learning notes are paused. Start Market Observer keeps all trading execution locked.
+                    Observer servisi çalışmadığı için gerçek piyasa akışı ve öğrenme notları durakladı. Demo döngüyü başlatmak canlı emir kilidini açmaz.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <StatusPill label="Observer stopped" tone="muted" />
-                    <StatusPill label="Live trading locked" tone="danger" />
-                    <StatusPill label="Paper trading disabled" tone="muted" />
-                    <StatusPill label="No decisions executed" tone="danger" />
+                    <StatusPill label="Observer durdu" tone="muted" />
+                    <StatusPill label="Canlı trading kilitli" tone="danger" />
+                    <StatusPill label="Demo portföy 100 USD" tone="info" />
+                    <StatusPill label="Gerçek emir yok" tone="danger" />
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
-                    <ActionRow label="Startup command" value={startupCommand} />
-                    <ActionRow label="Fallback command" value="python crypto/run_agent.py" />
-                    <ActionRow label="Expected service URL" value={serviceUrl} />
-                    <ActionRow label="Last checked" value={lastChecked} />
+                    <ActionRow label="Başlatma komutu" value={startupCommand} />
+                    <ActionRow label="Alternatif komut" value="python crypto/run_agent.py" />
+                    <ActionRow label="Beklenen servis URL" value={serviceUrl} />
+                    <ActionRow label="Son kontrol" value={lastChecked} />
                   </div>
                   {serviceStatus?.error && <p className="mt-3 font-mono text-[11px] text-amber-100/70">{serviceStatus.error}</p>}
                 </div>
@@ -2042,16 +2175,135 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                 className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-amber-100 transition hover:bg-amber-300/15"
               >
                 <Activity className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
-                Retry
+                Tekrar Dene
               </button>
             </div>
           </section>
         )}
 
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(22rem,0.8fr)]">
+          <CryptoPanel title="Demo Portfolio Overview" eyebrow={hasPortfolioData ? '100 USD SANAL BAŞLANGIÇ / GERÇEK PARA YOK' : 'VERİ BEKLENİYOR / SAFE EMPTY STATE'} icon={<TrendingUp className="h-4 w-4" />}>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <StatusPill label="DEMO MOD" tone="info" />
+              <StatusPill label="STARTING CAPITAL 100 USD" tone="info" />
+              <StatusPill label="GERÇEK PARA YOK" tone="success" />
+              <StatusPill label="CANLI EMİR YOK" tone="danger" />
+              <StatusPill label="SANAL PORTFÖY" tone="muted" />
+            </div>
+            {hasPortfolioData ? (
+              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                <CryptoAnimatedMetric label="Başlangıç" value={`${Number(demoPortfolio.initialBalance ?? 100).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD`} tone="slate" />
+                <CryptoAnimatedMetric label="Nakit" value={money(demoPortfolio.currentCash ?? 100)} tone="cyan" />
+                <CryptoAnimatedMetric label="Varlık" value={money(demoPortfolio.currentEquity ?? 100)} tone="green" />
+                <CryptoAnimatedMetric label="Pozisyon" value={pct(demoPortfolio.currentExposurePct ?? 0)} tone="amber" />
+                <CryptoAnimatedMetric label="Demo Net K/Z" value={money(demoPortfolio.realizedPnl ?? 0)} tone={(demoPortfolio.realizedPnl ?? 0) >= 0 ? 'green' : 'amber'} />
+                <CryptoAnimatedMetric label="Açık Demo K/Z" value={money(demoPortfolio.unrealizedPnl ?? 0)} tone={(demoPortfolio.unrealizedPnl ?? 0) >= 0 ? 'green' : 'amber'} />
+                <CryptoAnimatedMetric label="Win Rate" value={pct(demoPortfolio.winRate ?? 0)} tone="cyan" />
+                <CryptoAnimatedMetric label="NO TRADE" value={String(noTradeCount)} tone="slate" />
+              </div>
+            ) : (
+              <CryptoEmptyState
+                title="No demo portfolio data yet"
+                text="E.D.I.T.H. 100 USD demo başlangıcını güvenlik etiketi olarak koruyor; backend portföy verisi gelmeden kâr, fiyat veya performans üretmez."
+                icon={<TrendingUp className="h-4 w-4" />}
+              />
+            )}
+          </CryptoPanel>
+
+          <CryptoPanel title="Ollama Model Activity / Demo Controls" eyebrow={cryptoModels.available ? 'YEREL MODEL HAZIR' : 'MODEL ULAŞILAMAZ'} icon={<Cpu className="h-4 w-4" />}>
+            <div className="space-y-3">
+              <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.045] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/70">Model görevi</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-100">
+                      {modelIsWorking ? 'Piyasa verisi okunuyor / risk değerlendiriliyor' : 'Beklemede'}
+                    </div>
+                  </div>
+                  <StatusPill label={modelIsWorking ? 'ACTIVE' : cryptoModels.available ? 'READY' : 'OFFLINE'} tone={modelIsWorking ? 'info' : cryptoModels.available ? 'success' : 'warning'} />
+                </div>
+                <CryptoActivityWaveform active={modelIsWorking && cryptoModels.available} />
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                <select
+                  value={selectedCryptoModel || selectedModel}
+                  onChange={(event) => setSelectedCryptoModel(event.target.value)}
+                  className="min-h-10 rounded-lg border border-white/10 bg-slate-950/80 px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-cyan-300/50"
+                >
+                  <option value={selectedModel}>{selectedModel}</option>
+                  {availableCryptoModels.filter((model) => model !== selectedModel).map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={selectCryptoModel}
+                  disabled={!selectedCryptoModel || cryptoAction === 'model'}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  Seç
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={demoLoopMinutes}
+                  onChange={(event) => setDemoLoopMinutes(event.target.value)}
+                  placeholder="0 = sürekli"
+                  className="min-h-10 rounded-lg border border-white/10 bg-slate-950/80 px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-cyan-300/50"
+                />
+                <button
+                  type="button"
+                  onClick={updateDemoLoop}
+                  disabled={cryptoAction === 'model'}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-cyan-300/25 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-cyan-100 transition hover:bg-cyan-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Clock3 className="h-3.5 w-3.5" />
+                  Döngüyü Ayarla
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                <select
+                  value={analysisSymbol}
+                  onChange={(event) => setAnalysisSymbol(event.target.value)}
+                  className="min-h-10 rounded-lg border border-white/10 bg-slate-950/80 px-3 text-xs font-semibold text-slate-100 outline-none transition focus:border-emerald-300/50"
+                >
+                  {(cryptoWatchlistRows.length ? cryptoWatchlistRows : symbolRows).map((row: any) => (
+                    <option key={row.symbol} value={row.symbol}>{row.symbol} - {row.mode ?? 'WATCH'}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={runCryptoAnalyze}
+                  disabled={!serviceOnline || cryptoAction === 'analyze'}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Bot className={`h-3.5 w-3.5 ${cryptoAction === 'analyze' ? 'animate-pulse' : ''}`} />
+                  Analiz Yap
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-xs">
+                <ActionRow label="Seçili model" value={selectedModel} />
+                <ActionRow label="Ollama durumu" value={cryptoModels.available ? `aktif / ${cryptoModels.latencyMs ?? '-'}ms` : String(cryptoModels.error ?? 'ulaşılamıyor')} />
+                <ActionRow label="Demo döngü" value={demoLoop.label ?? 'SÜREKLİ'} />
+                <ActionRow label="Son model görevi" value={String(cryptoModels.lastActivity?.[0]?.task ?? 'henüz crypto çıkarımı yok')} />
+              </div>
+              {cryptoError && (
+                <div className="rounded-md border border-amber-300/30 bg-amber-300/10 p-3 text-xs font-semibold text-amber-100">
+                  {cryptoError}
+                </div>
+              )}
+            </div>
+          </CryptoPanel>
+        </div>
+
         <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1fr)_clamp(23rem,21vw,31rem)]">
           <div>
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[clamp(22rem,24vw,32rem)_minmax(0,1fr)]">
-              <CryptoPanel title="Market Radar" eyebrow={endpointConnected ? 'LIVE FEED' : 'SAFE PLACEHOLDER'} icon={<Radar className="h-4 w-4" />}>
+              <CryptoPanel title="Market Radar" eyebrow={endpointConnected ? 'READ-ONLY MARKET DATA' : 'VERİ BEKLENİYOR'} icon={<Radar className="h-4 w-4" />}>
                 <CryptoMarketTerminal
                   symbols={symbolRows}
                   observerRunning={observerRunning}
@@ -2059,28 +2311,41 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
                   lastChecked={lastChecked}
                   markets={cryptoData.markets?.markets}
                   risk={cryptoData.risk?.risk ?? cryptoData.risk}
-                  overview={overview}
+                  overview={demoOverview}
                 />
               </CryptoPanel>
 
-              <CryptoPanel title="Watchlist Matrix" eyebrow="SYMBOL CONTROL" icon={<Database className="h-4 w-4" />}>
+              <CryptoPanel title="Watchlist / Asset Modes" eyebrow={safeWatchlistFallback ? 'SAFE DEFAULTS / BACKEND LİSTESİ YOK' : 'BACKEND VARLIK MODLARI'} icon={<Database className="h-4 w-4" />}>
+                {safeWatchlistFallback && (
+                  <div className="mb-3 rounded-md border border-amber-300/25 bg-amber-300/10 p-3 text-xs text-amber-100/80">
+                    Backend watchlist verisi gelmediği için güvenli varsayılan izinler gösteriliyor. Bunlar canlı fiyat veya gerçek sinyal değildir.
+                  </div>
+                )}
                 <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                  {symbolRows.map((symbol) => (
-                    <div key={symbol.symbol} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
+                  {(cryptoWatchlistRows.length ? cryptoWatchlistRows : symbolRows).map((symbol: any) => (
+                    <div key={symbol.symbol} className="edith-crypto-radar-pulse rounded-lg border border-white/10 bg-white/[0.035] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="font-mono text-sm font-semibold text-slate-100">{symbol.symbol}</div>
-                          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">Category: {symbol.category}</div>
+                          <div className="mt-1 text-[10px] uppercase tracking-wide text-slate-500">{symbol.mode ?? `Kategori: ${symbol.category ?? 'izleme'}`}</div>
                         </div>
-                        <RiskBadge level={symbol.risk === 'Critical' ? 'CRITICAL' : symbol.risk === 'High' ? 'HIGH' : symbol.risk === 'Low' ? 'LOW' : 'MEDIUM'} label={`Risk ${symbol.risk}`} />
+                        <StatusPill label={String(symbol.signal ?? symbol.latestSignal ?? symbol.mode ?? 'WATCH').toUpperCase()} tone={symbol.demoTradingEnabled ? 'warning' : symbol.analysisEnabled ? 'info' : 'muted'} />
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2">
-                        <MiniFlag label="Watch" value={symbol.watch ? 'Enabled' : 'Disabled'} good={symbol.watch} />
-                        <MiniFlag label="Decision" value={symbol.decision ? 'Allowed' : 'Blocked'} good={symbol.decision} />
-                        <MiniFlag label="Paper" value={symbol.paper ? 'Backend enabled' : 'Disabled'} good={symbol.paper} />
-                        <MiniFlag label="Live" value="Locked" good={false} />
+                        <MiniFlag label="İzle" value={symbol.watchEnabled ?? symbol.watch ? 'Açık' : 'Kapalı'} good={Boolean(symbol.watchEnabled ?? symbol.watch)} />
+                        <MiniFlag label="Analiz" value={symbol.analysisEnabled ?? symbol.decision ? 'İzinli' : 'Kapalı'} good={Boolean(symbol.analysisEnabled ?? symbol.decision)} />
+                        <MiniFlag label="Demo" value={symbol.demoTradingEnabled ? 'İzinli' : 'Kapalı'} good={Boolean(symbol.demoTradingEnabled)} />
+                        <MiniFlag label="Canlı" value="Kilitli" good={false} />
                       </div>
-                      {symbol.approvalRequired && <p className="mt-2 text-[11px] text-amber-200">High-risk symbol requires approval before any backend action.</p>}
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <ActionRow label="Fiyat" value={symbol.price ? money(symbol.price) : 'veri yok'} />
+                        <ActionRow label="24s değişim" value={pct(symbol.change24hPct ?? symbol.change24h ?? symbol.change_pct, 'veri yok')} />
+                        <ActionRow label="Hacim" value={symbol.volume ? compactNumber(Number(symbol.volume)) : 'veri yok'} />
+                        <ActionRow label="Trend" value={String(symbol.trend ?? 'veri yok')} />
+                        <ActionRow label="Sentiment" value={String(symbol.sentiment ?? 'veri yok')} />
+                        <ActionRow label="Confidence" value={typeof symbol.confidence === 'number' ? `${Math.round(symbol.confidence * 100)}%` : 'veri yok'} />
+                      </div>
+                      {symbol.approvalRequired && <p className="mt-2 text-[11px] text-amber-200">Yüksek riskli varlıklar backend aksiyonundan önce onay ister.</p>}
                     </div>
                   ))}
                 </div>
@@ -2088,173 +2353,238 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <CryptoPanel title="Market Observations" eyebrow={observations.length ? 'BACKEND FEED' : 'PLACEHOLDER'} icon={<Eye className="h-4 w-4" />}>
+              <CryptoPanel title="AI Analysis Panel" eyebrow={lastDecision ? 'SON DEMO KARAR / GİZLİ DÜŞÜNCE YOK' : 'ANALİZ BEKLİYOR'} icon={<Eye className="h-4 w-4" />}>
                 <div className="space-y-3">
-                  {(observations.length ? observations : SAFE_OBSERVATIONS).slice(0, 5).map((observation: any, index: number) => (
-                    <div key={`${observation.title ?? observation.symbol ?? 'observation'}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill label={modelIsWorking ? 'THINKING PULSE' : 'STANDBY'} tone={modelIsWorking ? 'info' : 'muted'} />
+                    <StatusPill label={`TARGET ${String(lastDecision?.symbol ?? analysisSymbol)}`} tone="info" />
+                    <StatusPill label={`MODEL ${selectedModel}`} tone={ollamaOnline ? 'success' : 'warning'} />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <ActionRow label="Varlık" value={String(lastDecision?.symbol ?? analysisSymbol)} />
+                    <ActionRow label="Market regime" value={String(lastDecision?.market_regime ?? lastDecision?.marketRegime ?? 'backend bildirmedi')} />
+                    <ActionRow label="Karar" value={String(lastDecision?.decision ?? lastDecision?.action ?? 'Henüz yok')} />
+                    <ActionRow label="Güven" value={typeof lastDecision?.confidence === 'number' ? `${Math.round(lastDecision.confidence * 100)}%` : String(lastDecision?.confidence ?? '-')} />
+                    <ActionRow label="Risk sonucu" value={String(lastDecision?.riskStatus ?? lastDecision?.risk_status ?? 'bekliyor')} />
+                    <ActionRow label="Teknik veri" value={String(lastDecision?.technical_summary ?? 'RSI, trend, MACD, ATR, fiyat verisi bekleniyor')} />
+                    <ActionRow label="Haber etkisi" value={String(lastDecision?.news_summary ?? 'Haber etkisi henüz yok')} />
+                    <ActionRow label="Neden işlem / no-trade" value={String(lastDecision?.why_trade ?? lastDecision?.whyNoTrade ?? lastDecision?.decision_reason ?? 'karar özeti bekleniyor')} />
+                  </div>
+                  <div className={`rounded-md border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs leading-relaxed text-cyan-100/80 ${modelIsWorking ? 'edith-crypto-status-pulse' : ''}`}>
+                    {lastDecision?.decision_reason ?? 'Analiz çalıştırıldığında modelin baktığı veriler ve kısa karar sebebi burada görünür. Gizli düşünce zinciri gösterilmez.'}
+                  </div>
+                </div>
+              </CryptoPanel>
+
+              <CryptoPanel title="News Intelligence" eyebrow={newsItems.length ? 'GERÇEK RSS / ÖZETLENMİŞ' : 'OFFLINE / NOT CONFIGURED'} icon={<Globe2 className="h-4 w-4" />}>
+                <div className="mb-3 grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+                  <ActionRow label="Bullish drivers" value={String(marketImpactSummary.bullishDrivers ?? marketImpactSummary.bullish ?? 'veri yok')} />
+                  <ActionRow label="Bearish drivers" value={String(marketImpactSummary.bearishDrivers ?? marketImpactSummary.bearish ?? 'veri yok')} />
+                  <ActionRow label="Noise / neutral" value={String(marketImpactSummary.neutralDrivers ?? marketImpactSummary.neutral ?? 'veri yok')} />
+                </div>
+                <div className="space-y-3">
+                  {(newsItems.length ? newsItems : [{ title: 'News ingestion offline or not configured', summary: 'Son crypto haberi henüz toplanmadı. E.D.I.T.H. sahte haber üretmez.', sentiment: 'unknown', source: 'system' }]).slice(0, 4).map((item: any, index: number) => (
+                    <div key={`${item.title ?? 'news'}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-sm font-semibold text-slate-100">{observation.title ?? observation.symbol ?? 'Market observation'}</div>
-                          <p className="mt-1 text-xs leading-relaxed text-slate-400">{observation.detail ?? observation.summary ?? observation.reason ?? 'No detail reported.'}</p>
+                          <div className="text-sm font-semibold text-slate-100">{item.title ?? 'News item'}</div>
+                          <p className="mt-1 text-xs leading-relaxed text-slate-400">{item.summary ?? 'No summary reported.'}</p>
                         </div>
-                        <StatusPill label={String(observation.signal ?? observation.type ?? 'INFO').toUpperCase()} tone={observations.length ? 'info' : 'muted'} />
+                        <StatusPill label={String(item.sentiment ?? 'UNKNOWN').toUpperCase()} tone={item.sentiment === 'positive' ? 'success' : item.sentiment === 'negative' ? 'warning' : 'muted'} />
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase tracking-wide text-slate-500">
-                        <span>Source: {observation.source ?? 'not reported'}</span>
-                        <span>Time: {displayTime(observation.timestamp ?? observation.createdAt)}</span>
+                        <span>Kaynak: {item.source ?? 'bildirilmedi'}</span>
+                        <span>Varlık: {asArray(item.relatedAssets).join(', ') || 'genel piyasa'}</span>
+                        <span>Güvenilirlik: {typeof item.credibility === 'number' ? Math.round(item.credibility * 100) : 0}%</span>
+                        <span>Önem: {typeof item.importance === 'number' ? Math.round(item.importance * 100) : 0}%</span>
+                        <span>Zaman: {displayTime(item.timestamp)}</span>
                       </div>
                     </div>
                   ))}
-                </div>
-              </CryptoPanel>
-
-              <CryptoPanel title="Decision Feed" eyebrow={decisions.length ? 'BACKEND FEED' : 'PLACEHOLDER'} icon={<Bot className="h-4 w-4" />}>
-                <div className="space-y-3">
-                {(decisions.length ? decisions : SAFE_DECISIONS).slice(0, 5).map((decision: any, index: number) => (
-                  <div key={`${decision.symbol}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-mono text-sm font-semibold text-slate-100">{decision.symbol ?? 'UNKNOWN'}</div>
-                        <div className="mt-1 text-[11px] text-slate-500">Provider: {decision.provider ?? decision.modelProvider ?? 'not reported'}</div>
-                      </div>
-                      <StatusPill label={String(decision.decision ?? 'NO DATA').toUpperCase()} tone={String(decision.decision ?? '').toUpperCase() === 'BUY' || String(decision.decision ?? '').toUpperCase() === 'SELL' ? 'warning' : 'muted'} />
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <ActionRow label="Confidence" value={typeof decision.confidence === 'number' ? `${Math.round(decision.confidence * 100)}%` : String(decision.confidence ?? '-')} />
-                      <ActionRow label="Risk result" value={String(decision.riskResult ?? decision.risk_result ?? 'not connected')} />
-                    </div>
-                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Reason: {decision.reason ?? 'No clean setup reported.'}</p>
-                  </div>
-                ))}
                 </div>
               </CryptoPanel>
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <CryptoPanel title="Learning Notes / Obsidian Sync" eyebrow={cryptoData.obsidianStatus ? 'BACKEND STATUS' : 'PLACEHOLDER'} icon={<Brain className="h-4 w-4" />}>
+              <CryptoPanel title="Demo Karar Geçmişi" eyebrow={decisions.length ? 'MODEL KARARLARI' : 'HENÜZ KARAR YOK'} icon={<Bot className="h-4 w-4" />}>
+                <div className="space-y-3">
+                  {decisions.length ? decisions.slice(0, 5).map((decision: any, index: number) => (
+                    <div key={`${decision.symbol}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/45 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-sm font-semibold text-slate-100">{decision.symbol ?? 'UNKNOWN'}</div>
+                          <div className="mt-1 text-[11px] text-slate-500">Model: {decision.model_used ?? decision.provider ?? decision.modelProvider ?? 'bildirilmedi'}</div>
+                        </div>
+                        <StatusPill label={String(decision.decision ?? decision.action ?? 'NO DATA').toUpperCase()} tone={String(decision.decision ?? decision.action ?? '').toUpperCase() === 'BUY' || String(decision.decision ?? decision.action ?? '').toUpperCase() === 'SELL' ? 'warning' : 'muted'} />
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <ActionRow label="Güven" value={typeof decision.confidence === 'number' ? `${Math.round(decision.confidence * 100)}%` : String(decision.confidence ?? '-')} />
+                        <ActionRow label="Risk" value={String(decision.riskStatus ?? decision.risk_status ?? decision.riskResult ?? decision.risk_result ?? 'bağlı değil')} />
+                      </div>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Sebep: {decision.decision_reason ?? decision.reasoning ?? decision.reason ?? 'Net kurulum bildirilmedi.'}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-slate-600">Risk: {decision.risk_reason ?? decision.risk_summary ?? 'Risk özeti yok.'}</p>
+                    </div>
+                  )) : (
+                    <CryptoEmptyState
+                      title="Henüz demo karar yok"
+                      text="NO TRADE kararları da burada saygıyla gösterilecek; backend karar üretmeden E.D.I.T.H. sahte BUY/SELL veya başarı sinyali göstermez."
+                      icon={<Bot className="h-4 w-4" />}
+                    />
+                  )}
+                </div>
+              </CryptoPanel>
+
+              <CryptoPanel title="Demo İşlemden Öğrendikleri" eyebrow="SADECE TRADE SONRASI" icon={<Brain className="h-4 w-4" />}>
                 <div className="grid grid-cols-1 gap-2">
-                  <ActionRow label="Vault path" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
-                  <ActionRow label="Learning folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
-                  <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no / not reported'} />
-                  <ActionRow label="Sync status" value={obsidianReady ? 'connected' : String(canonicalObsidianStatus.status ?? obsidianStatus.status ?? 'not connected')} />
-                  <ActionRow label="Last sync" value={displayTime(obsidianStatus.lastSync ?? obsidianStatus.updatedAt ?? runtime?.lastObservationAt)} />
+                  <ActionRow label="Vault yolu" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
+                  <ActionRow label="Ders kaynağı" value="sadece demo trade" />
+                  <ActionRow label="Trade klasörü" value="Trading/Crypto/Trade Journal" />
+                  <ActionRow label="Yazılabilir" value={obsidianReady ? 'evet' : 'hayır / bildirilmedi'} />
+                  <ActionRow label="Senkron durumu" value={obsidianReady ? 'bağlı' : String(canonicalObsidianStatus.status ?? obsidianStatus.status ?? 'bağlı değil')} />
+                  <ActionRow label="Son senkron" value={displayTime(obsidianStatus.lastSync ?? obsidianStatus.updatedAt ?? runtime?.lastObservationAt)} />
                 </div>
                 <div className="mt-3 space-y-2">
-                  {(learningNotes.length ? learningNotes : obsidianReady ? SAFE_LEARNING_NOTES : [{ title: 'Obsidian not connected', detail: 'Vault status is not connected/writable from backend status.' }]).slice(0, 3).map((note: any, index: number) => (
+                  {(tradeLessonNotes.length ? tradeLessonNotes : obsidianReady ? SAFE_LEARNING_NOTES : [{ title: 'Obsidian bağlı değil', detail: 'Backend durumuna göre vault bağlı/yazılabilir değil.' }]).slice(0, 3).map((note: any, index: number) => (
                     <div key={`${note.title ?? 'note'}-${index}`} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
-                      <div className="text-xs font-semibold text-slate-200">{note.title ?? 'Learning note'}</div>
-                      <div className="mt-1 text-[11px] text-slate-500">{note.detail ?? note.summary ?? note.path ?? 'No note detail connected.'}</div>
+                      <div className="text-xs font-semibold text-slate-200">{note.title ?? 'Demo trade dersi'}</div>
+                      <div className="mt-1 text-[11px] text-slate-500">{note.detail ?? note.summary ?? note.path ?? 'Demo işlem yapılınca burada trade sonrası ders görünür.'}</div>
                     </div>
                   ))}
                 </div>
               </CryptoPanel>
 
-              <CryptoPanel title="Paper Portfolio" eyebrow={portfolioDataLabel} icon={<TrendingUp className="h-4 w-4" />}>
+              <CryptoPanel title="Demo İşlem Geçmişi" eyebrow={portfolioDataLabel} icon={<FileText className="h-4 w-4" />}>
                 <div className="mb-3 flex flex-wrap gap-2">
                   <StatusPill label={portfolioDataLabel} tone="muted" />
-                  <StatusPill label="LIVE TRADING LOCKED" tone="danger" />
-                  <StatusPill label="NOT LIVE PERFORMANCE" tone="warning" />
+                  <StatusPill label="CANLI TRADING KİLİTLİ" tone="danger" />
+                  <StatusPill label="GERÇEK PERFORMANS DEĞİL" tone="warning" />
                 </div>
                 <div className="grid grid-cols-1 gap-2">
-                  <ActionRow label="Starting balance" value={money(portfolio.startingBalance ?? portfolio.starting_balance)} />
-                  <ActionRow label="Current paper equity" value={money(portfolio.equity)} />
-                  <ActionRow label="Open paper positions" value={String(openPositions.length)} />
-                  <ActionRow label="Closed trades" value={String(trades.length)} />
-                  <ActionRow label="Paper / stored PnL" value={pct(performance.total_return_pct ?? performance.pnlPct)} />
-                  <ActionRow label="Trade journal" value={trades.length ? `${trades.length} entries` : 'not connected'} />
+                  <ActionRow label="Başlangıç bakiyesi" value={money(demoPortfolio.initialBalance ?? 100)} />
+                  <ActionRow label="Mevcut demo varlık" value={money(demoPortfolio.currentEquity ?? 100)} />
+                  <ActionRow label="Açık demo pozisyon" value={String(openPositions.length)} />
+                  <ActionRow label="Kapanan işlem" value={String(asArray(demoPortfolio.closedTrades).length)} />
+                  <ActionRow label="Gerçekleşen demo K/Z" value={money(demoPortfolio.realizedPnl ?? 0)} />
+                  <ActionRow label="İşlem günlüğü" value={trades.length ? `${trades.length} kayıt` : 'henüz kayıt yok'} />
+                </div>
+                <div className="mt-3 space-y-2">
+                  {trades.length ? trades.slice(0, 3).map((trade: any) => (
+                    <div key={trade.id ?? `${trade.symbol}-${trade.timestamp}`} className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-semibold text-slate-100">{trade.symbol}</span>
+                        <StatusPill label={`DEMO ${String(trade.side ?? 'TRADE')}`} tone="info" />
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-500">Tutar {money(trade.cost)} / Fiyat {money(trade.price)} / K/Z {money(trade.pnl ?? 0)}</div>
+                    </div>
+                  )) : (
+                    <CryptoEmptyState
+                      title="No demo trades yet"
+                      text="E.D.I.T.H. demo trade veya önemli NO TRADE kararı gelmeden işlem kaydı üretmez. Bu alan gerçek para performansı değildir."
+                      icon={<FileText className="h-4 w-4" />}
+                    />
+                  )}
                 </div>
                 <p className="mt-3 rounded-md border border-cyan-400/20 bg-cyan-400/10 p-3 text-xs text-cyan-100/75">
-                  These values are secondary observer context. Latest observations are the primary signal; this UI does not present live account performance or execution authority.
+                  Bu günlük sadece simülasyon değerlerini gösterir. Bu kokpitten gerçek Binance emri gönderilemez.
                 </p>
               </CryptoPanel>
+
+              <CryptoPerformancePanel
+                totalTrades={totalDemoTrades}
+                closedTrades={closedDemoTrades}
+                noTradeCount={noTradeCount}
+                bestDecision={bestDecision}
+                worstDecision={worstDecision}
+                strongestLesson={strongestLesson}
+                hasHistory={Boolean(totalDemoTrades || closedDemoTrades || noTradeCount || bestDecision || worstDecision || strongestLesson)}
+              />
             </div>
           </div>
 
           <aside className="space-y-4">
-            <CryptoPanel title="Safety Lock Panel" eyebrow="ALWAYS ON" icon={<LockKeyhole className="h-4 w-4" />}>
+            <CryptoPanel title="Güvenlik Kilitleri" eyebrow="HER ZAMAN AÇIK" icon={<LockKeyhole className="h-4 w-4" />}>
               <div className="space-y-2">
-                <SafetyLine label="Live trading disabled" />
-                <SafetyLine label="Paper trading disabled" />
-                <SafetyLine label="Buy/Sell execution blocked" />
-                <SafetyLine label="Execution buttons unavailable" />
-                <SafetyLine label="Binance API keys hidden" />
-                <SafetyLine label="Withdrawals unsupported / blocked" />
-                <SafetyLine label="High-risk symbols require approval" />
-                <SafetyLine label="Not financial advice" />
-                <ActionRow label="Mode" value="observer only" />
-                <ActionRow label="Safety status" value={runtime?.safetyStatus?.status ?? 'LOCKED'} />
-                <ActionRow label="Finance integrations" value={String(financeIntegrations.length)} />
-                <ActionRow label="Audit events" value={String(financeLogs.length)} />
+                <SafetyLine label="Canlı trading kapalı" />
+                <SafetyLine label="Gerçek Binance emri yok" />
+                <SafetyLine label="Demo işlem risk motorundan geçer" />
+                <SafetyLine label="API anahtarları gösterilmez" />
+                <SafetyLine label="Para çekme / yatırma / transfer yok" />
+                <SafetyLine label="Yüksek riskli varlıklar onay ister" />
+                <SafetyLine label="Finansal tavsiye değildir" />
+                <ActionRow label="Mod" value="demo / izleme" />
+                <ActionRow label="Güvenlik durumu" value={runtime?.safetyStatus?.status ?? 'LOCKED'} />
+                <ActionRow label="Finans entegrasyonu" value={String(financeIntegrations.length)} />
+                <ActionRow label="Audit kaydı" value={String(financeLogs.length)} />
               </div>
             </CryptoPanel>
 
-            <CryptoPanel title="AI Dependency Status" eyebrow="OLLAMA / LOCAL MODEL" icon={<Cpu className="h-4 w-4" />}>
+            <CryptoPanel title="Ollama Model Durumu" eyebrow="YEREL MODEL" icon={<Cpu className="h-4 w-4" />}>
               <div className="space-y-2">
-                <ActionRow label="Status" value={ollamaOnline ? 'Online' : 'Offline'} />
+                <ActionRow label="Durum" value={ollamaOnline ? 'Açık' : 'Kapalı'} />
                 <ActionRow label="Model" value={String(runtimeMeta?.currentModel ?? runtimeMeta?.model ?? cryptoData.mode?.model ?? 'not reported')} />
-                <ActionRow label="Last checked" value={lastChecked} />
-                <ActionRow label="Error code" value={String(runtimeMeta?.ollamaErrorCode ?? runtimeMeta?.errorCode ?? (ollamaOnline ? 'none' : 'not reported'))} />
+                <ActionRow label="Son kontrol" value={lastChecked} />
+                <ActionRow label="Hata kodu" value={String(runtimeMeta?.ollamaErrorCode ?? runtimeMeta?.errorCode ?? (ollamaOnline ? 'yok' : 'bildirilmedi'))} />
               </div>
               {!ollamaOnline && (
                 <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
-                  AI dependency offline. Crypto service may still be online and observer status remains separate.
+                  Ollama kapalı. Crypto servisi yine piyasa ve güvenlik durumunu ayrı raporlayabilir.
                 </p>
               )}
             </CryptoPanel>
 
-            <CryptoPanel title="Obsidian Status" eyebrow={obsidianReady ? 'CONNECTED' : 'CONFIGURATION REQUIRED'} icon={<Archive className="h-4 w-4" />}>
+            <CryptoPanel title="Obsidian Durumu" eyebrow={obsidianReady ? 'BAĞLI' : 'YAPILANDIRMA GEREKİYOR'} icon={<Archive className="h-4 w-4" />}>
               <div className="space-y-2">
                 <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
-                <ActionRow label="Folder" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
-                <ActionRow label="Writable" value={obsidianReady ? 'yes' : 'no'} />
-                <ActionRow label="Last export" value={displayTime(obsidianStatus.lastExport ?? obsidianStatus.lastSync ?? runtime?.lastObservationAt)} />
+                <ActionRow label="Klasör" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
+                <ActionRow label="Yazılabilir" value={obsidianReady ? 'evet' : 'hayır'} />
+                <ActionRow label="Son export" value={displayTime(obsidianStatus.lastExport ?? obsidianStatus.lastSync ?? runtime?.lastObservationAt)} />
               </div>
               {!obsidianReady && (
                 <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
-                  Obsidian export is not configured.
+                  Obsidian export yapılandırması hazır değil.
                 </p>
               )}
             </CryptoPanel>
 
-            <CryptoPanel title="Binance Connection" eyebrow={endpointConnected ? 'SERVICE DATA' : 'SAFE PLACEHOLDER'} icon={<Network className="h-4 w-4" />}>
+            <CryptoPanel title="Binance Bağlantısı" eyebrow={endpointConnected ? 'SERVİS VERİSİ' : 'VERİ BEKLENİYOR'} icon={<Network className="h-4 w-4" />}>
               <div className="space-y-2">
-                <ActionRow label="Public market data" value={marketOnline ? 'available' : observerRunning ? 'checking' : 'standby'} />
-                <ActionRow label="Read-only account" value="not configured" />
-                <ActionRow label="Trading permission" value="disabled / locked" />
-                <ActionRow label="API key" value="never displayed" />
+                <ActionRow label="Public piyasa verisi" value={marketOnline ? 'aktif' : observerRunning ? 'kontrol ediliyor' : 'beklemede'} />
+                <ActionRow label="Read-only hesap" value="yapılandırılmadı" />
+                <ActionRow label="Trading izni" value="kapalı / kilitli" />
+                <ActionRow label="API key" value="asla gösterilmez" />
               </div>
               {!marketOnline && (
                 <p className="mt-3 rounded-md border border-amber-400/25 bg-amber-400/10 p-3 text-xs text-amber-100/80">
-                  Market data unavailable. Backend must report Binance health before this cockpit can show real feeds.
+                  Piyasa verisi şu an yok. Kokpit gerçek feed göstermeden önce backend Binance durumunu doğrulamalı.
                 </p>
               )}
             </CryptoPanel>
 
-            <CryptoPanel title="Risk Engine" eyebrow="VETO LAYER" icon={<ShieldCheck className="h-4 w-4" />}>
+            <CryptoPanel title="Risk Motoru" eyebrow="VETO KATMANI" icon={<ShieldCheck className="h-4 w-4" />}>
               <div className="space-y-2">
-                <ActionRow label="Max open positions" value={String(risk.maxOpenPositions ?? risk.max_open_positions ?? 'not connected')} />
-                <ActionRow label="Max allocation" value={pct(risk.maxAllocationPct ?? risk.max_allocation_pct)} />
-                <ActionRow label="Max position size" value={pct(risk.maxPositionSizePct ?? risk.max_position_size_pct)} />
+                <ActionRow label="Maks açık pozisyon" value={String(risk.maxOpenPositions ?? risk.max_open_positions ?? 'bağlı değil')} />
+                <ActionRow label="Maks portföy payı" value={pct(risk.maxAllocationPct ?? risk.max_allocation_pct)} />
+                <ActionRow label="Maks işlem boyutu" value={pct(risk.maxPositionSizePct ?? risk.max_position_size_pct)} />
                 <ActionRow label="Stop-loss" value={pct(risk.stopLossPct ?? risk.stop_loss_pct)} />
                 <ActionRow label="Take-profit" value={pct(risk.takeProfitPct ?? risk.take_profit_pct)} />
-                <ActionRow label="Risk veto count" value={String(risk.vetoCount ?? risk.veto_count ?? 'not connected')} />
-                <ActionRow label="Last rejection" value={String(risk.lastRejectionReason ?? risk.last_rejection_reason ?? 'none reported')} />
+                <ActionRow label="Risk veto sayısı" value={String(risk.vetoCount ?? risk.veto_count ?? 'bağlı değil')} />
+                <ActionRow label="Son red sebebi" value={String(risk.lastRejectionReason ?? risk.last_rejection_reason ?? 'bildirilmedi')} />
               </div>
             </CryptoPanel>
 
-            <CryptoPanel title="Observer Progress" eyebrow="OBSERVER LIFECYCLE" icon={<RadioTower className="h-4 w-4" />}>
+            <CryptoPanel title="Observer Akışı" eyebrow="DÖNGÜ DURUMU" icon={<RadioTower className="h-4 w-4" />}>
               <div className="space-y-2">
                 {[
-                  ['Status', observerState],
-                  ['Current symbol', runtime?.currentSymbol ?? 'none'],
-                  ['Last observation', displayTime(runtime?.lastObservationAt)],
-                  ['Last learning note', lastLearningNote],
-                  ['Watched symbols', watchedSymbols.join(', ') || 'none'],
-                  ['Ignored symbols', ignoredSymbols.join(', ') || 'none'],
-                  ['Execution', 'locked'],
+                  ['Durum', observerState],
+                  ['Bakılan varlık', runtime?.currentSymbol ?? 'yok'],
+                  ['Son gözlem', displayTime(runtime?.lastObservationAt)],
+                  ['Son demo trade dersi', lastLearningNote],
+                  ['İzlenenler', watchedSymbols.join(', ') || 'yok'],
+                  ['Yok sayılanlar', ignoredSymbols.join(', ') || 'yok'],
+                  ['Emir gönderimi', 'kilitli'],
                 ].map(([label, value], index) => (
                   <div key={label} className="flex items-center gap-3 rounded-md border border-white/10 bg-slate-950/45 px-3 py-2">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${observerState === 'OBSERVING' && index < 2 ? 'animate-pulse bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.9)]' : value === 'locked' ? 'bg-red-300' : 'bg-slate-500'}`} />
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${observerState === 'OBSERVING' && index < 2 ? 'animate-pulse bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,0.9)]' : value === 'kilitli' ? 'bg-red-300' : 'bg-slate-500'}`} />
                     <div className="min-w-0">
                       <div className="text-xs font-semibold text-slate-200">{label}</div>
                       <div className="truncate text-[11px] uppercase tracking-wide text-slate-500">{value}</div>
@@ -2264,7 +2594,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               </div>
             </CryptoPanel>
 
-            <CryptoPanel title="Category Rules" eyebrow="PERMISSION CONFIG" icon={<ShieldAlert className="h-4 w-4" />}>
+            <CryptoPanel title="Varlık İzinleri" eyebrow="GÜVENLİ MODLAR" icon={<ShieldAlert className="h-4 w-4" />}>
               <div className="space-y-2">
                 {SAFE_CATEGORY_RULES.map(([category, watch, paper, live]) => (
                   <div key={category} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
@@ -2279,7 +2609,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
               </div>
               {!cryptoData.categories && (
                 <p className="mt-3 text-[11px] leading-relaxed text-amber-200/80">
-                  Coin permission config not connected. Safe defaults are shown.
+                  Coin izin yapılandırması bağlı değil. Güvenli varsayılanlar gösteriliyor.
                 </p>
               )}
             </CryptoPanel>
@@ -2337,7 +2667,7 @@ function CryptoMarketTerminal({
   const volumeIndex = volumes.reduce((sum, value) => sum + value, 0);
   const exposurePct = Number(risk?.exposure_ratio ?? 0) * 100;
   const drawdownPct = Number(risk?.drawdown_pct ?? 0);
-  const regime = bullishCount > bearishCount ? 'BULLISH' : bearishCount > bullishCount ? 'BEARISH' : 'MIXED';
+  const regime = bullishCount > bearishCount ? 'YÜKSELİŞ' : bearishCount > bullishCount ? 'DÜŞÜŞ' : 'KARIŞIK';
   const selectedAtrPct = percentOf(selectedMarket.atr, selectedMarket.price);
   const selectedVolumePct = Math.round((Number(selectedMarket.volume ?? 0) / maxVolume) * 100);
 
@@ -2346,21 +2676,21 @@ function CryptoMarketTerminal({
       <div className="rounded-md border border-white/10 bg-[#080806]">
         <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            CRYPTOBASE <span className="text-amber-400">/ OBSERVER TERMINAL</span>
+            CRYPTOBASE <span className="text-amber-400">/ DEMO GÖZLEM TERMİNALİ</span>
           </div>
           <div className="text-[9px] uppercase tracking-wide text-slate-500">
-            {observerRunning ? 'OBSERVER LIVE' : 'OBSERVER STOPPED'} / {lastChecked}
+            {observerRunning ? 'OBSERVER ÇALIŞIYOR' : 'OBSERVER DURDU'} / {lastChecked}
           </div>
         </div>
         <div className="grid grid-cols-2 border-b border-white/10 lg:grid-cols-5">
-          <TerminalMetric title="Regime" value={regime} detail={`${bullishCount} bull / ${bearishCount} bear`} tone={regime === 'BULLISH' ? 'green' : regime === 'BEARISH' ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
-          <TerminalMetric title="Trend Strength" value={`${Math.round((bullishCount / Math.max(rows.length, 1)) * 100)}%`} detail={`${marketValues.length}/${rows.length} live symbols`} tone="cyan" values={rows.map((row) => row.market.rsi ?? 50)} />
-          <TerminalMetric title="Avg RSI" value={Number.isFinite(avgRsi) ? avgRsi.toFixed(1) : '--'} detail={avgRsi >= 60 ? 'momentum elevated' : avgRsi <= 40 ? 'pressure elevated' : 'neutral band'} tone={avgRsi >= 60 ? 'green' : avgRsi <= 40 ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
-          <TerminalMetric title="ATR Volatility" value={`${Number.isFinite(avgAtrPct) ? avgAtrPct.toFixed(2) : '--'}%`} detail="avg atr / price" tone="amber" values={atrPctValues.map((value) => value * 100)} />
-          <TerminalMetric title="Liquidity Index" value={compactNumber(volumeIndex)} detail={marketOnline ? 'public market feed' : 'feed standby'} tone="green" values={volumes} />
+          <TerminalMetric title="Rejim" value={regime} detail={`${bullishCount} güçlü / ${bearishCount} zayıf`} tone={regime === 'YÜKSELİŞ' ? 'green' : regime === 'DÜŞÜŞ' ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="Trend Gücü" value={`${Math.round((bullishCount / Math.max(rows.length, 1)) * 100)}%`} detail={`${marketValues.length}/${rows.length} canlı varlık`} tone="cyan" values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="Ortalama RSI" value={Number.isFinite(avgRsi) ? avgRsi.toFixed(1) : '--'} detail={avgRsi >= 60 ? 'momentum yüksek' : avgRsi <= 40 ? 'baskı yüksek' : 'nötr bant'} tone={avgRsi >= 60 ? 'green' : avgRsi <= 40 ? 'amber' : 'cyan'} values={rows.map((row) => row.market.rsi ?? 50)} />
+          <TerminalMetric title="ATR Volatilite" value={`${Number.isFinite(avgAtrPct) ? avgAtrPct.toFixed(2) : '--'}%`} detail="ortalama atr / fiyat" tone="amber" values={atrPctValues.map((value) => value * 100)} />
+          <TerminalMetric title="Likidite Endeksi" value={compactNumber(volumeIndex)} detail={marketOnline ? 'public piyasa feed' : 'feed beklemede'} tone="green" values={volumes} />
         </div>
         <div className="border-b border-amber-400/15 bg-amber-400/[0.035] px-3 py-1.5 text-center text-[9px] font-semibold uppercase tracking-[0.18em] text-amber-500/80">
-          READ-ONLY MARKET SIGNALS / NO ORDER EXECUTION / PAPER DISABLED / LIVE LOCKED
+          GERÇEK PİYASA SİNYALLERİ / SADECE DEMO / GERÇEK EMİR YOK / CANLI TRADING KİLİTLİ
         </div>
       </div>
 
@@ -2368,16 +2698,18 @@ function CryptoMarketTerminal({
         <div className="rounded-md border border-white/10 bg-[#0a0a08]">
           <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
             <div>
-              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Crypto Signals</div>
-              <div className="text-[9px] uppercase text-slate-500">allocation shown as current indicator strength</div>
+              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Crypto Sinyalleri</div>
+              <div className="text-[9px] uppercase text-slate-500">çubuklar mevcut gösterge gücünü gösterir</div>
             </div>
-            <div className="text-[10px] text-cyan-300">{marketValues.length} live</div>
+            <div className="text-[10px] text-cyan-300">{marketValues.length} canlı</div>
           </div>
           <div className="grid grid-cols-2 gap-px bg-white/10 p-px">
             {rows.slice(0, 12).map((row) => {
               const rsi = Number(row.market.rsi ?? 50);
               const strength = Math.max(8, Math.min(100, Math.round(rsi)));
-              const blocked = !row.decision || row.approvalRequired;
+              const mode = String((row as any).mode ?? '').toUpperCase();
+              const analysisAllowed = Boolean((row as any).analysisEnabled ?? row.decision ?? row.watch);
+              const blocked = mode === 'DISABLED' || !analysisAllowed || row.approvalRequired;
               return (
                 <button
                   key={row.symbol}
@@ -2388,7 +2720,7 @@ function CryptoMarketTerminal({
                   <div className="flex items-start justify-between gap-2">
                     <div className="text-[10px] font-semibold text-slate-100">{row.symbol}</div>
                     <div className={`rounded border px-1.5 py-0.5 text-[8px] uppercase ${blocked ? 'border-amber-400/40 text-amber-300' : String(row.market.trend).toLowerCase().includes('bull') ? 'border-emerald-400/35 text-emerald-300' : 'border-cyan-400/35 text-cyan-300'}`}>
-                      {blocked ? 'blocked' : row.market.trend ?? 'watch'}
+                      {blocked ? 'kapalı' : row.market.trend ?? 'izle'}
                     </div>
                   </div>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-sm bg-black/50">
@@ -2409,11 +2741,11 @@ function CryptoMarketTerminal({
         <div className="rounded-md border border-white/10 bg-[#0a0a08]">
           <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
             <div>
-              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Indicator Spread</div>
-              <div className="text-[9px] uppercase text-slate-500">RSI / ATR% / relative volume by symbol</div>
+              <div className="text-sm font-semibold uppercase tracking-wide text-slate-100">Gösterge Dağılımı</div>
+              <div className="text-[9px] uppercase text-slate-500">varlık bazında RSI / ATR% / göreli hacim</div>
             </div>
             <span className="rounded border border-white/10 px-2 py-1 text-[9px] uppercase text-slate-400">
-              Snapshot
+              Anlık
             </span>
           </div>
           <SignalSpreadChart
@@ -2425,16 +2757,16 @@ function CryptoMarketTerminal({
             ]}
           />
           <div className="grid grid-cols-2 gap-px border-t border-white/10 bg-white/10 p-px text-[10px]">
-            <TerminalReadout label="Selected" value={selected?.symbol ?? 'not connected'} />
-            <TerminalReadout label="Price" value={formatMoney(selectedMarket.price)} />
+            <TerminalReadout label="Seçili" value={selected?.symbol ?? 'bağlı değil'} />
+            <TerminalReadout label="Fiyat" value={formatMoney(selectedMarket.price)} />
             <TerminalReadout label="RSI" value={formatNumber(selectedMarket.rsi, 2)} />
             <TerminalReadout label="ATR / Price" value={`${formatNumber(selectedAtrPct, 2)}%`} />
-            <TerminalReadout label="Volume Index" value={`${selectedVolumePct}%`} />
-            <TerminalReadout label="Risk Engine" value={String(risk?.risk_level ?? selected?.risk ?? 'not connected')} />
-            <TerminalReadout label="Exposure" value={`${formatNumber(exposurePct, 2)}%`} />
+            <TerminalReadout label="Hacim Endeksi" value={`${selectedVolumePct}%`} />
+            <TerminalReadout label="Risk Motoru" value={String(risk?.risk_level ?? selected?.risk ?? 'bağlı değil')} />
+            <TerminalReadout label="Maruziyet" value={`${formatNumber(exposurePct, 2)}%`} />
             <TerminalReadout label="Drawdown" value={`${formatNumber(drawdownPct, 2)}%`} />
-            <TerminalReadout label="Trade Count" value={String(overview?.stats?.total_trades ?? 'not connected')} />
-            <TerminalReadout label="Execution" value="LOCKED" danger />
+            <TerminalReadout label="Demo İşlem" value={String(overview?.stats?.total_trades ?? 'bağlı değil')} />
+            <TerminalReadout label="Emir" value="KİLİTLİ" danger />
           </div>
         </div>
       </div>
@@ -2500,6 +2832,86 @@ function SignalSpreadChart({ labels, series }: { labels: string[]; series: Array
   );
 }
 
+function CryptoStatusBar({
+  serviceOnline,
+  marketOnline,
+  newsOnline,
+  ollamaOnline,
+  obsidianReady,
+  selectedModel,
+  demoLoopLabel,
+  lastAnalysisTime,
+}: {
+  serviceOnline: boolean;
+  marketOnline: boolean;
+  newsOnline: boolean;
+  ollamaOnline: boolean;
+  obsidianReady: boolean;
+  selectedModel: string;
+  demoLoopLabel: string;
+  lastAnalysisTime: string;
+}) {
+  return (
+    <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+      <StatusPill label="DEMO MODE" tone={serviceOnline ? 'success' : 'warning'} value={serviceOnline ? 'SERVICE READY' : 'SERVICE OFFLINE'} />
+      <StatusPill label="STARTING CAPITAL" tone="info" value="100 USD" />
+      <StatusPill label="REAL MONEY" tone="danger" value="OFF" />
+      <StatusPill label="LIVE EXECUTION" tone="danger" value="LOCKED" />
+      <StatusPill label="BINANCE DATA" tone={marketOnline ? 'success' : 'warning'} value={marketOnline ? 'READ-ONLY ONLINE' : 'OFFLINE / WAITING'} />
+      <StatusPill label="NEWS" tone={newsOnline ? 'success' : 'muted'} value={newsOnline ? 'ACTIVE' : 'OFFLINE / EMPTY'} />
+      <StatusPill label="OLLAMA" tone={ollamaOnline ? 'success' : 'warning'} value={ollamaOnline ? selectedModel : 'UNAVAILABLE'} />
+      <StatusPill label="OBSIDIAN" tone={obsidianReady ? 'success' : 'warning'} value={obsidianReady ? 'SYNC READY' : 'NOT CONFIGURED'} />
+      <div className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-2 sm:col-span-2 xl:col-span-4 2xl:col-span-8">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] uppercase tracking-[0.22em] text-slate-500">
+          <span>Demo döngü: {demoLoopLabel}</span>
+          <span>Son analiz: {lastAnalysisTime}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CryptoAnimatedMetric({ label, value, tone }: { label: string; value: string; tone: 'cyan' | 'green' | 'amber' | 'slate' }) {
+  const toneClass = {
+    cyan: 'border-cyan-300/22 bg-cyan-300/10 text-cyan-100',
+    green: 'border-emerald-300/22 bg-emerald-300/10 text-emerald-100',
+    amber: 'border-amber-300/24 bg-amber-300/10 text-amber-100',
+    slate: 'border-white/10 bg-white/[0.04] text-slate-200',
+  }[tone];
+  return (
+    <div className={`edith-crypto-metric-glow rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] uppercase tracking-wide opacity-65">{label}</div>
+      <div className="mt-1 truncate font-mono text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function CryptoEmptyState({ title, text, icon }: { title: string; text: string; icon?: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-dashed border-cyan-300/20 bg-cyan-300/[0.035] p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-cyan-300/20 bg-cyan-300/10 text-cyan-200">
+          {icon ?? <AlertTriangle className="h-4 w-4" />}
+        </div>
+        <div>
+          <div className="text-sm font-semibold text-slate-100">{title}</div>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">{text}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CryptoActivityWaveform({ active }: { active: boolean }) {
+  return (
+    <div className={`edith-crypto-waveform mt-3 ${active ? 'is-active' : ''}`} aria-hidden="true">
+      {Array.from({ length: 18 }).map((_, index) => (
+        <span key={index} style={{ animationDelay: `${index * 80}ms` }} />
+      ))}
+    </div>
+  );
+}
+
 function TerminalReadout({ label, value, danger = false }: { label: string; value: string; danger?: boolean }) {
   return (
     <div className="flex min-h-9 items-center justify-between gap-2 bg-[#11110f] px-3 py-2">
@@ -2552,6 +2964,50 @@ function polylinePoints(values: number[], width: number, height: number, pad = 0
   }).join(' ');
 }
 
+function CryptoPerformancePanel({
+  totalTrades,
+  closedTrades,
+  noTradeCount,
+  bestDecision,
+  worstDecision,
+  strongestLesson,
+  hasHistory,
+}: {
+  totalTrades: number;
+  closedTrades: number;
+  noTradeCount: number;
+  bestDecision: unknown;
+  worstDecision: unknown;
+  strongestLesson: unknown;
+  hasHistory: boolean;
+}) {
+  return (
+    <CryptoPanel title="Performance / Lessons" eyebrow={hasHistory ? 'DEMO HISTORY' : 'NOT ENOUGH HISTORY YET'} icon={<Sparkles className="h-4 w-4" />}>
+      {hasHistory ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <CryptoAnimatedMetric label="Demo trades" value={String(totalTrades)} tone="cyan" />
+            <CryptoAnimatedMetric label="Closed" value={String(closedTrades)} tone="slate" />
+            <CryptoAnimatedMetric label="No-trade" value={String(noTradeCount)} tone="green" />
+            <CryptoAnimatedMetric label="Risk mode" value="LOCKED" tone="amber" />
+          </div>
+          <div className="grid grid-cols-1 gap-2 text-xs">
+            <ActionRow label="Best decision" value={String(bestDecision ?? 'backend bildirmedi')} />
+            <ActionRow label="Worst decision" value={String(worstDecision ?? 'backend bildirmedi')} />
+            <ActionRow label="Strongest learned pattern" value={String(strongestLesson ?? 'öğrenme notu bekleniyor')} />
+          </div>
+        </div>
+      ) : (
+        <CryptoEmptyState
+          title="Not enough demo history yet"
+          text="E.D.I.T.H. analizler ve demo sonuçları biriktikçe performans derslerini burada gösterecek. Şimdilik kâr, başarı veya haber etkisi uydurulmuyor."
+          icon={<Sparkles className="h-4 w-4" />}
+        />
+      )}
+    </CryptoPanel>
+  );
+}
+
 function CryptoPanel({
   title,
   eyebrow,
@@ -2566,7 +3022,7 @@ function CryptoPanel({
   className?: string;
 }) {
   return (
-    <section className={`relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.74),rgba(2,6,12,0.88))] shadow-[0_18px_55px_rgba(0,0,0,0.24)] backdrop-blur-xl ${className}`}>
+    <section className={`edith-crypto-panel-reveal relative overflow-hidden rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.74),rgba(2,6,12,0.88))] shadow-[0_18px_55px_rgba(0,0,0,0.24)] backdrop-blur-xl ${className}`}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/45 to-transparent" />
       <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">

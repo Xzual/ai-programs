@@ -20,11 +20,20 @@ export function createCryptoRouter(): Router {
     "/api/observations",
     "/api/learning-notes",
     "/api/obsidian-status",
+    "/api/crypto/portfolio",
+    "/api/crypto/watchlist",
+    "/api/crypto/news",
+    "/api/crypto/trades",
+    "/api/crypto/decisions",
+    "/api/crypto/lessons",
+    "/api/crypto/models",
+    "/api/crypto/obsidian/status",
+    "/api/crypto/demo-loop",
   ];
 
-  async function fetchDashboard(path: string, init?: RequestInit) {
+  async function fetchDashboard(path: string, init?: RequestInit, timeoutMs = 3500) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(`${dashboardUrl}${path}`, { ...init, signal: controller.signal });
     } finally {
@@ -102,9 +111,9 @@ export function createCryptoRouter(): Router {
     }
   }
 
-  async function proxyDashboardJson(res: Response, path: string, init?: RequestInit) {
+  async function proxyDashboardJson(res: Response, path: string, init?: RequestInit, timeoutMs?: number) {
     try {
-      const response = await fetchDashboard(path, init);
+      const response = await fetchDashboard(path, init, timeoutMs);
       const text = await response.text();
       res.status(response.status).type(response.headers.get("content-type") ?? "application/json").send(text);
     } catch (error) {
@@ -131,6 +140,24 @@ export function createCryptoRouter(): Router {
   for (const path of safeReadOnlyDashboardPaths) {
     router.get(path, async (_req, res) => {
       await proxyDashboardJson(res, path);
+    });
+  }
+
+  const safeDashboardPostPaths = [
+    "/api/crypto/analyze",
+    "/api/crypto/demo-trade",
+    "/api/crypto/watchlist/update",
+    "/api/crypto/model/select",
+    "/api/crypto/demo-loop",
+  ];
+
+  for (const path of safeDashboardPostPaths) {
+    router.post(path, async (req, res) => {
+      await proxyDashboardJson(res, path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req.body ?? {}),
+      }, path === "/api/crypto/analyze" ? 70000 : 10000);
     });
   }
 

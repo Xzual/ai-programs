@@ -101,6 +101,37 @@ class ObsidianMarketExporter:
             "last_export_path": str(test_path),
         }
 
+    def export_demo_decision(self, decision: Dict[str, Any], portfolio: Dict[str, Any], timestamp: datetime = None) -> Dict[str, Any]:
+        """Write graph-friendly demo decision notes under the global vault."""
+        timestamp = timestamp or datetime.now()
+        status = self.status()
+        if status["status"] != "connected":
+            return status
+
+        root = self._safe_path("..", "Crypto Index.md").parent / "Crypto"
+        self._ensure_crypto_graph(root)
+        symbol = self._safe_symbol(decision.get("symbol") or decision.get("asset"))
+        decision_slug = f"{timestamp.strftime('%Y-%m-%d_%H%M%S')}_{symbol}_{self._safe_symbol(decision.get('decision'))}.md"
+        journal_path = self._safe_graph_path(root, "Trade Journal", decision_slug)
+        asset_path = self._safe_graph_path(root, "Assets", f"{symbol}.md")
+        performance_path = self._safe_graph_path(root, "Performance", "Demo Portfolio.md")
+        model_path = self._safe_graph_path(root, "Models", f"Ollama Model - {self._safe_symbol(decision.get('model_used'))}.md")
+
+        journal_path.write_text(self._demo_decision_note(decision, portfolio, timestamp), encoding="utf-8")
+        self._append_graph(asset_path, self._asset_block(decision, timestamp))
+        self._append_graph(performance_path, self._performance_block(portfolio, timestamp))
+        self._append_graph(model_path, self._model_block(decision, timestamp))
+
+        return {
+            "status": "exported",
+            "last_export_path": str(journal_path),
+            "journal_path": str(journal_path),
+            "asset_path": str(asset_path),
+            "performance_path": str(performance_path),
+            "model_path": str(model_path),
+            "graphLinks": ["[[Crypto Index]]", f"[[{symbol}]]", "[[Trade Journal]]", "[[Demo Portfolio]]"],
+        }
+
     def _append_daily(self, path: Path, observation: Dict[str, Any], timestamp: datetime):
         if not path.exists():
             path.write_text(
@@ -164,6 +195,103 @@ class ObsidianMarketExporter:
         if not str(path).lower().startswith(str(vault_root).lower()):
             raise ValueError("Obsidian export path escapes vault.")
         return path
+
+    def _safe_graph_path(self, root: Path, section: str, filename: str) -> Path:
+        base = (root / section).resolve()
+        base.mkdir(parents=True, exist_ok=True)
+        path = (base / filename).resolve()
+        vault_root = self.vault_path.resolve()
+        if not str(path).lower().startswith(str(vault_root).lower()):
+            raise ValueError("Obsidian graph export path escapes vault.")
+        return path
+
+    def _ensure_crypto_graph(self, root: Path):
+        root.mkdir(parents=True, exist_ok=True)
+        index = root / "Crypto Index.md"
+        if not index.exists():
+            index.write_text(
+                "# Crypto Index\n\n"
+                "Tags: #edith/crypto #demo-trading #not-financial-advice\n\n"
+                "- [[Trade Journal]]\n"
+                "- [[Demo Portfolio]]\n"
+                "- [[Risk Management]]\n"
+                "- [[Market Regime]]\n"
+                "- [[News Digest]]\n"
+                "- [[BTC-USDT]]\n"
+                "- [[ETH-USDT]]\n\n"
+                "This vault section is managed by E.D.I.T.H. Crypto and uses demo/simulation data only.\n",
+                encoding="utf-8",
+            )
+        for section in ("Market Logs", "Trade Journal", "Lessons", "Assets", "News", "Performance", "Models"):
+            (root / section).mkdir(parents=True, exist_ok=True)
+        trade_index = root / "Trade Journal" / "Trade Journal.md"
+        if not trade_index.exists():
+            trade_index.write_text("# Trade Journal\n\nUp: [[Crypto Index]]\n\n", encoding="utf-8")
+        news_index = root / "News" / "News Digest.md"
+        if not news_index.exists():
+            news_index.write_text("# News Digest\n\nUp: [[Crypto Index]]\n\n", encoding="utf-8")
+
+    def _append_graph(self, path: Path, block: str):
+        if not path.exists():
+            title = path.stem
+            path.write_text(f"# {title}\n\nUp: [[Crypto Index]]\n\n", encoding="utf-8")
+        path.write_text(path.read_text(encoding="utf-8") + block, encoding="utf-8")
+
+    def _demo_decision_note(self, decision: Dict[str, Any], portfolio: Dict[str, Any], timestamp: datetime) -> str:
+        symbol = self._safe_symbol(decision.get("symbol") or decision.get("asset"))
+        model = self._safe_symbol(decision.get("model_used"))
+        return (
+            f"# {symbol} {self._clean(decision.get('decision'))} - {timestamp.isoformat(timespec='minutes')}\n\n"
+            "Tags: #edith/crypto #demo-trading #not-financial-advice\n\n"
+            "Up: [[Crypto Index]]  \n"
+            f"Asset: [[{symbol}]]  \n"
+            "Journal: [[Trade Journal]]  \n"
+            "Portfolio: [[Demo Portfolio]]  \n"
+            f"Model: [[Ollama Model - {model}]]\n\n"
+            "## Safety\n"
+            "- Mode: DEMO\n"
+            "- Real Money Used: No\n"
+            "- Live Execution: Disabled\n"
+            "- Binance Order Sent: No\n\n"
+            "## Decision\n"
+            f"- Decision: {self._clean(decision.get('decision'))}\n"
+            f"- Confidence: {self._clean(decision.get('confidence'))}\n"
+            f"- Market Regime: {self._clean(decision.get('market_regime'))}\n"
+            f"- Trend: {self._clean(decision.get('trend'))}\n"
+            f"- Volatility: {self._clean(decision.get('volatility'))}\n"
+            f"- News Sentiment: {self._clean(decision.get('news_sentiment'))}\n\n"
+            "## Reasoning Summary\n"
+            f"- Technical: {self._clean(decision.get('technical_summary'))}\n"
+            f"- News: {self._clean(decision.get('news_summary'))}\n"
+            f"- Risk: {self._clean(decision.get('risk_summary'))}\n"
+            f"- Reason: {self._clean(decision.get('decision_reason'))}\n"
+            f"- Invalidation: {self._clean(decision.get('invalidation_condition'))}\n\n"
+            "## Demo Portfolio Snapshot\n"
+            f"- Initial Balance: {self._clean(portfolio.get('initialBalance'))} USD\n"
+            f"- Cash: {self._clean(portfolio.get('currentCash'))} USD\n"
+            f"- Equity: {self._clean(portfolio.get('currentEquity'))} USD\n"
+            f"- Exposure: {self._clean(portfolio.get('currentExposurePct'))}%\n\n"
+            "This is a learning note generated by E.D.I.T.H. It is not financial advice.\n"
+        )
+
+    def _asset_block(self, decision: Dict[str, Any], timestamp: datetime) -> str:
+        return (
+            f"- {timestamp.isoformat(timespec='minutes')} | [[Trade Journal]] | "
+            f"{self._clean(decision.get('decision'))} | {self._clean(decision.get('decision_reason'))}\n"
+        )
+
+    def _performance_block(self, portfolio: Dict[str, Any], timestamp: datetime) -> str:
+        return (
+            f"- {timestamp.isoformat(timespec='minutes')} | Equity {self._clean(portfolio.get('currentEquity'))} | "
+            f"Cash {self._clean(portfolio.get('currentCash'))} | Exposure {self._clean(portfolio.get('currentExposurePct'))}% | "
+            "Demo only, no real money.\n"
+        )
+
+    def _model_block(self, decision: Dict[str, Any], timestamp: datetime) -> str:
+        return (
+            f"- {timestamp.isoformat(timespec='minutes')} | {self._clean(decision.get('symbol'))} | "
+            f"{self._clean(decision.get('decision'))} | accepted summary only, hidden chain-of-thought not stored.\n"
+        )
 
     @staticmethod
     def _safe_symbol(symbol: str) -> str:

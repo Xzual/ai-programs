@@ -70,12 +70,15 @@ class Config:
     NEWS_CHECK_INTERVAL_MINUTES: int = 30
 
     # --- Agent Loop ---
-    LOOP_INTERVAL_MINUTES: int = 1  # how often the full cycle runs
+    LOOP_INTERVAL_MINUTES: float = float(os.getenv("CRYPTO_LOOP_INTERVAL_MINUTES", "0"))
+    CONTINUOUS_LOOP_DELAY_SECONDS: int = int(os.getenv("CRYPTO_CONTINUOUS_LOOP_DELAY_SECONDS", "5"))
     TRADING_MODE: str = os.getenv("TRADING_MODE", os.getenv("CRYPTO_MODE", "OBSERVER_ONLY")).strip().upper()
     ENABLE_LIVE_TRADING: bool = os.getenv("ENABLE_LIVE_TRADING", "false").strip().lower() == "true"
     CRYPTO_TRADING_ENABLED: bool = os.getenv("CRYPTO_TRADING_ENABLED", "false").strip().lower() == "true"
     CRYPTO_PAPER_TRADING_ENABLED: bool = os.getenv("CRYPTO_PAPER_TRADING_ENABLED", "false").strip().lower() == "true"
     CRYPTO_LIVE_TRADING_ENABLED: bool = os.getenv("CRYPTO_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_DEMO_TRADING_ENABLED: bool = os.getenv("CRYPTO_DEMO_TRADING_ENABLED", "true").strip().lower() == "true"
+    DEMO_INITIAL_BALANCE: float = float(os.getenv("CRYPTO_DEMO_INITIAL_BALANCE", "100"))
     ALLOWED_ACTIONS: List[str] = field(default_factory=lambda: ["BUY", "SELL", "HOLD", "NO TRADE"])
     BINANCE_READ_ONLY: bool = os.getenv("BINANCE_READ_ONLY", "true").strip().lower() == "true"
     BINANCE_TRADING_ENABLED: bool = os.getenv("BINANCE_TRADING_ENABLED", "false").strip().lower() == "true"

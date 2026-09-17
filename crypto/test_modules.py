@@ -36,6 +36,7 @@ try:
     print(f"  Model: {CONFIG.LLM_MODEL}, Exchange: {CONFIG.EXCHANGE_ID}  [OK]")
     assert CONFIG.TRADING_MODE == "OBSERVER_ONLY"
     assert CONFIG.PAPER_TRADING is False
+    assert CONFIG.LOOP_INTERVAL_MINUTES == 0
     assert CONFIG.EDITH_OBSIDIAN_VAULT_PATH == r"D:\EDİTH\EDİTH"
     assert "İ" in CONFIG.EDITH_OBSIDIAN_VAULT_PATH
     print("  Default mode OBSERVER_ONLY with paper trading disabled  [OK]")
@@ -279,6 +280,29 @@ try:
         test_text = test_path.read_text(encoding="utf-8")
         assert "Status: OK" in test_text
         assert "Path Encoding: OK" in test_text
+        demo_result = exporter.export_demo_decision(
+            {
+                "symbol": "BTC/USDT",
+                "decision": "NO_TRADE",
+                "confidence": 0.5,
+                "market_regime": "range",
+                "trend": "neutral",
+                "volatility": "medium",
+                "news_sentiment": "mixed",
+                "technical_summary": "RSI neutral",
+                "news_summary": "No major catalyst",
+                "risk_summary": "Risk veto not needed",
+                "decision_reason": "No clean edge",
+                "invalidation_condition": "Breakout with volume",
+                "model_used": "qwen2.5:3b",
+            },
+            {"initialBalance": 100, "currentCash": 100, "currentEquity": 100, "currentExposurePct": 0},
+        )
+        assert demo_result["status"] == "exported"
+        demo_text = Path(demo_result["journal_path"]).read_text(encoding="utf-8")
+        assert "[[Crypto Index]]" in demo_text
+        assert "Real Money Used: No" in demo_text
+        assert "Live Execution: Disabled" in demo_text
         os.environ.pop("BINANCE_API_KEY", None)
     print("  Unicode path, mojibake rejection, and Markdown export  [OK]")
 except Exception as e:
@@ -358,6 +382,71 @@ try:
     print(f"  check_sl_tp TP-hit -> {signal2}  [OK]")
 except Exception as e:
     errors.append(f"risk_manager: {e}")
+    print(f"  ERROR: {e}")
+    import traceback; traceback.print_exc()
+
+# ── Demo Portfolio / Asset Modes ─────────────────────────────────────────────
+print("=== Testing demo portfolio and asset modes ===")
+try:
+    from asset_modes import AssetModeManager
+    from crypto_models import CryptoModelManager
+    from demo_portfolio import DemoPortfolioEngine
+
+    demo = DemoPortfolioEngine(str(TEST_DB))
+    portfolio = demo.summary()
+    assert portfolio["initialBalance"] == 100.0
+    assert portfolio["currentCash"] == 100.0
+    assert portfolio["realMoneyUsed"] is False
+    assert portfolio["liveExecutionEnabled"] is False
+    loop = demo.loop_settings()
+    assert loop["intervalMinutes"] == 0.0
+    assert loop["continuous"] is True
+    updated_loop = demo.update_loop_settings(2, False)
+    assert updated_loop["ok"] is True
+    assert updated_loop["settings"]["intervalMinutes"] == 2.0
+    assert updated_loop["settings"]["continuous"] is False
+    demo.update_loop_settings(0, False)
+    modes = AssetModeManager()
+    assert modes.get_mode("BTC-USDT") == "ANALYZE_ONLY"
+    assert modes.get_mode("DOGE/USDT") == "WATCH_ONLY"
+    no_trade_id = demo.save_decision(
+        {"asset": "BTC/USDT", "symbol": "BTC/USDT", "decision": "NO_TRADE", "confidence": 0.1, "decision_reason": "test no trade"},
+        "ANALYZE_ONLY",
+        "APPROVED",
+        "Safe non-execution decision.",
+    )
+    blocked_trade = demo.execute_decision(no_trade_id)
+    assert blocked_trade["ok"] is False
+    assert blocked_trade["error"] == "DECISION_NOT_EXECUTABLE"
+    assert demo.lessons() == []
+    demo_trade_id = demo.save_decision(
+        {
+            "asset": "BTC/USDT",
+            "symbol": "BTC/USDT",
+            "decision": "BUY",
+            "confidence": 0.9,
+            "decision_reason": "test demo trade learning only",
+            "entry_price": 50000,
+            "position_size": 10,
+            "stop_loss": 48500,
+            "take_profit": 53000,
+            "model_used": "qwen2.5:3b",
+        },
+        "DEMO_TRADE_ALLOWED",
+        "APPROVED",
+        "Risk engine approved simulated demo trade only.",
+    )
+    opened_trade = demo.execute_decision(demo_trade_id)
+    assert opened_trade["ok"] is True
+    lessons = demo.lessons()
+    assert len(lessons) == 1
+    assert lessons[0]["lesson_type"] == "DEMO_TRADE_OPENED"
+    models = CryptoModelManager(str(TEST_DB))
+    assert models.select_model("primary", "qwen2.5:3b")["ok"] is True
+    assert models.settings()["primary"] == "qwen2.5:3b"
+    print("  100 USD demo portfolio, asset modes, and model selection  [OK]")
+except Exception as e:
+    errors.append(f"demo_portfolio: {e}")
     print(f"  ERROR: {e}")
     import traceback; traceback.print_exc()
 
@@ -514,6 +603,35 @@ try:
         print(f"  /api/crypto/ollama-status -> {r26.status_code}  [OK]")
         r27 = client.get('/api/crypto/latest-observations')
         print(f"  /api/crypto/latest-observations -> {r27.status_code}  [OK]")
+        r28 = client.get('/api/crypto/portfolio')
+        print(f"  /api/crypto/portfolio -> {r28.status_code}  [OK]")
+        assert r28.get_json()["portfolio"]["initialBalance"] == 100.0
+        assert r28.get_json()["portfolio"]["realMoneyUsed"] is False
+        assert r28.get_json()["demoLoop"]["intervalMinutes"] == 0.0
+        r29 = client.get('/api/crypto/watchlist')
+        print(f"  /api/crypto/watchlist -> {r29.status_code}  [OK]")
+        assert r29.get_json()["liveTradingAllowedSymbols"] == []
+        r30 = client.get('/api/crypto/news')
+        print(f"  /api/crypto/news -> {r30.status_code}  [OK]")
+        r31 = client.get('/api/crypto/models')
+        print(f"  /api/crypto/models -> {r31.status_code}  [OK]")
+        r32 = client.get('/api/crypto/lessons')
+        print(f"  /api/crypto/lessons -> {r32.status_code}  [OK]")
+        r33 = client.post('/api/crypto/model/select', json={"role": "primary", "model": "qwen2.5:3b"})
+        print(f"  /api/crypto/model/select -> {r33.status_code}  [OK]")
+        assert r33.get_json()["ok"] is True
+        r34 = client.post('/api/crypto/demo-trade', json={"decisionId": 999999})
+        print(f"  /api/crypto/demo-trade invalid -> {r34.status_code}  [OK/LOCKED]")
+        assert r34.status_code == 409
+        assert r34.get_json()["realOrderSent"] is False
+        r35 = client.get('/api/crypto/demo-loop')
+        print(f"  /api/crypto/demo-loop -> {r35.status_code}  [OK]")
+        assert r35.get_json()["settings"]["continuous"] is True
+        r36 = client.post('/api/crypto/demo-loop', json={"intervalMinutes": 3, "autoExecuteDemoTrades": False})
+        print(f"  /api/crypto/demo-loop update -> {r36.status_code}  [OK]")
+        assert r36.get_json()["settings"]["intervalMinutes"] == 3.0
+        assert r36.get_json()["settings"]["autoExecuteDemoTrades"] is False
+        client.post('/api/crypto/demo-loop', json={"intervalMinutes": 0, "autoExecuteDemoTrades": False})
         assert client.get('/api/mode').get_json()["trading_mode"] == "OBSERVER_ONLY"
         os.environ['BINANCE_API_KEY'] = 'TEST_SECRET_SHOULD_NOT_APPEAR'
         body = client.get('/api/mode').get_data(as_text=True) + client.get('/api/trading-status').get_data(as_text=True)

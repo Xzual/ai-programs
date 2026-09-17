@@ -96,6 +96,124 @@ body {
   min-width: 0;
 }
 
+.edith-crypto-cockpit {
+  isolation: isolate;
+}
+
+.edith-crypto-hero {
+  background-size: 140% 140%, 100% 100%;
+  animation: edithCryptoHeroSweep 18s ease-in-out infinite alternate;
+}
+
+.edith-crypto-panel-reveal {
+  animation: edithCryptoPanelReveal 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.edith-crypto-status-pulse {
+  animation: edithCryptoStatusPulse 2.6s ease-in-out infinite;
+}
+
+.edith-crypto-metric-glow {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.edith-crypto-metric-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.08) 46%, transparent 72%);
+  transform: translateX(-120%);
+  animation: edithCryptoMetricGlint 5.5s ease-in-out infinite;
+}
+
+.edith-crypto-metric-glow:hover {
+  transform: translateY(-1px);
+  border-color: rgba(103, 232, 249, 0.32);
+}
+
+.edith-crypto-waveform {
+  display: flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.edith-crypto-waveform span {
+  width: 0.18rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.42);
+  transform-origin: center;
+}
+
+.edith-crypto-waveform.is-active span {
+  background: linear-gradient(180deg, rgba(103, 232, 249, 0.95), rgba(37, 99, 235, 0.48));
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.28);
+  animation: edithCryptoWave 1.45s ease-in-out infinite;
+}
+
+.edith-crypto-radar-pulse {
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.edith-crypto-radar-pulse:hover {
+  border-color: rgba(103, 232, 249, 0.28);
+  background-color: rgba(14, 165, 233, 0.055);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 16px 38px rgba(8, 47, 73, 0.16);
+}
+
+@keyframes edithCryptoHeroSweep {
+  0% {
+    background-position: 0% 0%, 0 0;
+  }
+  100% {
+    background-position: 90% 22%, 0 0;
+  }
+}
+
+@keyframes edithCryptoPanelReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes edithCryptoStatusPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(56, 189, 248, 0);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(56, 189, 248, 0.14);
+  }
+}
+
+@keyframes edithCryptoMetricGlint {
+  0%, 74% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes edithCryptoWave {
+  0%, 100% {
+    transform: scaleY(0.55);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1.9);
+    opacity: 1;
+  }
+}
+
 @media (min-width: 1280px) {
   .edith-cockpit-grid {
     grid-template-columns: minmax(0, 1fr) minmax(19rem, 24rem);
@@ -1185,6 +1303,14 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .edith-crypto-hero,
+  .edith-crypto-panel-reveal,
+  .edith-crypto-status-pulse,
+  .edith-crypto-metric-glow::after,
+  .edith-crypto-waveform.is-active span {
+    animation: none;
+  }
+
   .edith-theme-transition {
     animation-duration: 360ms;
   }
