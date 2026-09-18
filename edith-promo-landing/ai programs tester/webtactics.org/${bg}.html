@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Asset paths here MUST be root-absolute. ErrorDocument 404 serves this file at the ORIGINAL
+         request URL, so at /foo/bar a relative "Assets/..." resolves to /foo/Assets/... and 404s in
+         turn — meaning every nested 404, including a mistyped ad landing path, loaded no tracker at
+         all: no PageView, no WhatsApp click, nothing. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#020204">
+    <!-- Google Tag Manager — hand-kept copy of the block in partials/head.php, because this
+         page is standalone. Read the note there before changing either. -->
+    <!-- Google Tag Manager -->
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+    j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+    'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+    })(window,document,'script','dataLayer','GTM-W8BKMGHG');</script>
+    <!-- End Google Tag Manager -->
+    <title>404 — Web Tactics</title>
+    <link rel="icon" type="image/png" href="/Assets/Favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        :root { color-scheme: dark; --accent: #a78bfa; --bg: #020204; }
+        /* This standalone page never loaded site.css, so it missed the sitewide overflow guard and
+           was the only page on the site that could actually scroll sideways (+120px at 390px).
+           `clip` not `hidden` for the same reason as everywhere else — see Assets/site.css. */
+        html { overflow-x: hidden; overflow-x: clip; }
+        body { background: var(--bg); color: #fff; font-family: 'Inter', sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+        /* Was a flat 600px square — 210px wider than a 390px phone. It is a decorative glow, so
+           capping it at the viewport changes nothing visually and removes the overflow at source. */
+        body::before { content: ''; position: absolute; width: min(600px, 100vw); height: min(600px, 100vw); background: radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%); top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+        .error-code { font-family: 'Playfair Display', serif; font-size: clamp(8rem, 20vw, 16rem); font-weight: 700; letter-spacing: -0.02em; line-height: 1; background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.03) 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; position: relative; z-index: 1; user-select: none; }
+        .error-label { font-size: 0.85rem; font-weight: 600; letter-spacing: 0.3em; text-transform: uppercase; color: var(--accent); margin-top: 1rem; margin-bottom: 2rem; position: relative; z-index: 1; }
+        .error-desc { font-size: 1.1rem; color: rgba(255,255,255,0.45); max-width: 400px; text-align: center; line-height: 1.7; font-weight: 500; margin-bottom: 3rem; position: relative; z-index: 1; }
+        .back-btn { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #000; padding: 1rem 2.5rem; border: none; border-radius: 100px; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 0.9rem; letter-spacing: 0.15em; text-transform: uppercase; text-decoration: none; transition: transform 0.3s, box-shadow 0.3s; position: relative; z-index: 1; cursor: pointer; }
+        .back-btn:hover { transform: scale(1.05); box-shadow: 0 10px 40px rgba(167,139,250,0.2); }
+        .back-btn svg { transition: transform 0.3s; }
+        .back-btn:hover svg { transform: translateX(-3px); }
+        .brand { position: absolute; bottom: 3rem; font-family: 'Playfair Display', serif; font-size: 0.75rem; letter-spacing: 0.4em; text-transform: uppercase; color: rgba(255,255,255,0.15); }
+        .corner { position: absolute; width: 40px; height: 40px; border: 1px solid rgba(255,255,255,0.06); }
+        .corner-tl { top: 2rem; left: 2rem; border-right: none; border-bottom: none; }
+        .corner-tr { top: 2rem; right: 2rem; border-left: none; border-bottom: none; }
+        .corner-bl { bottom: 2rem; left: 2rem; border-right: none; border-top: none; }
+        .corner-br { bottom: 2rem; right: 2rem; border-left: none; border-top: none; }
+
+        /* --- Floating WhatsApp button --- */
+        #wa-float { position: fixed; bottom: calc(2.5rem + 54px + 0.75rem); right: 2.5rem; z-index: 500; width: 54px; height: 54px; border-radius: 50%; background: rgba(37,211,102,0.10); border: 1px solid rgba(37,211,102,0.35); color: #25d366; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); text-decoration: none; transition: background 0.3s, border-color 0.3s, transform 0.3s; }
+        #wa-float:hover { background: rgba(37,211,102,0.22); border-color: rgba(37,211,102,0.65); transform: scale(1.06); }
+        #wa-float svg { width: 26px; height: 26px; display: block; }
+        #wa-float::after { content: ''; position: absolute; inset: -3px; border-radius: 50%; border: 1px solid rgba(37,211,102,0.4); animation: waPulse 2.4s ease-out infinite; pointer-events: none; }
+        @keyframes waPulse { 0% { transform: scale(0.95); opacity: 0.7; } 100% { transform: scale(1.45); opacity: 0; } }
+        @media (max-width: 1024px) { #wa-float { bottom: calc(1.5rem + 54px + 0.75rem + env(safe-area-inset-bottom, 0px)); right: 1.5rem; } }
+        @media (prefers-reduced-motion: reduce) { #wa-float::after { animation: none; } }
+        /* Floating package-builder button. This page inlines all its CSS and does not load
+           Assets/site.css. It also declares ONLY --accent (#a78bfa) and uses Inter/Playfair rather
+           than the site's Rajdhani, so the colours and font here are literal instead of var()-based —
+           var(--accent-dim) and var(--font-body) do not exist on this page and would compute to
+           nothing. Slot 1: #wa-float sits at 2.5rem here because 404.html carries no #sound-toggle. */
+        #wt-calc-float{display:none!important;} /* WT-CALC-PAUSED — calculator off, see partials/feature-flags.php */
+        #wt-calc-float { position: fixed; bottom: 2.5rem; right: 2.5rem; z-index: 500; height: 54px; display: inline-flex; align-items: center; gap: 0.6rem; padding: 0 1.15rem; border-radius: 100px; background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.4); color: var(--accent); text-decoration: none; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-family: 'Inter', sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; transition: background 0.3s, border-color 0.3s, transform 0.3s, color 0.3s; }
+        #wt-calc-float:hover { background: rgba(167,139,250,0.24); border-color: var(--accent); color: #fff; transform: scale(1.04); }
+        #wt-calc-float:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+        #wt-calc-float svg { width: 20px; height: 20px; display: block; flex-shrink: 0; }
+        @media (max-width: 1024px) { #wt-calc-float { bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); right: 1.5rem; width: 54px; padding: 0; justify-content: center; gap: 0; } #wt-calc-float .wt-calc-label { display: none; } }
+        @media (prefers-reduced-motion: reduce) { #wt-calc-float:hover { transform: none; } }
+    </style>
+    <!-- Meta Pixel + CAPI dual-fire -->
+    <script>
+    !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    fbq('init', '31244315035216040');
+    (function(){
+      var id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'pv-'+Date.now()+'-'+Math.random().toString(36).slice(2);
+      fbq('track', 'PageView', { page_type: '404' }, { eventID: id });
+      try {
+        var body = JSON.stringify({ event_name:'PageView', event_id:id, event_time:Math.floor(Date.now()/1000), event_source_url:location.href, action_source:'website', custom_data:{ page_type:'404' }, user_data:{} });
+        var blob = new Blob([body], { type:'application/json' });
+        if (!navigator.sendBeacon || !navigator.sendBeacon('/api/track.php', blob)) {
+          fetch('/api/track.php', { method:'POST', headers:{'Content-Type':'application/json'}, body:blob, keepalive:true }).catch(function(){});
+        }
+      } catch(_){}
+    })();
+    </script>
+    <noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=31244315035216040&ev=PageView&noscript=1"/></noscript>
+    <!-- Google tag (gtag.js) — GA4. Independent of the Meta Pixel above ON PURPOSE: ad blockers
+         block Facebook far more often than Google, and wt-track.js used to return early when fbq
+         was missing, which would have silently taken GA4 down with it. See Assets/wt-track.js. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VFSLMX9BD4"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-VFSLMX9BD4');
+      // Google Ads destination on the SAME tag — one gtag.js load, two destinations. Adding the
+      // whole AW snippet Google hands you would pull gtag.js in a second time and double-fire
+      // every event. Declared explicitly rather than relying only on the destination link
+      // configured in the Ads UI, so the wiring is visible in the code that depends on it.
+      gtag('config', 'AW-312347350');
+
+      // This page must never produce a Google Ads CONVERSION. It carries the sitewide floating
+      // WhatsApp button, and a stale ad final URL lands here — so without this flag every paid click
+      // that reached nothing at all could still report a WhatsApp conversion to Smart Bidding.
+      //
+      // It has to be a flag rather than a path in wt-track.js's ADS_MUTED list. `.htaccess` serves
+      // this file with `ErrorDocument 404 /404.html`, an internal handler, so the browser URL stays
+      // whatever was requested: location.pathname on a real 404 is '/mistyped-thing', never '/404'.
+      // The old list entry therefore only matched someone typing /404.html by hand.
+      //
+      // GA4 and the Meta pixel still fire here. A 404 is real, useful data — it just is not a lead.
+      window.WT_ADS_MUTED = true;
+    </script>
+    <script src="/Assets/wt-track.js?v=2026-08-25a" defer></script>
+    <!-- End Meta Pixel + CAPI -->
+
+</head>
+<body>
+    <!-- Google Tag Manager (noscript) -->
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-W8BKMGHG"
+    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+    <!-- End Google Tag Manager (noscript) -->
+    <div class="corner corner-tl"></div>
+    <div class="corner corner-tr"></div>
+    <div class="corner corner-bl"></div>
+    <div class="corner corner-br"></div>
+
+    <div class="error-code">404</div>
+    <div class="error-label">Page Not Found</div>
+    <p class="error-desc">The page you're looking for doesn't exist or has been moved. Let's get you back on track.</p>
+    <a href="/" class="back-btn">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M12 8H4M4 8L8 4M4 8L8 12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to Home
+    </a>
+
+    <div class="brand">Web Tactics</div>
+
+    <!-- Package builder float, replicated by hand (standalone page, no partials). A visitor who
+         landed on a dead URL is exactly who benefits from something to do. -->
+    <a id="wt-calc-float" href="/estimate" class="interactable" aria-label="Build your package and see the price"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="2.5" width="16" height="19" rx="3" stroke="currentColor" stroke-width="1.6"/><path d="M8 7h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M8.5 11.5h.01M12 11.5h.01M15.5 11.5h.01M8.5 15h.01M12 15h.01M15.5 15h.01M8.5 18.5h.01M12 18.5h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span class="wt-calc-label">Build a package</span></a>
+
+    <a id="wa-float" href="https://wa.me/971509027130" target="_blank" rel="noopener" aria-label="Chat with us on WhatsApp">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19.05 4.91A9.82 9.82 0 0 0 12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38a9.9 9.9 0 0 0 4.74 1.21h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.91-7.01zM12.04 20.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.18 8.18 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23 2.2 0 4.27.86 5.83 2.42a8.19 8.19 0 0 1 2.41 5.82c0 4.54-3.7 8.23-8.24 8.23zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.16.25-.64.81-.79.97-.14.16-.29.18-.54.06-.25-.12-1.05-.39-2-1.23-.74-.66-1.24-1.47-1.39-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.16-.25.25-.41.08-.16.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.83-.2-.48-.4-.41-.56-.42h-.47c-.16 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.16 1.74 2.66 4.21 3.73.59.25 1.05.41 1.41.52.59.19 1.13.16 1.55.1.47-.07 1.47-.6 1.68-1.18.21-.59.21-1.09.14-1.18-.06-.1-.22-.16-.47-.28z"/></svg>
+    </a>
+</body>
+</html>
