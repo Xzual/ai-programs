@@ -31,12 +31,12 @@ class CryptoRuntimeController:
         self._last_observation_at = None
         self._current_symbol = None
         self._last_error = None
-        self._mode = "MARKET_DATA_AND_LLM"
+        self._mode = "PUBLIC_MARKET_DATA"
         self._last_market_data_available = None
         self.memory = MemoryManager()
         self.permissions = CoinPermissionManager()
         self.obsidian = ObsidianMarketExporter(
-            enabled=self.permissions.get_observer_config().get("obsidianExportEnabled")
+            enabled=CONFIG.CRYPTO_OBSIDIAN_ENABLED
         )
 
     def status(self) -> Dict[str, Any]:
@@ -54,9 +54,9 @@ class CryptoRuntimeController:
                 "tradingEnabled": False,
                 "paperTradingEnabled": False,
                 "liveTradingEnabled": False,
-                "ollamaAvailable": self.ollama_status().get("available", False),
+                "ollamaAvailable": False,
                 "marketDataAvailable": self._last_market_data_available,
-                "obsidianAvailable": self.obsidian.status().get("available") is True,
+                "obsidianAvailable": False,
                 "lastStartedAt": self._last_started_at,
                 "lastStoppedAt": self._last_stopped_at,
                 "lastObservationAt": self._last_observation_at or self._last_observation_from_db(),
@@ -67,6 +67,8 @@ class CryptoRuntimeController:
             }
 
     def start_observer(self) -> Dict[str, Any]:
+        if not CONFIG.CRYPTO_OLLAMA_ENABLED:
+            return {"ok": False, "code": "LEGACY_OBSERVER_DISABLED", "status": self.status()}
         with self._lock:
             if self._thread and self._thread.is_alive():
                 return {"ok": True, "message": "Observer already running", "status": self.status()}
@@ -144,6 +146,8 @@ class CryptoRuntimeController:
             self._last_market_data_available = True
 
     def ollama_status(self) -> Dict[str, Any]:
+        if not CONFIG.CRYPTO_OLLAMA_ENABLED:
+            return {"available": False, "status": "disabled", "feature": "ollama"}
         try:
             response = requests.get(f"{CONFIG.OLLAMA_HOST}/api/tags", timeout=2)
             return {

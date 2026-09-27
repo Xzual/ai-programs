@@ -17,6 +17,12 @@ export default defineConfig((): UserConfig => {
       },
     },
 
+    // Keep dependency discovery inside the EDITH app. The repository also
+    // contains archived/static HTML projects that are not Vite entry points.
+    optimizeDeps: {
+      entries: [path.resolve(__dirname, 'index.html')],
+    },
+
     // Tauri'nin backend ile çakışmaması için port 5173
     server: {
       // Tauri dev modunda host'u Tauri'nin beklediği adrese bağla
@@ -29,11 +35,23 @@ export default defineConfig((): UserConfig => {
         ? { protocol: 'ws', host, port: 5173 }
         : process.env.DISABLE_HMR !== 'true',
 
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      watch: process.env.DISABLE_HMR === 'true'
+        ? null
+        : {
+            ignored: [
+              '**/artifacts/**',
+              '**/crypto/data/**',
+              '**/crypto/logs/**',
+              '**/docs/**',
+              '**/scripts/**',
+              '**/.cursor/**',
+            ],
+          },
       proxy: {
         '/api': {
           target: 'http://localhost:3000',
           changeOrigin: true,
+          ws: true,
         },
       },
     },

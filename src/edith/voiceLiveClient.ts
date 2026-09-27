@@ -1,5 +1,6 @@
 import {
   EDITH_VOICE_ROOM_MODEL,
+  type VoiceRoomRuntimeStatus,
   type VoiceRoomState,
 } from './voiceRoomService';
 
@@ -16,7 +17,11 @@ export type VoiceLiveErrorCode =
   | 'audio_format_error'
   | 'network_error'
   | 'session_error'
-  | 'connector_not_implemented';
+  | 'connector_not_implemented'
+  | 'websocket_route_missing'
+  | 'backend_unavailable'
+  | 'websocket_upgrade_failed'
+  | 'gemini_live_unavailable';
 
 export type VoiceLiveClientEvent =
   | { type: 'session:start' }
@@ -38,6 +43,45 @@ export function voiceLiveSocketUrl(locationLike: Pick<Location, 'protocol' | 'ho
   return `${protocol}//${locationLike.host}/api/voice/live/ws`;
 }
 
+export function classifyVoiceSocketFailure(params: {
+  socketUrl: string;
+  closeCode?: number;
+  closeReason?: string;
+  opened: boolean;
+}): { code: VoiceLiveErrorCode; safeMessage: string } {
+  const reason = params.closeReason ? ` (${params.closeReason})` : '';
+
+  if (!params.opened) {
+    return {
+      code: params.socketUrl.includes(':5173/')
+        ? 'websocket_upgrade_failed'
+        : 'backend_unavailable',
+      safeMessage: params.socketUrl.includes(':5173/')
+        ? `Voice Room WebSocket upgrade failed through the Vite/Tauri dev proxy at ${params.socketUrl}.`
+        : `Voice Room backend WebSocket is unavailable at ${params.socketUrl}.`,
+    };
+  }
+
+  if (params.closeCode === 1006) {
+    return {
+      code: 'websocket_upgrade_failed',
+      safeMessage: `Voice Room WebSocket closed abnormally${reason}.`,
+    };
+  }
+
+  if (params.closeCode === 1008 || params.closeCode === 1011) {
+    return {
+      code: 'gemini_live_unavailable',
+      safeMessage: `Gemini Live socket session closed by backend${reason}.`,
+    };
+  }
+
+  return {
+    code: 'session_error',
+    safeMessage: `Voice Room socket closed${reason}.`,
+  };
+}
+
 export function parseVoiceLiveServerEvent(raw: string): VoiceLiveServerEvent | undefined {
   try {
     const event = JSON.parse(raw) as Partial<VoiceLiveServerEvent>;
@@ -53,6 +97,24 @@ export function parseVoiceLiveServerEvent(raw: string): VoiceLiveServerEvent | u
   } catch {
     return undefined;
   }
+}
+
+export function voiceRoomStateAfterServerStatus(
+  state: VoiceRoomState,
+  hasQueuedPlayback: boolean,
+): VoiceRoomState {
+  return state === 'idle' && hasQueuedPlayback ? 'speaking' : state;
+}
+
+export function voiceRoomRuntimeStatusAfterServerState(
+  state: VoiceRoomState,
+  current: VoiceRoomRuntimeStatus,
+): VoiceRoomRuntimeStatus {
+  if (state === 'connecting') return 'connecting';
+  if (state === 'disconnected') return 'offline';
+  if (state === 'error') return 'error';
+  if (state === 'idle' && current === 'connecting') return current;
+  return 'connected';
 }
 
 export function int16PcmToBase64(samples: Int16Array): string {

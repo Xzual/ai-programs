@@ -2,6 +2,7 @@ import type { ComputerActionKind, ComputerActionRequest, EdithRiskLevel, EdithTo
 import { appendAuditEvent, createAuditEvent } from './audit';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { permissionService } from './permissionService';
+import { computerUseStatus } from '../../server/routes/computerUse';
 
 const FORBIDDEN_PATTERNS = [
   /\b(delete|remove|rm\s+-rf|del\s+|erase|format)\b/i,
@@ -37,12 +38,25 @@ export class ComputerActionService {
     status: 'required' | 'blocked' | 'configuration_required';
     notes: string;
   }> {
+    const runtime = computerUseStatus();
+    const runtimeBound = runtime.runtime === 'tauri';
+    const active = runtime.status === 'ready';
     return [
       { name: 'OBSERVE', status: 'required', notes: 'Use read-only structured observation before selecting a target.' },
       { name: 'UNDERSTAND', status: 'required', notes: 'Classify target, intent, risk, and forbidden patterns.' },
       { name: 'PLAN', status: 'required', notes: 'Produce an explicit action plan with target and reason.' },
       { name: 'REQUEST_APPROVAL_IF_NEEDED', status: 'required', notes: 'Any mouse, keyboard, app, or window action needs scoped approval.' },
-      { name: 'ACT', status: 'configuration_required', notes: 'No local computer-control runtime adapter is bound.' },
+      {
+        name: 'ACT',
+        status: runtime.killSwitch ? 'blocked' : active ? 'required' : 'configuration_required',
+        notes: runtime.killSwitch
+          ? 'Emergency stop is active.'
+          : active
+            ? 'Owner-approved Tauri runtime is active; backend tools must hand the action to the desktop window.'
+            : runtimeBound
+              ? 'Tauri runtime is connected; local owner approval is required before actions.'
+              : 'No local computer-control runtime heartbeat is active.',
+      },
       { name: 'VERIFY', status: 'required', notes: 'Compare post-action evidence before reporting success.' },
       { name: 'REPORT', status: 'required', notes: 'Return audit id, result, and verification evidence.' },
     ];
@@ -122,16 +136,20 @@ export class ComputerActionService {
       };
     }
 
+    const runtime = computerUseStatus();
+    const runtimeBound = runtime.runtime === 'tauri';
     const audit = createAuditEvent({
       actor,
-      action: request.dryRun ? 'computer_action.dry_run' : 'computer_action.configuration_required',
+      action: request.dryRun ? 'computer_action.dry_run' : runtimeBound ? 'computer_action.tauri_handoff_required' : 'computer_action.configuration_required',
       toolId: 'computer_action',
       authorization: 'allowed',
       riskLevel,
       result: request.dryRun ? 'success' : 'error',
       message: request.dryRun
         ? `Dry-run accepted for ${request.action}.`
-        : 'No local computer-control runtime adapter is bound.',
+        : runtimeBound
+          ? 'The native runtime is connected, but backend tools cannot inject input; hand off to the owner-approved Tauri window.'
+          : 'No local computer-control runtime heartbeat is active.',
     });
     appendAuditEvent(audit);
 
@@ -139,12 +157,17 @@ export class ComputerActionService {
       success: Boolean(request.dryRun),
       toolId: 'computer_action',
       result: request.dryRun ? `Dry-run accepted for ${request.action}.` : undefined,
-      error: request.dryRun ? undefined : 'CONFIGURATION_REQUIRED: Computer action policy passed, but no local runtime adapter is bound.',
+      error: request.dryRun
+        ? undefined
+        : runtimeBound
+          ? 'TAURI_HANDOFF_REQUIRED: Continue this action in the owner-approved desktop window.'
+          : 'CONFIGURATION_REQUIRED: Computer action policy passed, but no local runtime heartbeat is active.',
       errorCode: request.dryRun ? undefined : 'TOOL_ERROR',
       auditEventId: audit.id,
       structuredOutput: {
         request,
-        verification: request.dryRun ? 'SCHEMA_AND_POLICY_ONLY' : 'RUNTIME_NOT_BOUND',
+        verification: request.dryRun ? 'SCHEMA_AND_POLICY_ONLY' : runtimeBound ? 'TAURI_HANDOFF_REQUIRED' : 'RUNTIME_NOT_BOUND',
+        computerUseStatus: runtime,
       },
     };
   }

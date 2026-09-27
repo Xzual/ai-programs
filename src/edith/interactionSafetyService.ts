@@ -6,6 +6,7 @@ import { computerActionService } from './computerActionService';
 import { killSwitchService } from './killSwitch';
 import { markLAdapterService } from './markLAdapter';
 import { permissionService } from './permissionService';
+import { computerUseStatus } from '../../server/routes/computerUse';
 
 export type ComputerUseMode = 'READ_ONLY' | 'SAFE_INTERACTION' | 'FULL_CONTROL' | 'PAUSED' | 'BLOCKED';
 export type BrowserUseMode = 'READ_ONLY' | 'SAFE_NAVIGATION' | 'FORM_FILLING_WITH_APPROVAL' | 'DOWNLOAD_WITH_APPROVAL';
@@ -104,9 +105,14 @@ export class InteractionSafetyService {
     const browserCapabilities = browserWorkflowService.capabilities();
     const markL = markLAdapterService.snapshot();
     const highRiskEnabled = permissionService.highRiskEnabled();
+    const computerRuntime = computerUseStatus();
     const computerMode: ComputerUseMode = killSwitchService.status().active
       ? 'BLOCKED'
-      : 'READ_ONLY';
+      : computerRuntime.ownerCommandMode
+        ? 'SAFE_INTERACTION'
+        : 'READ_ONLY';
+    const computerRuntimeBound = computerRuntime.runtime === 'tauri';
+    const computerActionsReady = computerRuntime.status === 'ready';
     const browserMode: BrowserUseMode = 'READ_ONLY';
     const policyWarning = policy.mode === 'full_access' || highRiskEnabled
       ? 'High-risk permission policy is elevated locally; EDITH interaction safety remains read-only until a scoped action approval/runtime binding exists.'
@@ -119,7 +125,7 @@ export class InteractionSafetyService {
       loop: ['OBSERVE', 'UNDERSTAND', 'PLAN', 'REQUEST_APPROVAL_IF_NEEDED', 'ACT', 'VERIFY', 'REPORT'],
       computer: {
         mode: computerMode,
-        runtimeBound: false,
+        runtimeBound: computerRuntimeBound,
         approvalRequired: true,
         permissionPolicyMode: policy.mode,
         policyWarning,
@@ -149,22 +155,24 @@ export class InteractionSafetyService {
         {
           id: 'vision_observe',
           area: 'vision',
-          status: 'partial',
-          mode: 'READ_ONLY',
+          status: computerRuntime.screenCapture === 'ready' ? 'real' : computerRuntimeBound ? 'partial' : 'stub',
+          mode: computerMode,
           riskLevel: 0,
           requiredPermissions: ['system:read'],
-          verification: 'Structured observation has readOnly=true and adapter honesty metadata.',
-          notes: 'Screenshot/OCR providers are not bound; supplied text can be observed safely.',
+          verification: computerRuntime.screenCapture === 'ready' ? 'Tauri native observation and screenshot commands are owner-session gated.' : 'Runtime status is reported without claiming an active screenshot session.',
+          notes: computerRuntimeBound
+            ? computerRuntime.safeMessage
+            : 'Screenshot/OCR providers are not bound; supplied text can be observed safely.',
         },
         {
           id: 'computer_action',
           area: 'computer',
-          status: 'blocked',
+          status: computerActionsReady ? 'real' : computerRuntimeBound ? 'partial' : 'blocked',
           mode: computerMode,
           riskLevel: 4,
           requiredPermissions: ['computer:control'],
           verification: 'Policy, kill switch, forbidden intent, audit, runtime-bound check.',
-          notes: 'No local computer-control runtime adapter is bound.',
+          notes: computerRuntimeBound ? 'Native actions are available only inside an owner-approved Tauri session; HTTP input injection remains blocked.' : 'No local computer-control runtime heartbeat is active.',
         },
         ...browserCapabilities.map((capability): InteractionCapabilityClassification => ({
           id: `browser_workflow.${capability.action}`,

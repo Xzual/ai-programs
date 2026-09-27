@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EDITH QA Decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["qa_status", "findings", "next_step"],
+  "properties": {
+    "qa_status": { "enum": ["accepted", "needs_fix", "blocked"] },
+    "findings": { "type": "array", "items": { "type": "string" } },
+    "next_step": { "type": "string" }
+  }
+}

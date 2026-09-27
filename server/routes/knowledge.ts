@@ -183,6 +183,21 @@ export function createKnowledgeRouter(): Router {
     res.json({ success: true, status: obsidianVaultService.status() });
   });
 
+  router.post("/api/edith/obsidian/vault", (req, res) => {
+    const address = req.socket.remoteAddress ?? "";
+    if (address !== "127.0.0.1" && address !== "::1" && address !== "::ffff:127.0.0.1") {
+      return res.status(403).json({ success: false, error: "Vault konumu yalnızca yerel bilgisayardan değiştirilebilir." });
+    }
+    if (typeof req.body?.parentPath !== "string" || !req.body.parentPath.trim()) {
+      return res.status(400).json({ success: false, error: "Klasör yolu gerekli." });
+    }
+    try {
+      res.json({ success: true, ...obsidianVaultService.configureVaultParent(req.body.parentPath) });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Vault oluşturulamadı." });
+    }
+  });
+
   router.get("/api/obsidian/recent", (_req, res) => {
     const status = obsidianVaultService.status();
     res.json({ success: true, events: status.recentEvents, status });

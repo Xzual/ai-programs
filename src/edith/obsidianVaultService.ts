@@ -3,6 +3,7 @@ import path from 'path';
 import type { FSWatcher } from 'fs';
 import type {
   EdithTask,
+  EdithRegisteredTool,
   KnowledgeGraphNodeType,
   KnowledgeSyncEvent,
   ObsidianNoteIndexRecord,
@@ -23,8 +24,11 @@ import {
   slugifyKnowledgeId,
 } from './obsidianParser';
 import { ragService } from './ragService';
+import type { EdithSkill } from './skillRegistry';
+import { workspaceManager } from './workspaceManager';
+import { EDITH_CORE_BEHAVIOR_PROTOCOL, EDITH_CORE_PROTOCOL_VERSION } from './coreBehaviorProtocol';
 
-const DEFAULT_VAULT_PATH = 'D:\\EDİTH\\EDİTH';
+const VAULT_FOLDER_NAME = 'E.D.İ.T.H';
 const NOTE_EXTENSIONS = new Set(['.md', '.canvas']);
 const RECENT_EDITH_WRITES = new Map<string, number>();
 
@@ -100,6 +104,15 @@ export interface ObsidianExportStatus {
   warnings: string[];
 }
 
+export interface ObsidianToolHealthLike {
+  toolId: string;
+  enabled: boolean;
+  message: string;
+  dependencies: string[];
+}
+
+export type ObsidianRegisteredToolLike = Pick<EdithRegisteredTool, 'id' | 'metadata'>;
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -119,7 +132,10 @@ function syncEvent(action: KnowledgeSyncEvent['action'], pathValue: string, sour
 
 export class ObsidianVaultService {
   private settings: ObsidianSettings = {
-    vaultPath: process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || DEFAULT_VAULT_PATH,
+    vaultPath: workspaceManager.getResolvedPaths()?.obsidianVaultPath
+      || process.env.OBSIDIAN_VAULT_PATH
+      || process.env.EDITH_OBSIDIAN_VAULT_PATH
+      || '',
     locked: true,
     enabled: process.env.EDITH_OBSIDIAN_ENABLED !== 'false',
     mode: this.normalizeMode(process.env.EDITH_OBSIDIAN_MODE),
@@ -138,6 +154,60 @@ export class ObsidianVaultService {
 
   getSettings(): ObsidianSettings {
     return { ...this.settings };
+  }
+
+  configureVaultParent(parentPath: string): { vaultPath: string; status: ObsidianStatus } {
+    if (!parentPath || !path.isAbsolute(parentPath)) throw new Error('Geçerli bir mutlak klasör yolu seçin.');
+    const parent = fs.realpathSync(parentPath);
+    if (!fs.statSync(parent).isDirectory()) throw new Error('Seçilen yol bir klasör olmalı.');
+    fs.accessSync(parent, fs.constants.W_OK);
+    const vaultPath = path.join(parent, VAULT_FOLDER_NAME);
+    if (fs.existsSync(vaultPath) && !fs.statSync(vaultPath).isDirectory()) {
+      throw new Error('Vault konumunda aynı isimli bir dosya var.');
+    }
+    fs.mkdirSync(path.join(vaultPath, '.obsidian'), { recursive: true });
+    for (const folder of requiredObsidianFolders()) fs.mkdirSync(path.join(vaultPath, folder), { recursive: true });
+    fs.mkdirSync(path.join(vaultPath, 'Trading', 'Crypto Market Learning'), { recursive: true });
+    fs.accessSync(vaultPath, fs.constants.W_OK);
+    const current = workspaceManager.getConfig();
+    workspaceManager.configure({
+      workspaceRoot: current?.workspaceRoot ?? parent,
+      obsidianVaultPath: vaultPath,
+      chatHistoryPath: current?.chatHistoryPath,
+      logsPath: current?.logsPath,
+      dataPath: current?.dataPath,
+      backupPath: current?.backupPath,
+      exportsPath: current?.exportsPath,
+      portableMode: current?.portableMode ?? false,
+      userId: current?.userId,
+      deviceId: current?.deviceId,
+    });
+    const configured = this.configureExistingVault(vaultPath);
+    this.audit('obsidian.vault_configure', vaultPath, 'success');
+    return configured;
+  }
+
+  configureExistingVault(vaultPath: string): { vaultPath: string; status: ObsidianStatus } {
+    if (!vaultPath || !path.isAbsolute(vaultPath)) throw new Error('Geçerli bir mutlak vault yolu seçin.');
+    const resolved = fs.realpathSync(vaultPath);
+    if (!fs.statSync(resolved).isDirectory()) throw new Error('Seçilen vault yolu bir klasör olmalı.');
+    fs.accessSync(resolved, fs.constants.R_OK);
+    if (this.settings.mode !== 'read_only') fs.accessSync(resolved, fs.constants.W_OK);
+    this.stopWatcher();
+    this.settings = { ...this.settings, vaultPath: resolved };
+    this.reindex();
+    this.startWatcher();
+    return { vaultPath: resolved, status: this.status() };
+  }
+
+  applyWorkspaceConfig(): ObsidianStatus {
+    const vaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath ?? '';
+    if (!vaultPath) {
+      this.stopWatcher();
+      this.settings = { ...this.settings, vaultPath: '' };
+      return this.status();
+    }
+    return this.configureExistingVault(vaultPath).status;
   }
 
   updateSettings(input: Partial<Pick<ObsidianSettings, 'syncEnabled' | 'watchEnabled' | 'debounceMs'>>): ObsidianSettings {
@@ -235,9 +305,11 @@ export class ObsidianVaultService {
     if (!this.settings.enabled) {
       return { success: false, indexed: 0, errors: ['Obsidian integration is disabled.'], status: this.status() };
     }
-    const structure = this.ensureVaultStructure();
-    if (!structure.exported && structure.errorCode !== 'EXPORT_SUCCESS') {
-      return { success: false, indexed: 0, errors: [structure.errorMessage ?? structure.errorCode], status: this.status() };
+    if (!this.settings.vaultPath.trim() || !fs.existsSync(this.settings.vaultPath)) {
+      return { success: false, indexed: 0, errors: ['Obsidian vault path is missing or unavailable.'], status: this.status() };
+    }
+    if (!this.canAccess(this.settings.vaultPath, fs.constants.R_OK)) {
+      return { success: false, indexed: 0, errors: ['Obsidian vault is not readable.'], status: this.status() };
     }
     const files = this.walkVault();
     const errors: string[] = [];
@@ -284,19 +356,140 @@ export class ObsidianVaultService {
     return result.notePath ?? '';
   }
 
+  writeSkillRegistryNotes(
+    skills: EdithSkill[],
+    tools: ObsidianRegisteredToolLike[] = [],
+    toolHealth: ObsidianToolHealthLike[] = [],
+  ): ObsidianExportStatus[] {
+    const current = this.status();
+    if (!current.obsidianEnabled || !current.vaultExists || !current.writable) return [];
+    const links = '[[E.D.I.T.H. Index]] · [[E.D.I.T.H. Knowledge Backbone]] · [[Skills Index]] · [[Tools Index]]';
+    const noteTitle = (skill: EdithSkill) => `${skill.name.split(/\s*\/\s*/)[0]} Skill`;
+    const toolTitle = (tool: ObsidianRegisteredToolLike) => `${normalizeKnowledgeTitle(tool.metadata.name).replace(/[<>:"/\\|?*]/g, '-')} Tool`;
+    const bullets = (values: string[], empty = 'none') => values.length ? values.map((value) => `- ${value}`).join('\n') : `- ${empty}`;
+    const healthById = new Map(toolHealth.map((entry) => [entry.toolId, entry]));
+    const skillState = (id: EdithSkill['id']) => skills.find((skill) => skill.id === id)?.status ?? 'unavailable';
+    const generatedPage = (
+      pagePath: string,
+      title: string,
+      parent: string,
+      body: string,
+      generated = 'knowledge_backbone',
+      type: KnowledgeGraphNodeType = 'System',
+      tags: string[] = ['edith/knowledge-backbone'],
+    ) => ({ path: pagePath, title, parent, body, generated, type, tags });
+    const backbonePages = [
+      generatedPage('E.D.I.T.H/E.D.I.T.H. Knowledge Backbone.md', 'E.D.I.T.H. Knowledge Backbone', 'E.D.I.T.H. Index', [
+        '# E.D.I.T.H. Knowledge Backbone', '', '[[E.D.I.T.H. Index]]', '',
+        '## Registries', '- [[Skills Index]]', '- [[Tools Index]]', '- [[Capability Registry]]', '',
+        '## Knowledge Domains', '- [[Projects Index]]', '- [[Tasks Index]]', '- [[Memory Index]]', '- [[Conversations Index]]',
+        '- [[Decisions Index]]', '- [[Workflows Index]]', '- [[Research Index]]', '- [[People Index]]', '- [[Organizations Index]]', '- [[Computer Use Index]]', '- [[Voice Index]]', '- [[System Index]]',
+        ...(skillState('crypto_demo_exchange') === 'ready' || skillState('crypto_demo_exchange') === 'degraded' ? ['- [[Crypto Metadata Index]]'] : []), '',
+        'Executable capability is defined by the E.D.I.T.H. code registries. These notes document that truth and never grant tool authority.', '',
+      ].join('\n')),
+      generatedPage('Projects/Projects Index.md', 'Projects Index', 'E.D.I.T.H. Knowledge Backbone', '# Projects Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Tasks Index]] · [[Decisions Index]]\n\nLocal project knowledge and generated project summaries.\n', 'knowledge_backbone', 'Project', ['edith/index', 'edith/project']),
+      generatedPage('Tasks/Tasks Index.md', 'Tasks Index', 'E.D.I.T.H. Knowledge Backbone', '# Tasks Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Projects Index]] · [[Workflows Index]]\n\nDurable E.D.I.T.H. task notes and outcomes.\n', 'knowledge_backbone', 'Task', ['edith/index', 'edith/task']),
+      generatedPage('Memory/Memory Index.md', 'Memory Index', 'E.D.I.T.H. Knowledge Backbone', '# Memory Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Conversations Index]]\n\nNon-sensitive local memory notes generated by E.D.I.T.H.\n', 'knowledge_backbone', 'Memory', ['edith/index', 'edith/memory']),
+      generatedPage('Conversations/Conversations Index.md', 'Conversations Index', 'E.D.I.T.H. Knowledge Backbone', '# Conversations Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Memory Index]] · [[Decisions Index]]\n\nCompact conversation summaries, not raw prompt archives.\n', 'knowledge_backbone', 'Conversation', ['edith/index', 'edith/conversation']),
+      generatedPage('Decisions/Decisions Index.md', 'Decisions Index', 'E.D.I.T.H. Knowledge Backbone', '# Decisions Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Projects Index]] · [[Workflows Index]]\n\nAuditable decisions, rationale, confidence, and outcomes.\n', 'knowledge_backbone', 'Decision', ['edith/index', 'edith/decision']),
+      generatedPage('Workflows/Workflows Index.md', 'Workflows Index', 'E.D.I.T.H. Knowledge Backbone', '# Workflows Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Tasks Index]] · [[Tools Index]]\n\nWorkflow documentation. A note does not authorize execution.\n', 'knowledge_backbone', 'Automation', ['edith/index', 'edith/workflow']),
+      generatedPage('Research/Research Index.md', 'Research Index', 'E.D.I.T.H. Knowledge Backbone', '# Research Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Projects Index]]\n\nResearch summaries with sources and uncertainty.\n', 'knowledge_backbone', 'Note', ['edith/index', 'edith/research']),
+      generatedPage('People/People Index.md', 'People Index', 'E.D.I.T.H. Knowledge Backbone', '# People Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Organizations Index]] · [[Projects Index]]\n\nPeople referenced by local projects and knowledge.\n', 'knowledge_backbone', 'Person', ['edith/index', 'edith/person']),
+      generatedPage('Organizations/Organizations Index.md', 'Organizations Index', 'E.D.I.T.H. Knowledge Backbone', '# Organizations Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[People Index]] · [[Projects Index]]\n\nOrganizations referenced by local projects and knowledge.\n', 'knowledge_backbone', 'Organization', ['edith/index', 'edith/organization']),
+      generatedPage('Computer Use/Computer Use Index.md', 'Computer Use Index', 'E.D.I.T.H. Knowledge Backbone', `# Computer Use Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Tools Index]] · [[System Index]]\n\nRegistry status: ${skillState('computer_use')}\n\nComputer actions remain permission-gated and auditable.\n`, 'knowledge_backbone', 'System', ['edith/index', 'edith/computer-use']),
+      generatedPage('Voice/Voice Index.md', 'Voice Index', 'E.D.I.T.H. Knowledge Backbone', `# Voice Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[System Index]]\n\nRegistry status: ${skillState('voice_room')}\n\nVoice uses the same E.D.I.T.H. Core Behavior Protocol and capability truth as text.\n`, 'knowledge_backbone', 'System', ['edith/index', 'edith/voice']),
+      generatedPage('System/System Index.md', 'System Index', 'E.D.I.T.H. Knowledge Backbone', '# System Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[Capability Registry]] · [[Core Behavior Protocol]]\n\nLocal system knowledge, status, policy, and protocol documentation.\n', 'knowledge_backbone', 'System', ['edith/index', 'edith/system']),
+      generatedPage('E.D.I.T.H/System/Core Behavior Protocol.md', 'Core Behavior Protocol', 'System Index', `# E.D.I.T.H. Core Behavior Protocol\n\n[[System Index]] · [[Capability Registry]]\n\nVersion: ${EDITH_CORE_PROTOCOL_VERSION}\n\n\`\`\`text\n${EDITH_CORE_BEHAVIOR_PROTOCOL}\n\`\`\`\n`, 'core_protocol', 'System', ['edith/system', 'edith/protocol']),
+      ...(skillState('crypto_demo_exchange') === 'ready' || skillState('crypto_demo_exchange') === 'degraded'
+        ? [generatedPage('Trading/Crypto Metadata Index.md', 'Crypto Metadata Index', 'E.D.I.T.H. Knowledge Backbone', `# Crypto Metadata Index\n\n[[E.D.I.T.H. Knowledge Backbone]] · [[System Index]]\n\nRegistry status: ${skillState('crypto_demo_exchange')}\n\nDemo-only metadata and learning notes. No real-money authority is granted here.\n`, 'knowledge_backbone', 'Trade', ['edith/index', 'edith/trading', 'crypto-metadata'])]
+        : []),
+    ];
+    const pages = [
+      ...backbonePages,
+      generatedPage('E.D.I.T.H/Skills/Skills Index.md', 'Skills Index', 'E.D.I.T.H. Knowledge Backbone', `# Skills Index\n\n${links}\n\nCode registry is authoritative.\n\n${skills.map((skill) => `- [[${noteTitle(skill)}|${skill.name}]] - ${skill.status}`).join('\n')}\n`, 'skill_registry', 'System', ['edith/index', 'edith/skill-registry']),
+      ...skills.map((skill) => ({
+        path: `E.D.I.T.H/Skills/${noteTitle(skill)}.md`, title: noteTitle(skill), parent: 'Skills Index', generated: 'skill_registry', type: 'System' as KnowledgeGraphNodeType, tags: ['edith/skill-registry', `edith/skill/${skill.id}`],
+        body: [
+          `# ${skill.name}`,
+          '',
+          links,
+          '',
+          `Status: ${skill.status}`,
+          `Readiness: ${skill.readiness.level} - ${skill.readiness.reason}`,
+          `Risk: ${skill.riskLevel}`,
+          `Last checked: ${skill.lastChecked}`,
+          '',
+          skill.description,
+          '',
+          '## Capabilities',
+          bullets(skill.capabilities, 'No operational capability is currently registered.'),
+          '',
+          '## Limitations',
+          bullets(skill.limitations),
+          '',
+          '## Permissions',
+          bullets(skill.requiredPermissions),
+          '',
+          '## Required Config',
+          bullets(skill.requiredConfig),
+          '',
+          '## Endpoints',
+          bullets(skill.relatedEndpoints),
+          '',
+          '## Safety',
+          bullets(skill.safetyNotes),
+          '',
+          '## Source Of Truth',
+          bullets(skill.sourceOfTruth),
+          '',
+        ].join('\n'),
+      })),
+      generatedPage('E.D.I.T.H/Tools/Tools Index.md', 'Tools Index', 'E.D.I.T.H. Knowledge Backbone', `# Tools Index\n\n${links}\n\nCode registry is authoritative. Tool execution remains permission-gated.\n\n${tools.length ? tools.map((tool) => `- [[${toolTitle(tool)}|${tool.metadata.name}]] - ${healthById.get(tool.id)?.enabled ? 'ready' : 'blocked/degraded'}`).join('\n') : '- No tool snapshot supplied.'}\n`, 'tool_registry', 'Tool', ['edith/index', 'edith/tool-registry']),
+      ...tools.map((tool) => {
+        const health = healthById.get(tool.id);
+        return {
+          path: `E.D.I.T.H/Tools/${toolTitle(tool)}.md`, title: toolTitle(tool), parent: 'Tools Index', generated: 'tool_registry', type: 'Tool' as KnowledgeGraphNodeType, tags: ['edith/tool-registry', `edith/tool/${tool.id}`],
+          body: [
+            `# ${tool.metadata.name}`, '', '[[Tools Index]] · [[Capability Registry]] · [[E.D.I.T.H. Knowledge Backbone]]', '',
+            `Tool ID: ${tool.id}`, `Runtime status: ${health?.enabled ? 'ready' : 'blocked/degraded'}`, `Risk: ${tool.metadata.riskLevel}`,
+            `Supports rollback: ${tool.metadata.supportsRollback}`, '', tool.metadata.description, '',
+            '## Permissions', bullets(tool.metadata.requiredPermissions), '', '## Dependencies', bullets(health?.dependencies ?? tool.metadata.dependencies), '',
+            '## Runtime Evidence', `- ${health?.message ?? 'Registered in the E.D.I.T.H. code tool registry; live health was not supplied.'}`, '',
+          ].join('\n'),
+        };
+      }),
+      generatedPage('E.D.I.T.H/System/Capability Registry.md', 'Capability Registry', 'System Index', `# Capability Registry\n\n${links}\n\nChecked: ${new Date().toISOString()}\n\n${skills.map((skill) => `- [[${noteTitle(skill)}|${skill.name}]]: ${skill.status}`).join('\n')}\n`, 'skill_registry', 'System', ['edith/system', 'edith/capability-registry']),
+    ];
+    return pages.map((page) => {
+      const absolute = this.absolutePathFor(page.path);
+      if (fs.existsSync(absolute)) {
+        const properties = parseFrontmatter(fs.readFileSync(absolute, 'utf8')).properties;
+        if (properties.edith_generated !== page.generated) {
+          return { ...this.skippedExport(path.dirname(page.path), 'WRITE_FAILED', 'Existing non-registry note was preserved.'), notePath: page.path };
+        }
+      }
+      return this.writeEntityNoteStatus(page.path, {
+        edith_generated: page.generated, edith_type: page.type, title: page.title,
+        edith_parent: page.parent, tags: page.tags,
+      }, page.body, false, true);
+    });
+  }
+
   writeMemoryNoteResult(memory: MemoryItem): ObsidianExportStatus {
     const title = normalizeKnowledgeTitle(memory.key);
     const relativePath = `Memory/${slugifyKnowledgeId(`${memory.id}-${title}`)}.md`;
     const body = memory.content ?? memory.value;
     return this.writeEntityNoteStatus(relativePath, {
+      edith_generated: 'entity_note',
       edith_entity_id: `memory:${memory.id}`,
       edith_type: 'Memory',
       edith_source: 'memory',
       title,
       tags: ['edith/memory', memory.category],
       aliases: [memory.key],
+      edith_parent: 'Memory Index',
       edith_sync_marker: `edith-${Date.now()}`,
-    }, `# ${title}\n\n${body}\n`);
+    }, `# ${title}\n\n[[Memory Index]] · [[E.D.I.T.H. Knowledge Backbone]]\n\n${body}\n`);
   }
 
   writeTaskNote(task: EdithTask): string {
@@ -311,6 +504,8 @@ export class ObsidianVaultService {
     const body = [
       `# ${title}`,
       '',
+      '[[Tasks Index]] · [[Projects Index]] · [[E.D.I.T.H. Knowledge Backbone]]',
+      '',
       `Objective: ${task.objective}`,
       '',
       `Status: ${task.status}`,
@@ -324,12 +519,14 @@ export class ObsidianVaultService {
       '',
     ].join('\n');
     return this.writeEntityNoteStatus(relativePath, {
+      edith_generated: 'entity_note',
       edith_entity_id: `task:${task.id}`,
       edith_type: 'Task',
       edith_source: 'task',
       title,
       status: task.status,
       tags: ['edith/task'],
+      edith_parent: 'Tasks Index',
       edith_sync_marker: `edith-${Date.now()}`,
     }, body);
   }
@@ -349,31 +546,37 @@ export class ObsidianVaultService {
     };
     const relativePath = `${folderByKind[input.kind]}/${slugifyKnowledgeId(`${Date.now()}-${input.title}`)}.md`;
     return this.writeEntityNoteStatus(relativePath, {
+      edith_generated: 'entity_note',
       edith_entity_id: `agent-output:${input.agentId}:${Date.now()}`,
       edith_type: input.kind === 'trading' ? 'Trade' : 'Note',
       edith_source: 'agent',
       title: input.title,
       tags: [`edith/agent/${input.kind}`],
+      edith_parent: input.kind === 'trading' ? 'Crypto Metadata Index' : input.kind === 'meeting' ? 'Conversations Index' : 'Research Index',
       edith_agent_id: input.agentId,
       edith_sync_marker: `edith-${Date.now()}`,
-    }, `# ${input.title}\n\n${input.body}\n`);
+    }, `# ${input.title}\n\n[[${input.kind === 'trading' ? 'Crypto Metadata Index' : input.kind === 'meeting' ? 'Conversations Index' : 'Research Index'}]] · [[E.D.I.T.H. Knowledge Backbone]]\n\n${input.body}\n`);
   }
 
   writeConversationSummary(input: { title?: string; summary: string; assistantPersona?: string; provider?: string; model?: string; tasks?: string[]; followUps?: string[] }): ObsidianExportStatus {
     const date = new Date().toISOString().slice(0, 10);
     const title = normalizeKnowledgeTitle(input.title ?? `${date} - Conversation Summary`);
     return this.writeEntityNoteStatus(`Conversations/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note',
       edith_entity_id: `conversation:${slugifyKnowledgeId(title)}`,
       edith_type: 'Conversation',
       edith_source: 'edith',
       title,
       tags: ['edith/conversation'],
+      edith_parent: 'Conversations Index',
       assistant: input.assistantPersona ?? 'E.D.I.T.H.',
       provider: input.provider,
       model: input.model,
       edith_sync_marker: `edith-${Date.now()}`,
     }, [
       `# ${title}`,
+      '',
+      '[[Conversations Index]] · [[Memory Index]] · [[Decisions Index]]',
       '',
       `Date: ${date}`,
       `Assistant: ${input.assistantPersona ?? 'E.D.I.T.H.'}`,
@@ -395,14 +598,18 @@ export class ObsidianVaultService {
   writeProjectSummary(input: { title: string; overview: string; decisions?: string[]; roadmap?: string[]; risks?: string[] }): ObsidianExportStatus {
     const title = normalizeKnowledgeTitle(input.title);
     return this.writeEntityNoteStatus(`Projects/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note',
       edith_entity_id: `project:${slugifyKnowledgeId(title)}`,
       edith_type: 'Project',
       edith_source: 'edith',
       title,
       tags: ['edith/project'],
+      edith_parent: 'Projects Index',
       edith_sync_marker: `edith-${Date.now()}`,
     }, [
       `# ${title}`,
+      '',
+      '[[Projects Index]] · [[Tasks Index]] · [[Decisions Index]]',
       '',
       '## Overview',
       input.overview,
@@ -422,14 +629,18 @@ export class ObsidianVaultService {
   writeResearchNote(input: { topic: string; summary: string; sources?: string[]; uncertainty?: string; questions?: string[] }): ObsidianExportStatus {
     const title = normalizeKnowledgeTitle(input.topic);
     return this.writeEntityNoteStatus(`Research/${slugifyKnowledgeId(`${Date.now()}-${title}`)}.md`, {
+      edith_generated: 'entity_note',
       edith_entity_id: `research:${Date.now()}:${slugifyKnowledgeId(title)}`,
       edith_type: 'Note',
       edith_source: 'edith',
       title,
       tags: ['edith/research'],
+      edith_parent: 'Research Index',
       edith_sync_marker: `edith-${Date.now()}`,
     }, [
       `# ${title}`,
+      '',
+      '[[Research Index]] · [[Projects Index]] · [[E.D.I.T.H. Knowledge Backbone]]',
       '',
       '## Summary',
       input.summary,
@@ -450,14 +661,18 @@ export class ObsidianVaultService {
     const title = normalizeKnowledgeTitle(input.name);
     const folder = input.kind === 'person' ? 'People' : 'Organizations';
     return this.writeEntityNoteStatus(`${folder}/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note',
       edith_entity_id: `${input.kind}:${slugifyKnowledgeId(title)}`,
       edith_type: input.kind === 'person' ? 'Person' : 'Organization',
       edith_source: 'edith',
       title,
       tags: [`edith/${input.kind}`],
+      edith_parent: input.kind === 'person' ? 'People Index' : 'Organizations Index',
       edith_sync_marker: `edith-${Date.now()}`,
     }, [
       `# ${title}`,
+      '',
+      `[[${input.kind === 'person' ? 'People Index' : 'Organizations Index'}]] · [[Projects Index]]`,
       '',
       '## Context',
       input.context,
@@ -475,15 +690,19 @@ export class ObsidianVaultService {
     const date = new Date().toISOString().slice(0, 10);
     const title = normalizeKnowledgeTitle(input.title ?? `${date} - Crypto Market Learning`);
     return this.writeEntityNoteStatus(`Trading/Crypto Market Learning/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note',
       edith_entity_id: `crypto-learning:${slugifyKnowledgeId(title)}`,
       edith_type: 'Trade',
       edith_source: 'edith',
       title,
       tags: ['edith/trading', 'crypto-learning'],
+      edith_parent: 'Crypto Metadata Index',
       symbol: input.symbol,
       edith_sync_marker: `edith-${Date.now()}`,
     }, [
       `# ${title}`,
+      '',
+      '[[Crypto Metadata Index]] · [[E.D.I.T.H. Knowledge Backbone]]',
       '',
       input.symbol ? `Symbol: ${input.symbol}` : '',
       '',
@@ -494,6 +713,95 @@ export class ObsidianVaultService {
       ...(input.observations?.length ? input.observations.map((item) => `- ${item}`) : ['- None recorded']),
       '',
     ].filter((line) => line !== '').join('\n'), true);
+  }
+
+  writeDecisionNote(input: {
+    title: string;
+    decision: string;
+    rationale: string;
+    confidence?: number;
+    project?: string;
+    alternatives?: string[];
+    outcome?: string;
+  }): ObsidianExportStatus {
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`Decisions/${slugifyKnowledgeId(`${Date.now()}-${title}`)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `decision:${Date.now()}:${slugifyKnowledgeId(title)}`,
+      edith_type: 'Decision', edith_source: 'edith', edith_parent: 'Decisions Index', title,
+      tags: ['edith/decision'], confidence: input.confidence, project: input.project,
+      edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[Decisions Index]] · [[Projects Index]] · [[Workflows Index]]', '',
+      input.project ? `Project: [[${input.project}]]` : '', input.confidence !== undefined ? `Confidence: ${input.confidence}` : '', '',
+      '## Decision', input.decision, '', '## Rationale', input.rationale, '', '## Alternatives',
+      ...(input.alternatives?.length ? input.alternatives.map((item) => `- ${item}`) : ['- None recorded']), '',
+      '## Outcome', input.outcome ?? 'Pending.', '',
+    ].filter((line) => line !== '').join('\n'));
+  }
+
+  writeWorkflowNote(input: { title: string; summary: string; steps: string[]; toolIds?: string[]; status?: string }): ObsidianExportStatus {
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`Workflows/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `workflow:${slugifyKnowledgeId(title)}`,
+      edith_type: 'Automation', edith_source: 'edith', edith_parent: 'Workflows Index', title,
+      status: input.status ?? 'documented', tags: ['edith/workflow'], edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[Workflows Index]] · [[Tasks Index]] · [[Tools Index]]', '', input.summary, '',
+      '## Steps', ...input.steps.map((step, index) => `${index + 1}. ${step}`), '', '## Tools',
+      ...(input.toolIds?.length ? input.toolIds.map((toolId) => `- [[Tools Index]] / \`${toolId}\``) : ['- None recorded']), '',
+      'Execution remains controlled by the code registry and permission policy.', '',
+    ].join('\n'));
+  }
+
+  writeComputerUseNote(input: { title: string; summary: string; actions?: string[]; verification?: string; status?: string }): ObsidianExportStatus {
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`Computer Use/${slugifyKnowledgeId(`${Date.now()}-${title}`)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `computer-use:${Date.now()}:${slugifyKnowledgeId(title)}`,
+      edith_type: 'System', edith_source: 'computer-use', edith_parent: 'Computer Use Index', title,
+      status: input.status ?? 'recorded', tags: ['edith/computer-use'], edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[Computer Use Index]] · [[Tools Index]] · [[System Index]]', '', input.summary, '',
+      '## Actions', ...(input.actions?.length ? input.actions.map((action) => `- ${action}`) : ['- None recorded']), '',
+      '## Verification', input.verification ?? 'Not recorded.', '',
+    ].join('\n'));
+  }
+
+  writeVoiceNote(input: { title: string; summary: string; sessionStatus?: string; decisions?: string[] }): ObsidianExportStatus {
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`Voice/${slugifyKnowledgeId(`${Date.now()}-${title}`)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `voice:${Date.now()}:${slugifyKnowledgeId(title)}`,
+      edith_type: 'System', edith_source: 'voice', edith_parent: 'Voice Index', title,
+      status: input.sessionStatus ?? 'recorded', tags: ['edith/voice'], edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[Voice Index]] · [[Conversations Index]] · [[Core Behavior Protocol]]', '', input.summary, '',
+      '## Decisions', ...(input.decisions?.length ? input.decisions.map((decision) => `- ${decision}`) : ['- None recorded']), '',
+    ].join('\n'));
+  }
+
+  writeSystemNote(input: { title: string; summary: string; status?: string; links?: string[] }): ObsidianExportStatus {
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`System/${slugifyKnowledgeId(title)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `system:${slugifyKnowledgeId(title)}`,
+      edith_type: 'System', edith_source: 'edith', edith_parent: 'System Index', title,
+      status: input.status ?? 'recorded', tags: ['edith/system'], edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[System Index]] · [[Capability Registry]] · [[Core Behavior Protocol]]', '', input.summary, '',
+      '## Related', ...(input.links?.length ? input.links.map((link) => `- [[${link}]]`) : ['- [[E.D.I.T.H. Knowledge Backbone]]']), '',
+    ].join('\n'));
+  }
+
+  writeCryptoMetadataNote(input: { enabled: boolean; title: string; summary: string; facts?: string[] }): ObsidianExportStatus {
+    if (!input.enabled) return this.skippedExport('Trading', 'OBSIDIAN_DISABLED', 'Crypto metadata export is disabled.');
+    const title = normalizeKnowledgeTitle(input.title);
+    return this.writeEntityNoteStatus(`Trading/Crypto Metadata/${slugifyKnowledgeId(`${Date.now()}-${title}`)}.md`, {
+      edith_generated: 'entity_note', edith_entity_id: `crypto-metadata:${Date.now()}:${slugifyKnowledgeId(title)}`,
+      edith_type: 'Trade', edith_source: 'crypto-metadata', edith_parent: 'Crypto Metadata Index', title,
+      tags: ['edith/trading', 'crypto-metadata'], edith_sync_marker: `edith-${Date.now()}`,
+    }, [
+      `# ${title}`, '', '[[Crypto Metadata Index]] · [[System Index]]', '', input.summary, '',
+      '## Facts', ...(input.facts?.length ? input.facts.map((fact) => `- ${fact}`) : ['- None recorded']), '',
+      'Metadata only. No real-money execution authority.', '',
+    ].join('\n'));
   }
 
   private ingestMarkdown(relativePath: string, absolutePath: string, stat: fs.Stats): void {
@@ -606,7 +914,7 @@ export class ObsidianVaultService {
     return result.notePath ?? relativePath;
   }
 
-  private writeEntityNoteStatus(relativePath: string, frontmatter: Record<string, unknown>, body: string, append = false): ObsidianExportStatus {
+  private writeEntityNoteStatus(relativePath: string, frontmatter: Record<string, unknown>, body: string, append = false, replaceExisting = false): ObsidianExportStatus {
     const structure = this.ensureVaultStructure();
     const folder = this.normalizeRelativePath(relativePath).split('/').slice(0, -1).join('/') || '.';
     if (!structure.exported && structure.errorCode !== 'EXPORT_SUCCESS') {
@@ -623,7 +931,7 @@ export class ObsidianVaultService {
       if (existed) {
         const parsed = parseFrontmatter(fs.readFileSync(absolutePath, 'utf8'));
         existingProperties = parsed.properties;
-        existingBody = append
+        existingBody = replaceExisting ? scan.content : append
           ? `${parsed.body.trimEnd()}\n\n${scan.content.trim()}`
           : parsed.body.trim() ? parsed.body : scan.content;
       } else {
@@ -814,27 +1122,37 @@ export class ObsidianVaultService {
       'This note is maintained by E.D.I.T.H. as a safe index into the local Obsidian vault.',
       '',
       '## Vault',
-      '- [[Memory]]',
-      '- [[Projects]]',
-      '- [[Tasks]]',
-      '- [[Research]]',
-      '- [[Conversations]]',
-      '- [[Trading]]',
-      '- [[People]]',
-      '- [[Organizations]]',
-      '- [[Meetings]]',
+      '- [[E.D.I.T.H. Knowledge Backbone]]',
+      '- [[Skills Index]]',
+      '- [[Tools Index]]',
+      '- [[Projects Index]]',
+      '- [[Tasks Index]]',
+      '- [[Memory Index]]',
+      '- [[Conversations Index]]',
+      '- [[Decisions Index]]',
+      '- [[Workflows Index]]',
+      '- [[Research Index]]',
+      '- [[People Index]]',
+      '- [[Organizations Index]]',
+      '- [[Computer Use Index]]',
+      '- [[Voice Index]]',
+      '- [[System Index]]',
       '',
     ].join('\n');
     const properties = serializeFrontmatter({
       edith_entity_id: 'system:edith-index',
       edith_type: 'Note',
       edith_source: 'edith',
+      edith_generated: 'knowledge_backbone',
       title: 'E.D.I.T.H. Index',
       tags: ['edith/index', 'edith/knowledge-map'],
       edith_updated_at: now(),
     });
-    const content = existing.trim()
-      ? `${properties}${parseFrontmatter(existing).body.trimEnd()}\n`
+    const parsedExisting = existing.trim() ? parseFrontmatter(existing) : null;
+    const isGeneratedIndex = parsedExisting?.properties.edith_generated === 'knowledge_backbone'
+      || parsedExisting?.properties.edith_entity_id === 'system:edith-index';
+    const content = parsedExisting && !isGeneratedIndex
+      ? `${properties}${parsedExisting.body.trimEnd()}\n`
       : `${properties}${body}`;
     fs.writeFileSync(absolutePath, content, 'utf8');
     RECENT_EDITH_WRITES.set(relativePath, Date.now());

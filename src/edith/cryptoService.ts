@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { appendAuditEvent, createAuditEvent } from './audit';
+import { workspaceManager } from './workspaceManager';
 
 export interface CryptoAgentStatus {
   dashboardUrl: string;
@@ -28,8 +29,8 @@ export interface CryptoAgentStatus {
 const DASHBOARD_URL = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || 'http://localhost:5000';
 const PROJECT_PATH = process.env.EDITH_CRYPTO_PROJECT_PATH || path.join(process.cwd(), 'crypto');
 const SCRIPT_PATH = path.join(PROJECT_PATH, 'run_agent.py');
-const LOG_PATH = path.join(PROJECT_PATH, 'logs', 'edith-autostart.log');
-const DEFAULT_OBSIDIAN_VAULT_PATH = 'D:\\EDİTH\\EDİTH';
+const LOG_PATH = process.env.EDITH_CRYPTO_LOG_PATH
+  || path.join(workspaceManager.getResolvedPaths()?.logsPath ?? path.join(PROJECT_PATH, 'logs'), 'crypto', 'edith-autostart.log');
 
 function resolvePythonPath(): string {
   if (process.env.EDITH_CRYPTO_PYTHON_PATH) return process.env.EDITH_CRYPTO_PYTHON_PATH;
@@ -84,6 +85,10 @@ export class CryptoService {
       return { ...current, error: `Crypto agent script not found: ${SCRIPT_PATH}` };
     }
     const pythonPath = resolvePythonPath();
+    const obsidianVaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath
+      || process.env.OBSIDIAN_VAULT_PATH
+      || process.env.EDITH_OBSIDIAN_VAULT_PATH
+      || '';
 
     fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
     const out = fs.createWriteStream(LOG_PATH, { flags: 'a' });
@@ -105,9 +110,19 @@ export class CryptoService {
         CRYPTO_LIVE_TRADING_ENABLED: 'false',
         ENABLE_LIVE_TRADING: 'false',
         BINANCE_TRADING_ENABLED: 'false',
-        CRYPTO_OBSIDIAN_ENABLED: process.env.CRYPTO_OBSIDIAN_ENABLED || 'true',
-        EDITH_OBSIDIAN_VAULT_PATH: process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || DEFAULT_OBSIDIAN_VAULT_PATH,
-        OBSIDIAN_VAULT_PATH: process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || DEFAULT_OBSIDIAN_VAULT_PATH,
+        CRYPTO_DEMO_TRADING_ENABLED: 'true',
+        CRYPTO_STARTING_BALANCE: process.env.CRYPTO_STARTING_BALANCE || '10000',
+        CRYPTO_DECISION_MODEL: 'jev',
+        CRYPTO_OBSIDIAN_ENABLED: 'false',
+        CRYPTO_LEARNING_ENABLED: 'false',
+        CRYPTO_NEWS_ENABLED: 'false',
+        CRYPTO_OLLAMA_ENABLED: 'false',
+        JEV_API_KEY: process.env.JEV_API_KEY || '',
+        JEV_API_URL: process.env.JEV_API_URL || 'https://api.typesafe.ai',
+        JEV_MODEL: process.env.JEV_MODEL || 'jev-1.13.0',
+        JEV_API_STYLE: process.env.JEV_API_STYLE || 'typesafe',
+        EDITH_OBSIDIAN_VAULT_PATH: obsidianVaultPath,
+        OBSIDIAN_VAULT_PATH: obsidianVaultPath,
       },
     });
     this.startedAt = new Date().toISOString();
@@ -194,14 +209,6 @@ export class CryptoService {
       if (this.child) this.child.kill();
     };
     process.once('exit', stop);
-    process.once('SIGINT', () => {
-      stop();
-      process.exit(130);
-    });
-    process.once('SIGTERM', () => {
-      stop();
-      process.exit(143);
-    });
   }
 
   private async fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {

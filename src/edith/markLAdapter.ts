@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { EdithRiskLevel } from './core';
 
-export type MarkLCapabilityStatus = 'AVAILABLE' | 'MISSING' | 'DISABLED';
+export type MarkLCapabilityStatus = 'CONFIGURATION_REQUIRED' | 'MISSING' | 'BLOCKED';
 
 export interface MarkLCapability {
   id: string;
@@ -18,6 +18,10 @@ export interface MarkLCapability {
 export interface MarkLAdapterSnapshot {
   root: string;
   exists: boolean;
+  configured: false;
+  executionEnabled: false;
+  status: 'CONFIGURATION_REQUIRED';
+  reason: string;
   readmeExists: boolean;
   requirementsExists: boolean;
   capabilityCount: number;
@@ -26,7 +30,7 @@ export interface MarkLAdapterSnapshot {
   capabilities: MarkLCapability[];
 }
 
-const MARK_L_ROOT = path.resolve(process.cwd(), 'Mark-L-main');
+const MARK_L_ROOT = path.resolve(process.env.EDITH_MARK_L_ROOT ?? path.join(process.cwd(), 'Mark-L-main'));
 
 const CAPABILITY_MANIFEST: Array<Omit<MarkLCapability, 'status'>> = [
   {
@@ -123,7 +127,7 @@ const CAPABILITY_MANIFEST: Array<Omit<MarkLCapability, 'status'>> = [
 
 function capabilityStatus(modulePath: string): MarkLCapabilityStatus {
   if (!fs.existsSync(MARK_L_ROOT)) return 'MISSING';
-  return fs.existsSync(path.join(MARK_L_ROOT, modulePath)) ? 'DISABLED' : 'MISSING';
+  return fs.existsSync(path.join(MARK_L_ROOT, modulePath)) ? 'CONFIGURATION_REQUIRED' : 'MISSING';
 }
 
 export class MarkLAdapterService {
@@ -143,10 +147,14 @@ export class MarkLAdapterService {
     return {
       root: MARK_L_ROOT,
       exists: fs.existsSync(MARK_L_ROOT),
+      configured: false,
+      executionEnabled: false,
+      status: 'CONFIGURATION_REQUIRED',
+      reason: 'Mark-L source discovery is metadata-only; no sandboxed runtime adapter is configured.',
       readmeExists: fs.existsSync(path.join(MARK_L_ROOT, 'readme.md')),
       requirementsExists: fs.existsSync(path.join(MARK_L_ROOT, 'requirements.txt')),
       capabilityCount: capabilities.length,
-      availableCount: capabilities.filter((capability) => capability.status !== 'MISSING').length,
+      availableCount: 0,
       highRiskCount: capabilities.filter((capability) => capability.riskLevel >= 3).length,
       capabilities,
     };

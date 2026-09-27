@@ -22,6 +22,7 @@ import { computerActionService } from './computerActionService';
 import { browserWorkflowService } from './browserWorkflowService';
 import { sensitiveIntegrationService } from './sensitiveIntegrationService';
 import { registerAwesomeAgentSkillTools } from './awesomeAgentSkills';
+import { redactSensitiveString, sanitizeSensitiveValue } from './securityRedaction';
 
 export const edithToolRegistry = new EdithToolRegistry();
 
@@ -54,11 +55,17 @@ function recordToolRun(params: {
   timestamp: number;
   status: 'success' | 'error' | 'denied';
 }): void {
-  getEdithPersistenceStore().recordToolRun?.(params);
+  getEdithPersistenceStore().recordToolRun?.({
+    ...params,
+    args: sanitizeSensitiveValue(params.args),
+    result: redactSensitiveString(params.result),
+  });
 }
 
 function safeResultText(result: EdithToolResult): string {
-  return (result.error ?? result.result ?? JSON.stringify(result.structuredOutput ?? {})).slice(0, 4000);
+  return redactSensitiveString(
+    result.error ?? result.result ?? JSON.stringify(sanitizeSensitiveValue(result.structuredOutput ?? {})),
+  ).slice(0, 4000);
 }
 
 export function riskLabelForLevel(level: number): EdithToolRisk {
@@ -206,47 +213,18 @@ function runPythonModule(moduleName: string, args: string[]): Promise<EdithToolR
   });
 }
 
-function runSteamGameManager(toolId: string, request: Record<string, unknown>): Promise<EdithToolResult> {
-  return new Promise((resolve) => {
-    const scriptPath = path.resolve(process.cwd(), 'scripts', 'steam-game-manager.py');
-    const child = spawn('python', [scriptPath, JSON.stringify(request)], {
-      cwd: process.cwd(),
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      child.kill();
-      resolve({ success: false, toolId, error: 'Steam işlemi zaman aşımına uğradı.', structuredOutput: { timeout: true } });
-    }, 120000);
-
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      const output = stdout.trim();
-      let structuredOutput: Record<string, unknown> = { exitCode: code };
-      try {
-        const parsed = JSON.parse(output) as Record<string, unknown>;
-        structuredOutput = { ...structuredOutput, ...parsed };
-      } catch {
-        // Preserve raw Python output when the bridge fails before emitting JSON.
-      }
-      resolve({
-        success: code === 0,
-        toolId,
-        result: output || stderr || `Process exited with code ${code}`,
-        error: code === 0 ? undefined : (stderr || output || 'Steam işlemi başarısız oldu.').slice(0, 4000),
-        structuredOutput,
-      });
-    });
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      resolve({ success: false, toolId, error: error.message, structuredOutput: { capability: 'CONFIGURATION_REQUIRED' } });
-    });
-  });
+function markLAdapterRequired(toolId: string): EdithToolResult {
+  return {
+    success: false,
+    toolId,
+    errorCode: 'TOOL_ERROR',
+    error: 'CONFIGURATION_REQUIRED: A sandboxed Mark-L adapter is not configured.',
+    structuredOutput: {
+      capability: 'CONFIGURATION_REQUIRED',
+      executionEnabled: false,
+      adapterOnly: true,
+    },
+  };
 }
 
 function systemMetrics(): Record<string, unknown> {
@@ -719,12 +697,9 @@ edithToolRegistry.register({
     supportsDryRun: true,
     supportsRollback: false,
     platforms: ['win32', 'darwin', 'linux'],
-    dependencies: ['Mark-L-main/actions/game_updater.py'],
+    dependencies: ['sandboxed Mark-L adapter'],
   },
-  handler: (args): Promise<EdithToolResult> => runSteamGameManager('steam_game_search', {
-    action: 'search',
-    game_name: getStringArg(args, 'gameName') ?? '',
-  }),
+  handler: (): EdithToolResult => markLAdapterRequired('steam_game_search'),
 });
 
 edithToolRegistry.register({
@@ -747,7 +722,7 @@ edithToolRegistry.register({
     supportsDryRun: true,
     supportsRollback: false,
     platforms: ['win32', 'darwin', 'linux'],
-    dependencies: ['Mark-L-main/actions/game_updater.py', 'Steam'],
+    dependencies: ['sandboxed Mark-L adapter', 'Steam'],
   },
   handler: async (args, context): Promise<EdithToolResult> => {
     const unavailable = highRiskUnavailable('steam_game_install', context);
@@ -756,13 +731,7 @@ edithToolRegistry.register({
     if (!gameName) {
       return { success: false, toolId: 'steam_game_install', error: 'Kurulacak oyun adı gerekli.' };
     }
-    return runSteamGameManager('steam_game_install', {
-      action: 'install',
-      platform: 'steam',
-      game_name: gameName,
-      app_id: getStringArg(args, 'appId'),
-      target_drive: getStringArg(args, 'targetDrive'),
-    });
+    return markLAdapterRequired('steam_game_install');
   },
 });
 

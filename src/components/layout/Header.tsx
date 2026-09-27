@@ -277,7 +277,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onEmergencyStop}
           className="flex items-center justify-center rounded-lg border border-red-400/40 bg-red-500/12 p-2 text-xs font-semibold text-red-100 hover:bg-red-500/20"
-          title="Emergency Stop: konuşmayı ve aktif yayın durumunu durdurur"
+          title="Emergency Stop: konuşmayı, aktif yayını ve onaylı Computer Use oturumunu durdurur"
         >
           <Power className="w-4 h-4" />
         </button>

@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import http from "http";
-import { createServer as createViteServer } from "vite";
 import { edithToolRegistry, executeEdithTool, getEdithToolHealth } from "./src/edith/serverRegistry";
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from "./src/edith/audit";
@@ -10,6 +9,8 @@ import { getEdithPersistenceStore } from "./src/edith/persistence";
 import { intentService } from "./src/edith/intent";
 import { agentRegistryService } from "./src/edith/agentRegistry";
 import { capabilityService } from "./src/edith/capabilityService";
+import { getSkillRegistry } from "./src/edith/skillRegistry";
+import { buildAssistantRuntimeContext } from "./src/edith/assistantContext";
 import { memoryService } from "./src/edith/memoryService";
 import { modelRouterService } from "./src/edith/modelRouter";
 import { buildChatSystemPrompt } from "./src/edith/chatContext";
@@ -33,6 +34,7 @@ import { providerRegistry } from "./server/providers/registry";
 import { ProviderError } from "./server/providers/types";
 import type { ProviderHealth } from "./server/providers/types";
 import { createChatRouter } from "./server/routes/chat";
+import { createComputerUseRouter } from "./server/routes/computerUse";
 import { createCryptoRouter } from "./server/routes/crypto";
 import { createHealthRouter } from "./server/routes/health";
 import { createKnowledgeRouter } from "./server/routes/knowledge";
@@ -42,15 +44,29 @@ import { createModelsRouter } from "./server/routes/models";
 import { createPermissionsRouter } from "./server/routes/permissions";
 import { createProvidersRouter } from "./server/routes/providers";
 import { createStatusRouter } from "./server/routes/status";
+import { createSkillsRouter } from "./server/routes/skills";
 import { createTasksRouter } from "./server/routes/tasks";
 import { createVoiceRouter } from "./server/routes/voice";
+import { createWorkspaceRouter } from "./server/routes/workspace";
+import { createCloudRouter } from "./server/routes/cloud";
 import { voiceSessionManager } from "./server/voice/voiceSessionManager";
+import { createOwnerSessionRouter, getOwnerSession, requireOwnerSession, requireProtectedMutation } from "./server/security/ownerSession";
+import { resolveServerHost } from "./server/security/networkPolicy";
+import { appendSecurityAudit } from "./server/security/auditLog";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
+const HOST = resolveServerHost();
+
+voiceSessionManager.setCapabilityContextProvider(() => buildAssistantRuntimeContext({
+  channel: 'voice',
+  assistantPersona: 'JARVIS',
+}));
 
 app.use(express.json());
+app.use(createOwnerSessionRouter());
 app.use(createChatRouter());
+app.use(createComputerUseRouter());
 app.use(createProvidersRouter());
 app.use(createStatusRouter());
 app.use(createHealthRouter());
@@ -62,6 +78,9 @@ app.use(createPermissionsRouter());
 app.use(createTasksRouter());
 app.use(createMemoryRouter());
 app.use(createVoiceRouter());
+app.use(createSkillsRouter());
+app.use(createWorkspaceRouter());
+app.use(createCloudRouter());
 
 app.post("/api/voice/tts", async (req, res) => {
   const { text, apiKey, voiceId = "pNInz6obpgDQGcFmaJgB" } = req.body ?? {};
@@ -101,13 +120,6 @@ app.post("/api/voice/tts", async (req, res) => {
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
   }
-});
-
-app.get("/api/edith/tools", (_req, res) => {
-  res.json({
-    success: true,
-    tools: edithToolRegistry.list(),
-  });
 });
 
 app.get("/api/edith/tools/health", (_req, res) => {
@@ -179,7 +191,7 @@ app.get("/api/edith/skill-catalog", (_req, res) => {
   });
 });
 
-app.get("/api/edith/audit", (req, res) => {
+app.get("/api/edith/audit", requireOwnerSession, (req, res) => {
   const limit = Number(req.query.limit ?? 100);
   res.json({
     success: true,
@@ -187,7 +199,7 @@ app.get("/api/edith/audit", (req, res) => {
   });
 });
 
-app.get("/api/edith/tool-runs", (req, res) => {
+app.get("/api/edith/tool-runs", requireOwnerSession, (req, res) => {
   const limit = Number(req.query.limit ?? 100);
   const store = getEdithPersistenceStore();
   res.json({
@@ -432,12 +444,25 @@ app.post("/api/chat/legacy-disabled", async (_req, res) => {
     });
   }
 
+  let runtimeContext = '';
+  try {
+    runtimeContext = await buildAssistantRuntimeContext({
+      channel: 'text',
+      userName,
+      assistantPersona: activeAssistant.name,
+      query: lastUserMessage,
+    });
+  } catch (error) {
+    console.warn('[EDITH Context] Compact runtime context skipped:', error instanceof Error ? error.message : error);
+  }
+
   const { fullSystem } = buildChatSystemPrompt({
     systemPrompt: personaSystemPrompt,
     userName,
     memories: capturedMemory ? [capturedMemory, ...memories] : memories,
     memoryEnabled,
     lastUserMessage,
+    runtimeContext,
   });
 
   type RuntimeProvider = "ollama" | "gemini" | "mock";
@@ -871,8 +896,31 @@ function generateMockResponse(prompt: string, userName: string, memories: any[],
 }
 
 // 4. Tools Execution API — Mark-L skill'leri dahil genişletilmiş araç seti
-app.post("/api/tools/execute", async (req, res) => {
-  const { toolId, args = {} } = req.body;
+app.post("/api/tools/execute", ...requireProtectedMutation, async (req, res) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const { toolId, args = {} } = body;
+  const actor = getOwnerSession(req)!.actor;
+
+  if (typeof toolId !== "string" || !toolId.trim() || !args || typeof args !== "object" || Array.isArray(args)) {
+    return res.status(400).json({ success: false, errorCode: "INVALID_TOOL_REQUEST", error: "A valid toolId and args object are required." });
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "authorizedPermissions")) {
+    appendSecurityAudit(req, {
+      action: "tool.client_permissions_rejected",
+      actor,
+      authorization: "denied",
+      result: "denied",
+      message: "Client-supplied permission grants were rejected.",
+      toolId,
+      riskLevel: 5,
+    });
+    return res.status(400).json({
+      success: false,
+      errorCode: "CLIENT_PERMISSIONS_FORBIDDEN",
+      error: "Tool permissions are derived by the server and cannot be supplied by the client.",
+    });
+  }
 
   // ── Yardımcı: Gemini metin üretimi ──────────────────────────────────────
   async function geminiGenerate(prompt: string): Promise<string> {
@@ -934,14 +982,14 @@ app.post("/api/tools/execute", async (req, res) => {
   const edithTool = edithToolRegistry.get(toolId);
   if (edithTool) {
     const result = await executeEdithTool(toolId, args as Record<string, unknown>, {
-      actor: "edith-dashboard",
+      actor,
     });
     const blockedByKillSwitch = result.structuredOutput?.disabledCapability === 'tool_execution';
     return res.status(result.success ? 200 : blockedByKillSwitch ? 423 : 403).json(result);
   }
 
   try {
-    killSwitchService.assertAllowed('tool_execution', 'edith-dashboard');
+    killSwitchService.assertAllowed('tool_execution', actor);
   } catch (error) {
     if (error instanceof KillSwitchActiveError) {
       return res.status(423).json({
@@ -955,17 +1003,31 @@ app.post("/api/tools/execute", async (req, res) => {
   }
 
   const legacyTool = legacyToolForPermission(String(toolId), args as Record<string, any>);
-  if (legacyTool) {
-    const decision = permissionService.decideToolExecution({
-      tool: legacyTool,
-      actor: 'edith-dashboard',
-      authorizedPermissions: Array.isArray(req.body?.authorizedPermissions)
-        ? req.body.authorizedPermissions.map(String)
-        : undefined,
+  if (!legacyTool) {
+    appendSecurityAudit(req, {
+      action: "legacy_tool.policy_missing",
+      actor,
+      authorization: "denied",
+      result: "denied",
+      message: "Tool execution denied because no server-side permission policy exists.",
+      toolId,
+      riskLevel: 5,
     });
-    if (decision.status === 'DENY') {
+    return res.status(400).json({
+      success: false,
+      toolId,
+      errorCode: "UNKNOWN_TOOL",
+      error: `Bilinmeyen araç ID'si: ${toolId}`,
+    });
+  }
+
+  const decision = permissionService.decideToolExecution({
+    tool: legacyTool,
+    actor,
+  });
+  if (decision.status === 'DENY') {
       appendAuditEvent(createAuditEvent({
-        actor: 'edith-dashboard',
+        actor,
         action: 'legacy_tool.permission_denied',
         toolId: legacyTool.id,
         authorization: 'denied',
@@ -980,7 +1042,6 @@ app.post("/api/tools/execute", async (req, res) => {
         errorCode: 'PERMISSION_DENIED',
         structuredOutput: { permissionDecision: decision },
       });
-    }
   }
 
   switch (toolId) {
@@ -1655,13 +1716,16 @@ ${gFlightsUrl}`;
 // Start Express Server with Vite middleware
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = process.env.EDITH_STATIC_DIR
+      ? path.resolve(process.env.EDITH_STATIC_DIR)
+      : path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
@@ -1669,6 +1733,13 @@ async function startServer() {
   }
 
   obsidianVaultService.startWatcher();
+  getSkillRegistry().then(({ skills }) => {
+    const vault = obsidianVaultService.status();
+    if (!vault.obsidianEnabled || !vault.writable) return;
+    const results = obsidianVaultService.writeSkillRegistryNotes(skills, edithToolRegistry.list(), getEdithToolHealth());
+    const failures = results.filter((result) => !result.exported);
+    if (failures.length) console.warn(`[EDITH Skills] ${failures.length} vault notes were not written; existing user notes were preserved.`);
+  }).catch((error) => console.warn('[EDITH Skills] Vault note sync skipped:', error instanceof Error ? error.message : error));
   if (process.env.EDITH_CRYPTO_AUTOSTART === "true") {
     cryptoService.start("EDITH server startup").then((status) => {
       const state = status.healthy || status.managedProcessRunning ? "online/starting" : "not started";
@@ -1680,9 +1751,25 @@ async function startServer() {
 
   const server = http.createServer(app);
   voiceSessionManager.handleUpgrade(server);
-  server.listen(PORT, "0.0.0.0", () => {
-    console.log(`[EDITH Server] Running on http://0.0.0.0:${PORT}`);
+  let shuttingDown = false;
+  const shutdown = (signal: string, exitCode: number) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[EDITH Server] ${signal} received; shutting down.`);
+    obsidianVaultService.stopWatcher();
+    voiceSessionManager.shutdown();
+    cryptoService.stop(`EDITH server ${signal}`);
+    server.close(() => process.exit(exitCode));
+    setTimeout(() => process.exit(exitCode), 5000).unref();
+  };
+  process.once("SIGINT", () => shutdown("SIGINT", 130));
+  process.once("SIGTERM", () => shutdown("SIGTERM", 143));
+  server.listen(PORT, HOST, () => {
+    console.log(`[EDITH Server] Running on http://${HOST}:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('[EDITH Server] Startup failed:', error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});

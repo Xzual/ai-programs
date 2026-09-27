@@ -41,7 +41,7 @@ try {
   }
 
   const { parseMarkdownDocument, parseCanvasDocument } = await import('../src/edith/obsidianParser');
-  const { obsidianVaultService } = await import('../src/edith/obsidianVaultService');
+  const { obsidianVaultService, ObsidianVaultService } = await import('../src/edith/obsidianVaultService');
   const { knowledgeGraphService } = await import('../src/edith/knowledgeGraphService');
   const { ragService } = await import('../src/edith/ragService');
   const { memoryService } = await import('../src/edith/memoryService');
@@ -110,7 +110,7 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(reindex.indexed >= 4, true);
   assert.equal(obsidianVaultService.getSettings().vaultPath, vaultPath);
   assert.equal(obsidianVaultService.getSettings().vaultPath.includes('EDİTH'), true);
-  assert.equal(fs.existsSync(path.join(vaultPath, 'E.D.I.T.H. Index.md')), true);
+  assert.equal(fs.existsSync(path.join(vaultPath, 'E.D.I.T.H. Index.md')), false, 'Read-only reindex must not modify an existing vault.');
 
   const graph = knowledgeGraphService.snapshot({ limit: 100 });
   const titles = new Set(graph.nodes.map((node) => node.title));
@@ -138,7 +138,12 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   const memoryNote = obsidianVaultService.writeMemoryNote(memory);
   assert.equal(fs.existsSync(path.join(vaultPath, memoryNote)), true);
   assert.equal(memoryNote.startsWith('Memory/'), true);
+  assert.equal(fs.existsSync(path.join(vaultPath, 'E.D.I.T.H. Index.md')), true, 'An explicit EDITH write may create the managed index note.');
   assert.equal(fs.readFileSync(path.join(vaultPath, memoryNote), 'utf8').includes('api_key='), false);
+  assert.match(fs.readFileSync(path.join(vaultPath, memoryNote), 'utf8'), /\[\[Memory Index\]\]/);
+  for (const folder of ['Decisions', 'Workflows', 'Computer Use', 'Voice', 'System']) {
+    assert.equal(fs.statSync(path.join(vaultPath, folder)).isDirectory(), true, folder);
+  }
 
   const task = taskService.createTask({
     title: 'Obsidian sync task',
@@ -167,6 +172,27 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(secretExport.errorCode, 'SECRET_DETECTED');
   assert.equal(fs.readFileSync(path.join(vaultPath, secretExport.notePath ?? ''), 'utf8').includes('supersecretvaluehere'), false);
 
+  const decision = obsidianVaultService.writeDecisionNote({
+    title: 'Use registry truth', decision: 'Use code registry as capability authority.',
+    rationale: 'Obsidian documents state but cannot grant execution.', confidence: 0.98, project: 'E.D.I.T.H.',
+  });
+  const workflow = obsidianVaultService.writeWorkflowNote({
+    title: 'Capability Sync', summary: 'Document registry state safely.', steps: ['Read registry', 'Write generated notes'], toolIds: ['system_monitor'],
+  });
+  const computerUse = obsidianVaultService.writeComputerUseNote({ title: 'Desktop verification', summary: 'Verified a reversible local action.', verification: 'Observed expected local state.' });
+  const voice = obsidianVaultService.writeVoiceNote({ title: 'Voice context', summary: 'Voice received shared E.D.I.T.H. protocol.' });
+  const system = obsidianVaultService.writeSystemNote({ title: 'Protocol status', summary: 'Core protocol is bound to text and Voice.', links: ['Core Behavior Protocol'] });
+  const cryptoDisabled = obsidianVaultService.writeCryptoMetadataNote({ enabled: false, title: 'Disabled crypto metadata', summary: 'Must not write.' });
+  const cryptoEnabled = obsidianVaultService.writeCryptoMetadataNote({ enabled: true, title: 'Demo metadata', summary: 'Demo-only state.', facts: ['Real money used: no'] });
+  for (const result of [decision, workflow, computerUse, voice, system, cryptoEnabled]) {
+    assert.equal(result.exported, true);
+    const content = fs.readFileSync(path.join(vaultPath, result.notePath ?? ''), 'utf8');
+    assert.match(content, /edith_parent:/);
+    assert.match(content, /\[\[.+Index\]\]/);
+  }
+  assert.equal(cryptoDisabled.exported, false);
+  assert.equal(cryptoDisabled.errorCode, 'OBSIDIAN_DISABLED');
+
   fs.renameSync(path.join(vaultPath, 'People', 'Apostolos.md'), path.join(vaultPath, 'People', 'Apostolos Renamed.md'));
   obsidianVaultService.syncPath('People/Apostolos.md', 'manual');
   obsidianVaultService.syncPath('People/Apostolos Renamed.md', 'manual');
@@ -189,6 +215,23 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(status.obsidianConfigExists, true);
   assert.equal(status.chunks > 0, true);
 
+  const chosenParent = path.join(tempRoot, 'selected-parent');
+  fs.mkdirSync(chosenParent);
+  const chosenVault = path.join(chosenParent, 'E.D.İ.T.H');
+  fs.mkdirSync(chosenVault);
+  fs.writeFileSync(path.join(chosenVault, 'existing.md'), '# Existing note\n', 'utf8');
+  assert.throws(() => obsidianVaultService.configureVaultParent('relative-path'));
+  assert.equal(obsidianVaultService.getSettings().vaultPath, vaultPath);
+  const configured = obsidianVaultService.configureVaultParent(chosenParent);
+  assert.equal(configured.vaultPath, chosenVault);
+  assert.equal(configured.status.vaultExists, true);
+  assert.equal(configured.status.obsidianConfigExists, true);
+  assert.equal(configured.status.writable, true);
+  assert.equal(fs.readFileSync(path.join(chosenVault, 'existing.md'), 'utf8'), '# Existing note\n');
+  assert.equal(fs.existsSync(path.join(chosenVault, 'Trading', 'Crypto Market Learning')), true);
+  assert.equal(new ObsidianVaultService().getSettings().vaultPath, chosenVault);
+  obsidianVaultService.stopWatcher();
+
   console.log(JSON.stringify({
     success: true,
     indexed: reindex.indexed,
@@ -203,12 +246,15 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
       'vault_folder_tag_nodes',
       'project_sections',
       'secret_redaction',
+      'graph_friendly_domain_notes',
+      'crypto_metadata_enable_gate',
       'rag_chunks_and_lexical_retrieval',
       'memory_writes_obsidian_note',
       'task_writes_obsidian_note',
       'agent_tool_writes_obsidian_note',
       'rename_move_soft_delete_index',
       'delete_soft_deletes_index',
+      'vault_folder_selection_and_persistence',
     ],
   }, null, 2));
 } finally {

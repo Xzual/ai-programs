@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-EXPECTED_VAULT_PATH = r"D:\EDİTH\EDİTH"
 CRYPTO_OBSIDIAN_FOLDER = "Trading/Crypto Market Learning"
 MOJIBAKE_MARKERS = ("─", "░", "�", "\ufffd")
 
@@ -20,19 +19,27 @@ def resolve_obsidian_vault_path(config_path: Optional[Path] = None) -> Dict[str,
     config_value = _read_config_path(config_path)
     if config_value:
         candidates.append(("config", config_value))
-    candidates.append(("default", EXPECTED_VAULT_PATH))
-
     source, received = next(
         ((name, value.strip()) for name, value in candidates if value and str(value).strip()),
-        ("default", EXPECTED_VAULT_PATH),
+        ("configuration", ""),
     )
+    if not received:
+        return {
+            "ok": False,
+            "source": source,
+            "vaultPath": None,
+            "receivedPath": None,
+            "expectedPath": None,
+            "errorCode": "OBSIDIAN_PATH_CONFIGURATION_REQUIRED",
+            "message": "Obsidian vault path is not configured.",
+        }
     if _looks_mojibake(received):
         return {
             "ok": False,
             "source": source,
             "vaultPath": None,
             "receivedPath": received,
-            "expectedPath": EXPECTED_VAULT_PATH,
+            "expectedPath": None,
             "errorCode": "OBSIDIAN_PATH_ENCODING_ERROR",
             "message": "Obsidian vault path contains mojibake and was rejected.",
         }
@@ -42,7 +49,7 @@ def resolve_obsidian_vault_path(config_path: Optional[Path] = None) -> Dict[str,
         "source": source,
         "vaultPath": received,
         "receivedPath": received,
-        "expectedPath": EXPECTED_VAULT_PATH,
+        "expectedPath": None,
         "errorCode": None,
         "message": "Obsidian vault path resolved.",
     }
@@ -50,22 +57,32 @@ def resolve_obsidian_vault_path(config_path: Optional[Path] = None) -> Dict[str,
 
 def validate_obsidian_vault_path(value: str, source: str = "explicit") -> Dict[str, Any]:
     received = str(value or "").strip()
+    if not received:
+        return {
+            "ok": False,
+            "source": source,
+            "vaultPath": None,
+            "receivedPath": None,
+            "expectedPath": None,
+            "errorCode": "OBSIDIAN_PATH_CONFIGURATION_REQUIRED",
+            "message": "Obsidian vault path is not configured.",
+        }
     if _looks_mojibake(received):
         return {
             "ok": False,
             "source": source,
             "vaultPath": None,
             "receivedPath": received,
-            "expectedPath": EXPECTED_VAULT_PATH,
+            "expectedPath": None,
             "errorCode": "OBSIDIAN_PATH_ENCODING_ERROR",
             "message": "Obsidian vault path contains mojibake and was rejected.",
         }
     return {
         "ok": True,
         "source": source,
-        "vaultPath": received or EXPECTED_VAULT_PATH,
-        "receivedPath": received or EXPECTED_VAULT_PATH,
-        "expectedPath": EXPECTED_VAULT_PATH,
+        "vaultPath": received,
+        "receivedPath": received,
+        "expectedPath": None,
         "errorCode": None,
         "message": "Obsidian vault path resolved.",
     }
@@ -79,7 +96,7 @@ def build_obsidian_status(
 ) -> Dict[str, Any]:
     resolution = resolution or {}
     received_path = resolution.get("receivedPath") or (str(vault_path) if vault_path else None)
-    expected_path = resolution.get("expectedPath", EXPECTED_VAULT_PATH)
+    expected_path = resolution.get("expectedPath")
     error_code = resolution.get("errorCode")
 
     base = {
@@ -144,7 +161,4 @@ def _read_config_path(config_path: Optional[Path]) -> Optional[str]:
 
 
 def _looks_mojibake(value: str) -> bool:
-    if any(marker in value for marker in MOJIBAKE_MARKERS):
-        return True
-    normalized = value.upper()
-    return "ED" in normalized and "TH" in normalized and "EDİTH" not in value and "D:" in normalized
+    return any(marker in value for marker in MOJIBAKE_MARKERS)

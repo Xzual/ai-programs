@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
+import { FocusedSettingsScreen } from './components/settings/FocusedSettingsScreen';
 import { Header } from './components/layout/Header';
 import { BootScreen } from './components/layout/BootScreen';
 import { DesktopTitleBar } from './components/layout/DesktopTitleBar';
@@ -19,6 +20,9 @@ import { ThemeTransition } from './components/effects/ThemeTransition';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { invokeDesktopCommand } from './edith/desktopShell';
+import { startComputerRuntimeHeartbeat, stopComputer } from './edith/computerDesktopClient';
+import type { ComputerCommandTask } from './edith/computerCommandService';
+import { consumeSseChunk } from './edith/sseStream';
 import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles, selectValidModelForProvider } from './edith/providerService';
 import {
   AgentsScreen,
@@ -30,7 +34,6 @@ import {
   KnowledgeGraphScreen,
   MemoryBrainScreen,
   SecurityCenterScreen,
-  SettingsArchitectureScreen,
   SystemHealthScreen,
   TasksScreen,
   ToolsRegistryScreen,
@@ -79,7 +82,7 @@ import {
 
 export default function App() {
   // Main State
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('voice');
   const [settings, setSettings] = useState<UserSettings>(loadSettings());
   const [authSession, setAuthSession] = useState<EdithAuthSession | null>(loadAuthSession());
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions());
@@ -123,6 +126,7 @@ export default function App() {
   const [showOllamaModal, setShowOllamaModal] = useState<boolean>(false);
   const [bootComplete, setBootComplete] = useState<boolean>(false);
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
+  const [pendingComputerTask, setPendingComputerTask] = useState<ComputerCommandTask | null>(null);
   const [themeTransition, setThemeTransition] = useState<{
     id: number;
     from: ReturnType<typeof getAssistantProfile>;
@@ -147,8 +151,14 @@ export default function App() {
     applyAssistantTheme(activeAssistant);
   }, [activeAssistant]);
 
+  useEffect(() => startComputerRuntimeHeartbeat(), []);
+
   const completeBoot = useCallback(() => {
     setBootComplete(true);
+  }, []);
+
+  const handleComputerTaskHandled = useCallback((taskId: string) => {
+    setPendingComputerTask((current) => current?.id === taskId ? null : current);
   }, []);
 
   useEffect(() => {
@@ -511,40 +521,42 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let accumulatedText = '';
+      let sseRemainder = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        const chunkStr = done ? decoder.decode() : decoder.decode(value, { stream: true });
+        const parsed = consumeSseChunk<Record<string, any>>(sseRemainder, chunkStr, done);
+        sseRemainder = parsed.remainder;
 
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n\n').filter((l) => l.startsWith('data: '));
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line.replace('data: ', ''));
-            if (data.text) {
-              accumulatedText += data.text;
-              updateAssistantMessageText(assistantMsgId, accumulatedText, true);
+        for (const data of parsed.events) {
+          if (data.type === 'computer_task' && data.task && typeof data.task.id === 'string') {
+            const task = data.task as ComputerCommandTask;
+            setPendingComputerTask(task);
+            setActiveTab('computer');
+            if (task.kind === 'stop') {
+              await stopComputer();
+              window.dispatchEvent(new Event('edith-computer-stop'));
             }
-            if (!data.text && typeof data.warning === 'string') {
-              accumulatedText += `${data.warning}\n`;
-              updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
-            }
-            if (!data.text && typeof data.error === 'string') {
-              accumulatedText += `${data.error}\n`;
-              updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
-            }
-            const metadata = chatMetadataFromSse(data);
-            if (Object.keys(metadata).length) {
-              updateAssistantMessageText(assistantMsgId, accumulatedText, true, metadata);
-            }
-            if (data.done) {
-              break;
-            }
-          } catch (e) {
-            // Ignore line parse glitches
+          }
+          if (data.text) {
+            accumulatedText += String(data.text);
+            updateAssistantMessageText(assistantMsgId, accumulatedText, true);
+          }
+          if (!data.text && typeof data.warning === 'string') {
+            accumulatedText += `${data.warning}\n`;
+            updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+          }
+          if (!data.text && typeof data.error === 'string') {
+            accumulatedText += `${data.error}\n`;
+            updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+          }
+          const metadata = chatMetadataFromSse(data);
+          if (Object.keys(metadata).length) {
+            updateAssistantMessageText(assistantMsgId, accumulatedText, true, metadata);
           }
         }
+        if (done) break;
       }
 
       // Mark message streaming completed
@@ -636,19 +648,17 @@ export default function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let accumulatedText = '';
+      let sseRemainder = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        const chunkStr = done ? decoder.decode() : decoder.decode(value, { stream: true });
+        const parsed = consumeSseChunk<Record<string, any>>(sseRemainder, chunkStr, done);
+        sseRemainder = parsed.remainder;
 
-        const chunkStr = decoder.decode(value, { stream: true });
-        const lines = chunkStr.split('\n\n').filter((l) => l.startsWith('data: '));
-
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line.replace('data: ', ''));
+        for (const data of parsed.events) {
             if (data.text) {
-              accumulatedText += data.text;
+              accumulatedText += String(data.text);
               setCodeSession((prev) => {
                 const updated = {
                   ...prev,
@@ -687,10 +697,8 @@ export default function App() {
                 return updated;
               });
             }
-          } catch {
-            // Ignore malformed SSE fragments.
-          }
         }
+        if (done) break;
       }
 
       setCodeSession((prev) => {
@@ -919,6 +927,12 @@ export default function App() {
     setIsStreaming(false);
     setAiState('warning');
     try {
+      await stopComputer();
+    } catch (error) {
+      console.warn('Emergency stop could not reach the native computer session:', error);
+    }
+    window.dispatchEvent(new Event('edith-computer-stop'));
+    try {
       await fetch('/api/edith/kill-switch/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -979,14 +993,16 @@ export default function App() {
       <DesktopTitleBar activeAssistant={activeAssistant} onEmergencyStop={handleEmergencyStop} />
       <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <Sidebar
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          ollamaConnected={ollamaConnected}
-          selectedModel={settings.selectedModel}
-          providerName={providerProfiles.find((profile) => profile.provider === settings.aiProvider)?.displayName}
-          providerStatus={selectedProviderStatus}
-        />
+        {activeTab !== 'voice' && (
+          <Sidebar
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            ollamaConnected={ollamaConnected}
+            selectedModel={settings.selectedModel}
+            providerName={providerProfiles.find((profile) => profile.provider === settings.aiProvider)?.displayName}
+            providerStatus={selectedProviderStatus}
+          />
+        )}
 
         {/* Main Content Workspace */}
         <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
@@ -1056,7 +1072,14 @@ export default function App() {
 
           {activeTab === 'tasks' && <TasksScreen aiState={aiState} messages={activeSession.messages} logs={logs} assistant={activeAssistant} />}
 
-          {activeTab === 'computer' && <ComputerUseScreen tools={tools} logs={logs} />}
+          {activeTab === 'computer' && (
+            <ComputerUseScreen
+              tools={tools}
+              logs={logs}
+              task={pendingComputerTask}
+              onTaskHandled={handleComputerTaskHandled}
+            />
+          )}
 
           {activeTab === 'browser' && <BrowserResearchScreen tools={tools} logs={logs} />}
 
@@ -1087,7 +1110,7 @@ export default function App() {
 
           {activeTab === 'tools' && <ToolsRegistryScreen tools={tools} logs={logs} />}
 
-          {activeTab === 'voice' && <VoiceScreen onBack={() => setActiveTab('dashboard')} />}
+          {activeTab === 'voice' && <VoiceScreen onBack={() => setActiveTab('dashboard')} onNavigate={setActiveTab} />}
 
           {activeTab === 'crypto' && <TradingScreen integrations={integrations} tools={tools} logs={logs} />}
 
@@ -1103,16 +1126,16 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <SettingsArchitectureScreen
+            <FocusedSettingsScreen
               settings={settings}
-              integrations={integrations}
               assistant={activeAssistant}
               providerProfiles={providerProfiles}
-              providerHealth={providerHealth}
               availableModels={availableModels}
+              accountName={authSession.user.name}
               onUpdateSettings={updateSettings}
-              onTestConnection={checkHealth}
-              isTestingConnection={isTestingConnection}
+              onNavigate={setActiveTab}
+              onRefreshProviders={checkHealth}
+              isRefreshingProviders={isTestingConnection}
             />
           )}
           {!['dashboard', 'chat', 'knowledge', 'crypto', 'settings', 'system', 'voice'].includes(activeTab) && (

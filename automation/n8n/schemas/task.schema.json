@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EDITH Task Queue",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["run_id", "tasks"],
+  "properties": {
+    "run_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "title", "owner_chat", "prompt_file", "dependencies", "priority", "risk_level", "tests", "success_conditions", "qa_required", "git_commit", "git_push", "timeout_minutes", "retry_limit", "status"],
+        "properties": {
+          "task_id": { "type": "string", "pattern": "^[A-Z][A-Z0-9-]{2,63}$" },
+          "title": { "type": "string", "minLength": 1 },
+          "owner_chat": { "enum": ["0", "2", "4", "5", "6", "7", "8"] },
+          "prompt_file": { "type": "string", "pattern": "^automation/n8n/prompts/chat[0245678]/[A-Za-z0-9_-]+\\.txt$" },
+          "dependencies": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+          "priority": { "enum": ["low", "normal", "high", "critical"] },
+          "risk_level": { "enum": ["SAFE", "REVIEW", "MANUAL_APPROVAL"] },
+          "expected_files": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+          "protected_files": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+          "tests": { "type": "array", "items": { "type": "string" } },
+          "success_conditions": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "qa_required": { "type": "boolean" },
+          "git_commit": { "type": "boolean" },
+          "git_push": { "type": "boolean" },
+          "timeout_minutes": { "type": "integer", "minimum": 1, "maximum": 480 },
+          "retry_limit": { "type": "integer", "minimum": 0, "maximum": 3 },
+          "status": { "enum": ["queued", "running", "completed", "failed", "blocked", "needs_fix"] },
+          "notes": { "type": "string" },
+          "manual_approval_reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

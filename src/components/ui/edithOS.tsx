@@ -6,6 +6,7 @@ import {
   Bot,
   Brain,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleDot,
   Clock3,
@@ -18,6 +19,7 @@ import {
   LockKeyhole,
   Mic2,
   MicOff,
+  MessageSquareText,
   Network,
   Pause,
   Play,
@@ -33,6 +35,7 @@ import {
   Square,
   Terminal,
   TrendingUp,
+  Volume2,
   WifiOff,
   Wrench,
   Zap,
@@ -40,6 +43,13 @@ import {
 import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
 import { modelDisabledReason, modelsForProvider, providerDisplayName, providerStatusLabel, providerTone, selectValidModelForProvider } from '../../edith/providerService';
 import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
+import {
+  actOnComputer, beginComputerSession, getComputerDesktopStatus, getComputerScreenshot, observeComputer,
+  reportComputerOperatorEvent, reportComputerRuntimeStatus, stopComputer,
+  type ComputerDesktopStatus, type ComputerObservation, type ComputerDesktopAction,
+} from '../../edith/computerDesktopClient';
+import { createComputerOperatorEvent, operatorStateForAction, type ComputerOperatorState } from '../../edith/computerOperatorEvents';
+import type { ComputerCommandTask } from '../../edith/computerCommandService';
 import {
   EDITH_VOICE_ROOM_ASSISTANT,
   EDITH_VOICE_ROOM_MODEL,
@@ -50,13 +60,17 @@ import {
 } from '../../edith/voiceRoomService';
 import {
   base64ToInt16Pcm,
+  classifyVoiceSocketFailure,
   downsampleFloat32ToInt16Pcm,
   int16PcmToBase64,
   parseVoiceLiveServerEvent,
   VOICE_LIVE_INPUT_MIME,
   VOICE_LIVE_OUTPUT_RATE,
+  voiceRoomRuntimeStatusAfterServerState,
+  voiceRoomStateAfterServerStatus,
   voiceLiveSocketUrl,
 } from '../../edith/voiceLiveClient';
+import { CryptoExchangeTerminal } from '../crypto/CryptoExchangeTerminal';
 
 export interface AssistantTheme {
   primary: string;
@@ -196,16 +210,21 @@ function useInteractionSafetySnapshot(): InteractionSafetySnapshot | null {
 
   React.useEffect(() => {
     let cancelled = false;
-    fetch('/api/edith/interaction-safety')
-      .then((response) => response.ok ? readJsonResponse(response) : undefined)
-      .then((payload) => {
-        if (!cancelled && payload?.success) setSnapshot(payload.snapshot);
-      })
-      .catch(() => {
-        if (!cancelled) setSnapshot(null);
-      });
+    const load = () => {
+      fetch('/api/edith/interaction-safety')
+        .then((response) => response.ok ? readJsonResponse(response) : undefined)
+        .then((payload) => {
+          if (!cancelled && payload?.success) setSnapshot(payload.snapshot);
+        })
+        .catch(() => {
+          if (!cancelled) setSnapshot(null);
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 5_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -555,11 +574,12 @@ function HealthRows({ rows }: { rows: Array<[string, string, boolean]> }) {
 }
 
 export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiState?: AiState; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+  const safety = useInteractionSafetySnapshot();
   const runningTools = tools.filter((tool) => tool.status === 'running').length;
   const agents = [
     ['Orchestrator', 'Görev ayrıştırma, handoff ve genel kontrol', aiState === 'thinking' ? 'ACTIVE' : 'STANDBY', ['planner', 'router']],
     ['Research Agent', 'Kaynak toplama, güvenilirlik ve çelişki kontrolü', aiState === 'browser_use' || aiState === 'searching' ? 'ACTIVE' : 'STANDBY', ['browser', 'sources']],
-    ['Computer Agent', 'Observe -> Understand -> Plan -> Action -> Verify döngüsü', 'READ ONLY', ['vision', 'screen']],
+    ['Computer Agent', 'Observe -> Understand -> Plan -> Action -> Verify döngüsü', safety?.computer?.mode ?? 'READ ONLY', ['vision', 'screen']],
     ['Security Agent', 'Risk, approval ve prompt-injection kontrolü', tools.some((tool) => tool.requiresConfirmation) ? 'ACTIVE' : 'STANDBY', ['policy', 'audit']],
     ['Trading Agent', 'UI shell only; live execution locked', 'LOCKED', ['risk', 'market']],
     ['QA Agent', 'Sonuç doğrulama ve final rapor kalitesi', logs.length > 0 ? 'WAITING' : 'STANDBY', ['verifier']],
@@ -588,45 +608,550 @@ export function AgentsScreen({ aiState = 'idle', tools = [], logs = [] }: { aiSt
   );
 }
 
-export function ComputerUseScreen({ tools = [], logs = [] }: { tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
-  const safety = useInteractionSafetySnapshot();
-  const computerTools = tools.filter((tool) =>
-    tool.category === 'computer' ||
-    tool.permissions.some((permission) => permission.includes('computer') || permission.includes('control'))
-  );
-  const latestComputerLog = logs.find((log) => computerTools.some((tool) => tool.id === log.toolId));
+interface ComputerUseScreenProps {
+  tools?: AutomationTool[];
+  logs?: ToolExecutionLog[];
+  task?: ComputerCommandTask | null;
+  onTaskHandled?: (taskId: string) => void;
+}
+
+type ActionVerification = () => Promise<{ ok: boolean; detail: string }>;
+
+export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHandled }: ComputerUseScreenProps) {
+  const [status, setStatus] = React.useState<ComputerDesktopStatus | null>(null);
+  const [sessionId, setSessionId] = React.useState<string | null>(null);
+  const [observation, setObservation] = React.useState<ComputerObservation | null>(null);
+  const [phase, setPhase] = React.useState<ComputerOperatorState | 'idle'>('idle');
+  const [error, setError] = React.useState('');
+  const [timeline, setTimeline] = React.useState<ReturnType<typeof createComputerOperatorEvent>[]>([]);
+  const [overlayEnabled, setOverlayEnabled] = React.useState(true);
+  const [clickCount, setClickCount] = React.useState(0);
+  const [killSwitchUnlockArmed, setKillSwitchUnlockArmed] = React.useState(false);
+  const [overlayCursor, setOverlayCursor] = React.useState<{ x: number; y: number } | null>(null);
+  const [clickPulse, setClickPulse] = React.useState<{ id: number; x: number; y: number } | null>(null);
+  const clickCountRef = React.useRef(0);
+  const clickTargetRef = React.useRef<HTMLButtonElement>(null);
+  const typingTargetRef = React.useRef<HTMLInputElement>(null);
+  const scrollTargetRef = React.useRef<HTMLDivElement>(null);
+  const handledTaskIdsRef = React.useRef(new Set<string>());
+  const revokedSessionIdsRef = React.useRef(new Set<string>());
+
+  const claimTask = React.useCallback((currentTask: ComputerCommandTask) => {
+    if (handledTaskIdsRef.current.has(currentTask.id)) return false;
+    handledTaskIdsRef.current.add(currentTask.id);
+    if (handledTaskIdsRef.current.size > 100) handledTaskIdsRef.current = new Set([currentTask.id]);
+    return true;
+  }, []);
+
+  const record = React.useCallback((state: ComputerOperatorState, detail: string, details: { x?: number; y?: number; text?: string } = {}) => {
+    const event = createComputerOperatorEvent(state, detail, details);
+    setTimeline((current) => [event, ...current].slice(0, 40));
+    void reportComputerOperatorEvent(event).catch(() => undefined);
+  }, []);
+
+  const refreshStatus = React.useCallback(async () => {
+    const current = await getComputerDesktopStatus();
+    setStatus(current);
+    await reportComputerRuntimeStatus(current).catch(() => undefined);
+    return current;
+  }, []);
+
+  const waitFor = React.useCallback(async (predicate: () => boolean, timeoutMs = 1_200) => {
+    const started = performance.now();
+    while (performance.now() - started < timeoutMs) {
+      if (predicate()) return true;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 25));
+    }
+    return predicate();
+  }, []);
+
+  React.useEffect(() => {
+    void refreshStatus().catch((caught) => setError(String(caught)));
+    const timer = window.setInterval(() => void refreshStatus(), 3_000);
+    return () => {
+      window.clearInterval(timer);
+      void stopComputer();
+    };
+  }, [refreshStatus]);
+
+  React.useEffect(() => {
+    if (!sessionId || !status || status.ownerCommandMode || revokedSessionIdsRef.current.has(sessionId)) return;
+    revokedSessionIdsRef.current.add(sessionId);
+    setSessionId(null);
+    const stopped = status.killSwitch === 'active' || status.mode === 'disabled';
+    setPhase(stopped ? 'stopped' : 'error');
+    record(stopped ? 'stopped' : 'error', stopped
+      ? 'The local session ended because the emergency stop became active.'
+      : 'The owner-approved session expired or the desktop runtime became unavailable.');
+    void stopComputer();
+  }, [record, sessionId, status]);
+
+  const stop = React.useCallback(async () => {
+    try { await stopComputer(); } catch (caught) { setError(String(caught)); }
+    setSessionId(null);
+    setPhase('stopped');
+    record('stopped', 'Local Computer Use session ended.');
+    void refreshStatus();
+  }, [record, refreshStatus]);
+
+  React.useEffect(() => {
+    if (!sessionId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); void stop(); }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [sessionId, stop]);
+
+  React.useEffect(() => {
+    const onGlobalStop = () => {
+      setSessionId(null);
+      setPhase('stopped');
+      record('stopped', 'Global emergency stop ended the local session.');
+      void refreshStatus();
+    };
+    window.addEventListener('edith-computer-stop', onGlobalStop);
+    return () => window.removeEventListener('edith-computer-stop', onGlobalStop);
+  }, [record, refreshStatus]);
+
+  const captureScreenshot = React.useCallback(async (id: string) => {
+    const image = await getComputerScreenshot(id);
+    setObservation(image);
+    setOverlayCursor({ x: image.cursorX, y: image.cursorY });
+    return image;
+  }, []);
+
+  const observe = React.useCallback(async (id: string) => {
+    setError('');
+    setPhase('observing');
+    record('observing', 'Capturing the primary display through the Tauri native bridge.');
+    try {
+      const image = await observeComputer(id);
+      setObservation(image);
+      setOverlayCursor({ x: image.cursorX, y: image.cursorY });
+      setPhase('success');
+      record('success', `${image.width} x ${image.height} primary display captured.`);
+      return image;
+    } catch (caught) {
+      setPhase('error');
+      setError(String(caught));
+      record('error', String(caught));
+      throw caught;
+    }
+  }, [captureScreenshot, record]);
+
+  const verifySafety = React.useCallback(async () => {
+    const response = await fetch('/api/edith/kill-switch');
+    if (!response.ok) throw new Error('Could not verify the emergency stop state.');
+    const payload = await readJsonResponse(response);
+    if (payload.state?.active) throw new Error('Emergency stop is active. Computer Use is blocked.');
+  }, []);
+
+  const deactivateKillSwitch = React.useCallback(async () => {
+    setError('');
+    try {
+      const response = await fetch('/api/edith/kill-switch/deactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation: 'DISABLE_KILL_SWITCH' }),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok || !payload.success) throw new Error(payload.safeMessage ?? 'Kill switch could not be deactivated.');
+      setKillSwitchUnlockArmed(false);
+      setPhase('success');
+      record('success', 'Kill switch deactivated after explicit owner confirmation; no device action was started.');
+      await refreshStatus();
+    } catch (caught) {
+      setPhase('error');
+      setError(String(caught));
+      record('error', String(caught));
+    }
+  }, [record, refreshStatus]);
+
+  const runAction = React.useCallback(async (
+    request: ComputerDesktopAction,
+    label: string,
+    verification?: ActionVerification,
+    activeSessionId?: string,
+  ) => {
+    const id = activeSessionId ?? sessionId;
+    if (!id) return undefined;
+    setError('');
+    setPhase('planning');
+    record('planning', label);
+    try {
+      await verifySafety();
+      const actionState = operatorStateForAction(request.action);
+      const actionDetails = request.action === 'moveMouse' || request.action === 'clickMouse'
+        ? { x: request.x, y: request.y }
+        : request.action === 'typeText' ? { text: request.text } : {};
+      setPhase(actionState);
+      record(actionState, label, actionDetails);
+      if (request.action === 'moveMouse' || request.action === 'clickMouse') {
+        setOverlayCursor({ x: request.x, y: request.y });
+      }
+      if (request.action === 'clickMouse') {
+        setClickPulse({ id: Date.now(), x: request.x, y: request.y });
+      }
+
+      const result = await actOnComputer(id, request);
+      setOverlayCursor({ x: result.cursorX, y: result.cursorY });
+      setPhase('verifying');
+      record('verifying', 'Capturing a fresh screen and checking the requested outcome.');
+      await captureScreenshot(id);
+
+      const check = verification
+        ? await verification()
+        : result.verification === 'cursor_position_confirmed'
+          ? { ok: true, detail: 'Cursor position was confirmed by the native bridge.' }
+          : result.verification === 'process_started'
+            ? { ok: true, detail: 'The approved local process returned a started state.' }
+            : { ok: false, detail: 'Input was injected, but no target-level outcome verifier was supplied.' };
+      setPhase(check.ok ? 'success' : 'error');
+      record(check.ok ? 'success' : 'error', check.detail);
+      if (!check.ok) setError(check.detail);
+      return { result, verified: check.ok };
+    } catch (caught) {
+      setPhase('error');
+      setError(String(caught));
+      record('error', String(caught));
+      return undefined;
+    }
+  }, [captureScreenshot, record, sessionId, verifySafety]);
+
+  const elementScreenPoint = React.useCallback(async (element: HTMLElement) => {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    const appWindow = getCurrentWindow();
+    const [origin, scale] = await Promise.all([appWindow.innerPosition(), appWindow.scaleFactor()]);
+    const rect = element.getBoundingClientRect();
+    const visibleLeft = Math.max(0, rect.left);
+    const visibleTop = Math.max(0, rect.top);
+    const visibleRight = Math.min(window.innerWidth, rect.right);
+    const visibleBottom = Math.min(window.innerHeight, rect.bottom);
+    if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) {
+      throw new Error('The local test target is outside the visible app window.');
+    }
+    return {
+      x: Math.round(origin.x + ((visibleLeft + visibleRight) / 2) * scale),
+      y: Math.round(origin.y + ((visibleTop + visibleBottom) / 2) * scale),
+    };
+  }, []);
+
+  const moveTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    if (!id) return;
+    const before = observation ?? await captureScreenshot(id);
+    if (before.cursorX < 0 || before.cursorY < 0 || before.cursorX >= before.width || before.cursorY >= before.height) {
+      const detail = 'The pointer is outside the primary display; the move-and-return test was not started.';
+      setPhase('error');
+      setError(detail);
+      record('error', detail);
+      return;
+    }
+    const x = Math.min(before.width - 1, Math.max(0, before.cursorX + 60));
+    const y = Math.min(before.height - 1, Math.max(0, before.cursorY + 40));
+    await runAction({ action: 'moveMouse', x, y }, 'Move the pointer to a nearby safe location.', undefined, id);
+    await runAction({ action: 'moveMouse', x: before.cursorX, y: before.cursorY }, 'Return the pointer to its original location.', undefined, id);
+  }, [captureScreenshot, observation, record, runAction, sessionId]);
+
+  const clickTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    if (!id || !clickTargetRef.current) return;
+    const point = await elementScreenPoint(clickTargetRef.current);
+    const previous = clickCountRef.current;
+    await runAction(
+      { action: 'clickMouse', ...point, button: 'left' },
+      'Click the in-app test target.',
+      async () => {
+        const ok = await waitFor(() => clickCountRef.current > previous);
+        return { ok, detail: ok ? 'The in-app target received the native click.' : 'The in-app target did not receive the click.' };
+      },
+      id,
+    );
+  }, [elementScreenPoint, runAction, sessionId, waitFor]);
+
+  const typeTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    const target = typingTargetRef.current;
+    if (!id || !target) return;
+    const expected = 'EDITH_COMPUTER_USE_OK';
+    target.value = '';
+    target.focus();
+    await runAction(
+      { action: 'typeText', text: expected },
+      'Type the exact test phrase in the in-app field.',
+      async () => {
+        const ok = await waitFor(() => target.value === expected);
+        return { ok, detail: ok ? 'The test field contains the exact native typing result.' : 'The test field did not receive the expected text.' };
+      },
+      id,
+    );
+  }, [runAction, sessionId, waitFor]);
+
+  const hotkeyTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    const target = typingTargetRef.current;
+    if (!id || !target) return;
+    if (!target.value) target.value = 'EDITH_COMPUTER_USE_OK';
+    target.focus();
+    target.setSelectionRange(target.value.length, target.value.length);
+    await runAction(
+      { action: 'hotkey', keys: ['CTRL', 'A'] },
+      'Select the test-field text with Ctrl+A.',
+      async () => {
+        const ok = await waitFor(() => target.selectionStart === 0 && target.selectionEnd === target.value.length);
+        return { ok, detail: ok ? 'Ctrl+A selected the full test-field value.' : 'The expected text selection was not observed.' };
+      },
+      id,
+    );
+  }, [runAction, sessionId, waitFor]);
+
+  const interruptTypingTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    const target = typingTargetRef.current;
+    if (!id || !target) return;
+    const payload = 'EDITH_INTERRUPT_TEST_'.padEnd(200, 'X');
+    target.value = '';
+    target.focus();
+    setError('');
+    setPhase('typing');
+    record('typing', 'Starting a bounded native typing action for the stop test.', { text: payload });
+    let stopCompleted = false;
+    const timer = window.setTimeout(() => {
+      void stopComputer()
+        .then(() => { stopCompleted = true; })
+        .catch(() => { stopCompleted = false; });
+    }, 150);
+    try {
+      await actOnComputer(id, { action: 'typeText', text: payload });
+      window.clearTimeout(timer);
+      await stopComputer().catch(() => undefined);
+      setSessionId(null);
+      const detail = 'The bounded typing action completed before the stop signal could interrupt it.';
+      setPhase('error');
+      setError(detail);
+      record('error', detail);
+      await refreshStatus();
+    } catch {
+      window.clearTimeout(timer);
+      await waitFor(() => stopCompleted, 1_000);
+      if (!stopCompleted) {
+        try {
+          await stopComputer();
+          stopCompleted = true;
+        } catch {
+          stopCompleted = false;
+        }
+      }
+      setSessionId(null);
+      setPhase('verifying');
+      record('verifying', 'Checking that native typing stopped before the full payload was entered.');
+      const interrupted = stopCompleted && target.value.length > 0 && target.value.length < payload.length;
+      const detail = interrupted
+        ? `Stop interrupted native typing after ${target.value.length} of ${payload.length} characters.`
+        : 'The stop test did not prove a partial native typing result.';
+      setPhase(interrupted ? 'stopped' : 'error');
+      record(interrupted ? 'stopped' : 'error', detail);
+      if (!interrupted) setError(detail);
+      await refreshStatus();
+    }
+  }, [record, refreshStatus, sessionId, waitFor]);
+
+  const scrollTest = React.useCallback(async (activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    const target = scrollTargetRef.current;
+    if (!id || !target) return;
+    target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+    await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+    target.scrollTop = 0;
+    const point = await elementScreenPoint(target);
+    await runAction({ action: 'moveMouse', ...point }, 'Move the pointer over the safe scroll target.', undefined, id);
+    const before = target.scrollTop;
+    const down = await runAction(
+      { action: 'scroll', delta: -240 },
+      'Scroll the in-app test area down.',
+      async () => {
+        const ok = await waitFor(() => target.scrollTop > before);
+        return { ok, detail: ok ? 'The in-app test area scrolled down.' : 'No scroll movement was observed in the test area.' };
+      },
+      id,
+    );
+    if (down?.verified) {
+      await runAction(
+        { action: 'scroll', delta: 240 },
+        'Return the in-app test area to the top.',
+        async () => {
+          const ok = await waitFor(() => target.scrollTop <= before + 1);
+          return { ok, detail: ok ? 'The in-app test area returned to its original position.' : 'The test area did not return to its original position.' };
+        },
+        id,
+      );
+    }
+  }, [elementScreenPoint, runAction, sessionId, waitFor]);
+
+  const openApprovedApp = React.useCallback(async (app: 'notepad' | 'calculator', activeSessionId?: string) => {
+    const id = activeSessionId ?? sessionId;
+    if (!id) return;
+    await runAction({ action: 'launchApp', app }, `Start the approved local application: ${app}.`, undefined, id);
+  }, [runAction, sessionId]);
+
+  const executeTask = React.useCallback(async (currentTask: ComputerCommandTask, id: string) => {
+    try {
+      if (currentTask.kind === 'observe') await observe(id);
+      else if (currentTask.kind === 'move_test') await moveTest(id);
+      else if (currentTask.kind === 'click_test') await clickTest(id);
+      else if (currentTask.kind === 'type_test') await typeTest(id);
+      else if (currentTask.kind === 'hotkey_test') await hotkeyTest(id);
+      else if (currentTask.kind === 'scroll_test') await scrollTest(id);
+      else if (currentTask.kind === 'open_app') await openApprovedApp(currentTask.app, id);
+    } finally {
+      onTaskHandled?.(currentTask.id);
+    }
+  }, [clickTest, hotkeyTest, moveTest, observe, onTaskHandled, openApprovedApp, scrollTest, typeTest]);
+
+  const begin = React.useCallback(async () => {
+    setError('');
+    setPhase('planning');
+    record('planning', 'Checking the kill switch before requesting local owner approval.');
+    try {
+      await verifySafety();
+      const id = await beginComputerSession();
+      const approvedStatus = await refreshStatus();
+      if (!approvedStatus.ownerCommandMode) throw new Error('Owner approval did not create an active local session.');
+      const executableTask = task && task.kind !== 'open_panel' && task.kind !== 'stop' && task.kind !== 'blocked' && claimTask(task)
+        ? task
+        : null;
+      setSessionId(id);
+      record('success', 'Owner approved a five-minute local session.');
+      await observe(id);
+      if (executableTask) await executeTask(executableTask, id);
+    } catch (caught) {
+      setPhase('error');
+      setError(String(caught));
+      record('error', String(caught));
+    }
+  }, [claimTask, executeTask, observe, record, refreshStatus, task, verifySafety]);
+
+  React.useEffect(() => {
+    if (!task || (task.kind !== 'open_panel' && task.kind !== 'stop' && task.kind !== 'blocked') || !claimTask(task)) return;
+    if (task.kind === 'open_panel') {
+      record('success', 'Computer Use control surface opened; no device action was performed.');
+      onTaskHandled?.(task.id);
+      return;
+    }
+    if (task.kind === 'blocked') {
+      record('error', task.label);
+      onTaskHandled?.(task.id);
+      return;
+    }
+    void stop().finally(() => onTaskHandled?.(task.id));
+  }, [claimTask, onTaskHandled, record, stop, task]);
+
+  React.useEffect(() => {
+    if (!task || !sessionId || task.kind === 'open_panel' || task.kind === 'stop' || task.kind === 'blocked' || !claimTask(task)) return;
+    void executeTask(task, sessionId).catch(() => undefined);
+  }, [claimTask, executeTask, sessionId, task]);
+
+  const cursorLeft = observation && overlayCursor ? `${Math.min(100, Math.max(0, overlayCursor.x / observation.width * 100))}%` : '0%';
+  const cursorTop = observation && overlayCursor ? `${Math.min(100, Math.max(0, overlayCursor.y / observation.height * 100))}%` : '0%';
+  const pulseLeft = observation && clickPulse ? `${Math.min(100, Math.max(0, clickPulse.x / observation.width * 100))}%` : '0%';
+  const pulseTop = observation && clickPulse ? `${Math.min(100, Math.max(0, clickPulse.y / observation.height * 100))}%` : '0%';
+
   return (
-    <ScreenFrame title="Bilgisayar Kullanımı" icon={<Cpu className="h-5 w-5" />} subtitle="Görünür algı-eylem kokpiti. Varsayılan mod: SADECE OKUMA." variant="cockpit">
-      <CockpitGrid>
-        <OSPanel title="Live Observation" eyebrow="SCREEN" icon={<Eye className="h-4 w-4" />}>
-          <div className="aspect-video rounded-lg border border-white/10 bg-[radial-gradient(circle_at_center,var(--assistant-glow),transparent_34%),linear-gradient(135deg,rgba(15,23,42,.9),rgba(2,6,23,.96))] p-4">
-            <div className="flex h-full items-center justify-center rounded-md border border-dashed border-white/15 bg-black/30 text-center">
-              <EmptyState icon={<MonitorIcon />} title="Read-only observation hazır" text="Computer Agent ekran görüntüsü aldığında UI elementleri, hedef ve doğrulama sonucu burada görünür." />
+    <ScreenFrame title="Computer Use" icon={<Cpu className="h-5 w-5" />} subtitle="Supervised local desktop operation with owner approval and a persistent emergency stop" variant="cockpit">
+      <div className="mb-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <StatusPill label="Runtime" value={status?.runtime ?? 'CHECKING'} tone={status?.available ? 'success' : 'warning'} />
+        <StatusPill label="Session" value={sessionId ? 'OWNER APPROVED' : 'INACTIVE'} tone={sessionId ? 'info' : 'muted'} />
+        <StatusPill label="Operator" value={phase.toUpperCase()} tone={phase === 'error' ? 'danger' : phase === 'success' ? 'success' : phase === 'idle' ? 'muted' : 'info'} />
+        <StatusPill label="Emergency stop" value={status?.killSwitch ?? 'CHECKING'} tone={status?.killSwitch === 'active' ? 'danger' : status?.killSwitch === 'inactive' ? 'success' : 'warning'} />
+      </div>
+      <CockpitGrid className="xl:grid-cols-[minmax(0,1.55fr)_minmax(19rem,.72fr)]">
+        <OSPanel title="Live desktop" eyebrow="SUPERVISED VIEW" icon={<Eye className="h-4 w-4" />}>
+          <div className="relative flex min-h-[18rem] aspect-video items-center justify-center overflow-hidden rounded-md border border-cyan-300/15 bg-black/55 shadow-[inset_0_0_60px_rgba(8,145,178,.08)]">
+            {observation ? <img src={observation.imageDataUrl} alt="Latest local desktop capture" className="h-full w-full object-contain" /> : <p className="px-4 text-center text-sm text-slate-400">{status?.safeMessage ?? 'Desktop status loading...'}</p>}
+            {overlayEnabled && sessionId && <>
+              <span className="pointer-events-none absolute left-2 top-2 h-8 w-8 border-l-2 border-t-2 border-cyan-300 shadow-[0_0_15px_#67e8f9]" />
+              <span className="pointer-events-none absolute right-2 top-2 h-8 w-8 border-r-2 border-t-2 border-cyan-300 shadow-[0_0_15px_#67e8f9]" />
+              <span className="pointer-events-none absolute bottom-2 left-2 h-8 w-8 border-b-2 border-l-2 border-cyan-300 shadow-[0_0_15px_#67e8f9]" />
+              <span className="pointer-events-none absolute bottom-2 right-2 h-8 w-8 border-b-2 border-r-2 border-cyan-300 shadow-[0_0_15px_#67e8f9]" />
+              {observation && overlayCursor && <span aria-label="EDITH cursor" className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-100 bg-cyan-400/60 shadow-[0_0_12px_#22d3ee]" style={{ left: cursorLeft, top: cursorTop }} />}
+              {observation && clickPulse && <span key={clickPulse.id} aria-label="Click pulse" className="pointer-events-none absolute h-8 w-8 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border-2 border-cyan-200" style={{ left: pulseLeft, top: pulseTop }} />}
+              <span className="absolute bottom-3 left-3 rounded bg-black/80 px-2 py-1 text-xs text-cyan-100">{phase.toUpperCase()}</span>
+            </>}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={!sessionId} onClick={() => sessionId && void observe(sessionId)} className="flex items-center gap-2 rounded border border-cyan-400/40 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40"><Eye className="h-4 w-4" /> Refresh view</button>
+              <label className="flex items-center gap-2 rounded border border-white/10 px-3 py-2 text-xs text-slate-300"><input type="checkbox" checked={overlayEnabled} onChange={(event) => setOverlayEnabled(event.target.checked)} /> Operator overlay</label>
             </div>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">No action without an approved session</span>
           </div>
         </OSPanel>
-        <OSPanel title="Sonraki İşlem" eyebrow="GÜVENLİK DÖNGÜSÜ" icon={<ShieldCheck className="h-4 w-4" />}>
-          <LoopBar items={['OBSERVE', 'UNDERSTAND', 'PLAN', 'ACTION', 'VERIFY']} active={0} />
-          <div className="mt-4 space-y-2">
-            <StatusPill label={safety?.computer?.mode ?? 'READ ONLY'} tone="success" />
-            <StatusPill label={safety?.computer?.approvalRequired ? 'Kontrol için onay gerekli' : 'Onay durumu bilinmiyor'} tone="warning" />
-            <ActionRow label="Kontrol bağdaştırıcıları" value={String(computerTools.length)} />
-            <ActionRow label="Son denetim" value={latestComputerLog?.status ?? 'yok'} />
-            <ActionRow label="Çalışma ortamı bağlı" value={safety?.computer?.runtimeBound ? 'evet' : 'hayır'} />
-            <ActionRow label="Risk" value="Bekleyen işlem yok" />
+        <OSPanel title="Operator control" eyebrow="OWNER COMMAND" icon={<ShieldCheck className="h-4 w-4" />}>
+          <div className="space-y-2">
+            <ActionRow label="Runtime" value={status?.runtime ?? 'checking'} />
+            <ActionRow label="Mode" value={status?.mode ?? 'read_only'} />
+            <ActionRow label="Owner Command" value={status?.ownerCommandMode ? 'ACTIVE' : 'INACTIVE'} />
+            <ActionRow label="Screen capture" value={status?.screenCapture ?? 'missing'} />
+            <ActionRow label="Mouse" value={status?.mouseControl ?? 'missing'} />
+            <ActionRow label="Keyboard" value={status?.keyboardControl ?? 'missing'} />
+            <ActionRow label="Overlay" value={status?.overlay ?? 'missing'} />
+            <ActionRow label="Kill switch" value={status?.killSwitch ?? 'unknown'} />
           </div>
-          {safety?.computer?.phases && (
-            <div className="mt-4 space-y-1">
-              {safety.computer.phases.slice(0, 4).map((phase) => (
-                <ActionRow key={phase.name} label={phase.name} value={phase.status} />
-              ))}
-            </div>
-          )}
-          <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-red-400/35 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-100">
-            <Square className="h-4 w-4" /> Bilgisayar Ajanını Durdur
-          </button>
+          {task && <div className="mt-3 border-l-2 border-cyan-300/70 pl-3 text-xs text-cyan-100"><span className="text-slate-400">Current task</span><p className="mt-1">{task.label}</p></div>}
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+            <button type="button" disabled={!status?.available || Boolean(sessionId)} onClick={() => void begin()} className="flex items-center justify-center gap-2 rounded border border-cyan-400/50 bg-cyan-400/10 px-3 py-3 text-xs font-semibold text-cyan-100 disabled:opacity-40"><Play className="h-4 w-4" /> Start approved session</button>
+            {task && sessionId && task.kind !== 'open_panel' && task.kind !== 'stop' && task.kind !== 'blocked' && <button type="button" onClick={() => void executeTask(task, sessionId)} className="rounded border border-emerald-400/50 px-3 py-2 text-xs text-emerald-100">Run current task</button>}
+            <button type="button" onClick={() => void stop()} className="flex items-center justify-center gap-2 rounded border border-red-400/60 bg-red-500/12 px-3 py-3 text-xs font-semibold text-red-100"><Square className="h-4 w-4" /> Stop now <span className="text-red-200/60">Esc</span></button>
+          </div>
+          {status?.killSwitch === 'active' && <div className="mt-3 rounded border border-amber-400/30 bg-amber-950/20 p-3 text-xs text-amber-100">
+            <p>Emergency stop is active. Unlocking only restores the approval path; it does not start device control.</p>
+            <button type="button" onClick={() => killSwitchUnlockArmed ? void deactivateKillSwitch() : setKillSwitchUnlockArmed(true)} className="mt-2 rounded border border-amber-300/50 px-3 py-2 font-semibold hover:bg-amber-400/10">
+              {killSwitchUnlockArmed ? 'Confirm unlock' : 'Prepare unlock'}
+            </button>
+            {killSwitchUnlockArmed && <p role="alert" className="mt-2 text-amber-200">Confirming re-enables the separate Windows owner-approval step for up to five minutes.</p>}
+          </div>}
+          {error && <p role="alert" className="mt-3 text-xs text-red-300">{error}</p>}
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <ActionRow label="Registered tools" value={String(tools.length)} />
+            <ActionRow label="Audit logs" value={String(logs.length)} />
+          </div>
         </OSPanel>
       </CockpitGrid>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,.45fr)]">
+        <OSPanel title="Operator timeline" eyebrow="OBSERVE / PLAN / ACT / VERIFY" icon={<Route className="h-4 w-4" />}>
+          <div className="max-h-56 space-y-1 overflow-y-auto text-xs">
+            {timeline.length ? timeline.map((event) => <div key={event.id} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 border-b border-white/10 py-2"><span className="font-mono text-cyan-200">{event.type}</span><span className="text-slate-300">{event.message ?? event.safeMessage}</span></div>) : <p className="text-slate-400">No local actions yet. Start an approved session to begin.</p>}
+          </div>
+        </OSPanel>
+        <OSPanel title="Safety boundary" eyebrow="ALWAYS ENFORCED" icon={<LockKeyhole className="h-4 w-4" />}>
+          <div className="space-y-2 text-xs text-slate-300">
+            <ActionRow label="Owner approval" value={sessionId ? 'ACTIVE' : 'REQUIRED'} />
+            <ActionRow label="Session expiry" value={status?.sessionExpiresAt ? new Date(status.sessionExpiresAt).toLocaleTimeString() : 'NO SESSION'} />
+            <ActionRow label="Stop path" value="UI + ESC + GLOBAL" />
+            <p className="rounded border border-white/10 bg-black/20 p-3 leading-relaxed text-slate-400">Screen capture and input controls report the native runtime state. Unavailable capabilities remain unavailable; this surface never simulates readiness.</p>
+          </div>
+        </OSPanel>
+      </div>
+      <details className="rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-slate-400">
+        <summary className="cursor-pointer select-none font-semibold text-slate-300">Advanced native input diagnostics</summary>
+        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <button type="button" disabled={!sessionId} onClick={() => void moveTest()} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Move and return</button>
+          <button type="button" disabled={!sessionId} onClick={() => void clickTest()} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Click test</button>
+          <button type="button" disabled={!sessionId} onClick={() => void typeTest()} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Type test</button>
+          <button type="button" disabled={!sessionId} onClick={() => void hotkeyTest()} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Hotkey test</button>
+          <button type="button" disabled={!sessionId} onClick={() => void scrollTest()} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Scroll and return</button>
+          <button type="button" disabled={!sessionId} onClick={() => void interruptTypingTest()} className="rounded border border-red-400/35 px-2 py-2 text-red-100 disabled:opacity-40">Interrupt typing</button>
+          <button type="button" disabled={!sessionId} onClick={() => void openApprovedApp('notepad')} className="rounded border border-white/20 px-2 py-2 disabled:opacity-40">Open Notepad</button>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <button ref={clickTargetRef} type="button" onClick={() => { clickCountRef.current += 1; setClickCount(clickCountRef.current); }} className="rounded border border-emerald-400/40 px-3 py-2">Safe click target: {clickCount}</button>
+          <input ref={typingTargetRef} aria-label="Native typing test field" className="min-w-0 flex-1 rounded border border-white/20 bg-black/30 px-2 text-white" />
+        </div>
+        <div ref={scrollTargetRef} aria-label="Native scroll test area" className="mt-3 h-16 overflow-y-auto rounded border border-white/15 bg-black/25 px-2">
+          <div className="flex h-40 items-start pt-2">Safe scroll target</div>
+        </div>
+      </details>
     </ScreenFrame>
   );
 }
@@ -1053,7 +1578,7 @@ export function KnowledgeGraphScreen({
               </div>
               <div className="mt-4 rounded-xl border border-emerald-300/16 bg-emerald-400/7 p-3">
                 <div className="text-xs font-semibold text-emerald-100">Vault Connected</div>
-                <div className="mt-2 text-[11px] text-slate-400">Vault Path <span className="float-right max-w-44 truncate text-slate-300">{status?.settings?.vaultPath ?? 'D:\\EDİTH\\EDİTH'}</span></div>
+                <div className="mt-2 text-[11px] text-slate-400">Vault Path <span className="float-right max-w-44 truncate text-slate-300">{status?.settings?.vaultPath || 'Yapılandırılmadı'}</span></div>
                 <div className="mt-2 text-[11px] text-slate-400">Last Sync <span className="float-right text-slate-300">{status?.lastSyncAt ? 'synced' : 'waiting'}</span></div>
               </div>
               <div className="mt-4">
@@ -1083,23 +1608,122 @@ export function KnowledgeGraphScreen({
 }
 
 export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; logs: ToolExecutionLog[] }) {
+  const [registry, setRegistry] = React.useState<{ skills: Array<{
+    id: string; name: string; description: string; category: string; status: string; riskLevel: string;
+    readiness: { level: string; ready: boolean; reason: string };
+    capabilities: string[]; requiredPermissions: string[]; requiredConfig: string[]; limitations: string[];
+    relatedEndpoints: string[]; relatedScreens: string[]; safetyNotes: string[]; examples: string[];
+    lastChecked: string; sourceOfTruth: string[];
+    details?: Record<string, string | number | boolean>;
+  }>; checkedAt: string } | null>(null);
+  const [registryError, setRegistryError] = React.useState('');
+  const [registeredTools, setRegisteredTools] = React.useState<Array<{
+    id: string; name: string; description: string; skillId: string; riskLevel: string;
+    requiresApproval: boolean; enabled: boolean; enabledReason: string; endpoint?: string; adapter?: string;
+    limitations: string[]; lastChecked: string;
+  }> | null>(null);
+  const [toolsError, setToolsError] = React.useState('');
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  const refreshRegistry = React.useCallback(async (signal?: AbortSignal) => {
+    setRefreshing(true);
+    setRegistryError('');
+    setToolsError('');
+    const suffix = '?refresh=true';
+    const [skillsResult, toolsResult] = await Promise.allSettled([
+      fetch(`/api/edith/skills${suffix}`, { signal }).then(async (response) => {
+        if (!response.ok) throw new Error(`Registry HTTP ${response.status}`);
+        return response.json();
+      }),
+      fetch(`/api/edith/tools${suffix}`, { signal }).then(async (response) => {
+        if (!response.ok) throw new Error(`Tool registry HTTP ${response.status}`);
+        return response.json();
+      }),
+    ]);
+    if (signal?.aborted) return;
+    if (skillsResult.status === 'fulfilled') setRegistry(skillsResult.value);
+    else setRegistryError(skillsResult.reason instanceof Error ? skillsResult.reason.message : String(skillsResult.reason));
+    if (toolsResult.status === 'fulfilled') {
+      setRegisteredTools(Array.isArray(toolsResult.value.registryTools) ? toolsResult.value.registryTools : []);
+    } else {
+      setToolsError(toolsResult.reason instanceof Error ? toolsResult.reason.message : String(toolsResult.reason));
+    }
+    setRefreshing(false);
+  }, []);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    void refreshRegistry(controller.signal);
+    return () => controller.abort();
+  }, [refreshRegistry]);
+
   return (
     <ScreenFrame title="Araçlar / MCP Kayıt Defteri" icon={<Wrench className="h-5 w-5" />} subtitle="Araç riski, izinler, durum, gecikme ve çalıştırma geçmişi" variant="wide">
+      <div className="mb-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-100">Yetenekler</h2>
+          <div className="flex items-center gap-2">
+            {registry && <span className="text-[10px] text-slate-500">Kontrol: {new Date(registry.checkedAt).toLocaleString('tr-TR')}</span>}
+            <button
+              type="button"
+              onClick={() => void refreshRegistry()}
+              disabled={refreshing}
+              title="Canlı durumları yenile"
+              aria-label="Canlı durumları yenile"
+              className="grid h-8 w-8 place-items-center rounded-md border border-cyan-400/20 bg-cyan-400/5 text-cyan-300 transition hover:bg-cyan-400/10 disabled:cursor-wait disabled:opacity-50"
+            >
+              <RotateCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+        {registryError && <p role="alert" className="text-xs text-rose-300">Yetenek registry erişilemiyor: {registryError}</p>}
+        {!registry && !registryError && <p className="text-xs text-slate-400">Yetenek durumları yükleniyor...</p>}
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {registry?.skills.map((skill) => (
+            <div key={skill.id} className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-slate-100">{skill.name}</h3>
+                <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase ${skill.status === 'ready' ? 'border-emerald-400/30 text-emerald-300' : skill.status === 'broken' || skill.status === 'disabled' ? 'border-rose-400/30 text-rose-300' : 'border-amber-400/30 text-amber-300'}`}>{skill.status.replace('_', ' ')}</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-300">{skill.description}</p>
+              <p className="mt-2 text-[11px] text-slate-400">{skill.readiness.reason}</p>
+              <div className="mt-3 space-y-1.5 text-[10px] text-slate-500">
+                <div>Risk: {skill.riskLevel} · İzin: {skill.requiredPermissions.join(', ') || 'yok'}</div>
+                <div>Yetenekler: {skill.capabilities.join(', ') || 'operasyonel yetenek yok'}</div>
+                <div>Kısıtlar: {skill.limitations.join(' ') || 'kayıtlı kısıt yok'}</div>
+                {skill.requiredConfig.length > 0 && <div>Gereken: {skill.requiredConfig.join(', ')}</div>}
+                {skill.relatedEndpoints.length > 0 && <div>Uçlar: {skill.relatedEndpoints.join(', ')}</div>}
+                {skill.sourceOfTruth.length > 0 && <div>Kaynak: {skill.sourceOfTruth.join(', ')}</div>}
+                {skill.safetyNotes.length > 0 && <div className="text-amber-300/70">Güvenlik: {skill.safetyNotes.join(' ')}</div>}
+                {skill.details && Object.entries(skill.details).slice(0, 7).map(([key, value]) => <div key={key}>{key}: {String(value)}</div>)}
+                {skill.examples.length > 0 && <div>Örnek: “{skill.examples[0]}”</div>}
+                <div>Son kontrol: {new Date(skill.lastChecked).toLocaleString('tr-TR')}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <h2 className="mb-3 text-sm font-semibold text-slate-100">Kayıtlı araçlar</h2>
+      {toolsError && <p role="alert" className="mb-3 text-xs text-rose-300">Araç registry erişilemiyor: {toolsError}</p>}
       <WorkspaceGrid>
-        {tools.map((tool) => (
-          <OSPanel key={tool.id} title={tool.name} eyebrow={tool.category.toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
+        {(registeredTools ?? []).map((tool) => (
+          <OSPanel key={tool.id} title={tool.name} eyebrow={tool.skillId.replaceAll('_', ' ').toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
             <p className="text-xs leading-relaxed text-slate-400">{tool.description}</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              <RiskBadge level={tool.requiresConfirmation ? 'HIGH' : 'LOW'} />
-              <StatusPill label={tool.status} tone={tool.status === 'error' ? 'danger' : tool.status === 'success' ? 'success' : tool.status === 'running' ? 'warning' : 'muted'} />
+              <RiskBadge level={tool.riskLevel.toUpperCase() as 'READ' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'} />
+              <StatusPill label={tool.enabled ? 'çalışabilir' : 'kapalı'} tone={tool.enabled ? 'success' : 'warning'} />
+              {tool.requiresApproval && <StatusPill label="onay gerekli" tone="warning" />}
             </div>
-            <div className="mt-3 text-[10px] text-slate-500">{tool.permissions.join(', ') || 'no permissions declared'}</div>
+            <div className="mt-3 text-[10px] text-slate-500">{tool.endpoint ?? tool.adapter ?? 'çalıştırma adaptörü yok'}</div>
+            <div className="mt-1 text-[10px] text-slate-500">{tool.enabledReason}</div>
+            {tool.limitations.length > 0 && <div className="mt-1 text-[10px] text-amber-300/70">{tool.limitations.join(' ')}</div>}
           </OSPanel>
         ))}
-        {tools.length === 0 && <div className="xl:col-span-3"><EmptyState icon={<Wrench className="h-4 w-4" />} title="Tool registry boş" text="Registry yüklendiğinde tool izinleri ve risk seviyeleri burada görünür." /></div>}
+        {registeredTools?.length === 0 && <div className="xl:col-span-3"><EmptyState icon={<Wrench className="h-4 w-4" />} title="Tool registry boş" text="Backend araç kaydı bulunamadı." /></div>}
       </WorkspaceGrid>
       <div className="mt-4">
         <OSPanel title="Recent Tool Logs" eyebrow="AUDIT" icon={<Terminal className="h-4 w-4" />}>
+          <ActionRow label="Frontend execution tools" value={String(tools.length)} />
           {logs.slice(0, 6).map((log) => <ActionRow key={log.id} label={`${log.assistantName ?? 'EDITH'} / ${log.toolName}`} value={log.status} />)}
           {logs.length === 0 && <EmptyState icon={<Terminal className="h-4 w-4" />} title="Henüz araç çağrısı yok" text="Tool çalıştırmaları audit özetleriyle burada listelenecek." />}
         </OSPanel>
@@ -1128,18 +1752,25 @@ export function AutomationsMissionScreen({ tools = [], logs = [] }: { tools?: Au
   );
 }
 
-const voiceRoomStateTone: Record<VoiceRoomState, 'info' | 'success' | 'warning' | 'danger' | 'muted'> = {
-  idle: 'muted',
-  connecting: 'warning',
-  listening: 'success',
-  thinking: 'info',
-  speaking: 'info',
-  muted: 'warning',
-  disconnected: 'warning',
-  error: 'danger',
-};
+function voiceActivityLevel(samples: ArrayLike<number>, divisor = 1): number {
+  if (samples.length === 0) return 0;
+  let sum = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const normalized = Number(samples[index] ?? 0) / divisor;
+    sum += normalized * normalized;
+  }
+  return Math.min(1, Math.sqrt(sum / samples.length) * 4.5);
+}
 
-export function VoiceScreen({ onBack }: { onBack?: () => void }) {
+type VoiceRoomPrimaryRoute = 'voice' | 'computer' | 'crypto' | 'settings';
+
+export function VoiceScreen({
+  onBack,
+  onNavigate,
+}: {
+  onBack?: () => void;
+  onNavigate?: (route: VoiceRoomPrimaryRoute) => void;
+}) {
   const safety = useInteractionSafetySnapshot();
   const [roomState, setRoomState] = React.useState<VoiceRoomState>('idle');
   const [micSupported, setMicSupported] = React.useState(false);
@@ -1149,8 +1780,11 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
   const [finalTranscript, setFinalTranscript] = React.useState('');
   const [jarvisReply, setJarvisReply] = React.useState(() => getVoiceRoomCapabilitySnapshot().statusMessage);
   const [voiceError, setVoiceError] = React.useState<string | null>(null);
+  const [voiceErrorCode, setVoiceErrorCode] = React.useState<string | null>(null);
+  const [lastSocketUrl, setLastSocketUrl] = React.useState('');
   const [audioChunkCount, setAudioChunkCount] = React.useState(0);
   const [lastAudioMimeType, setLastAudioMimeType] = React.useState<string>('none');
+  const [voiceLevel, setVoiceLevel] = React.useState(0);
   const socketRef = React.useRef<WebSocket | null>(null);
   const mediaStreamRef = React.useRef<MediaStream | null>(null);
   const captureContextRef = React.useRef<AudioContext | null>(null);
@@ -1158,7 +1792,9 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
   const processorRef = React.useRef<ScriptProcessorNode | null>(null);
   const playbackSourcesRef = React.useRef<AudioBufferSourceNode[]>([]);
   const playbackTimeRef = React.useRef(0);
+  const pendingPlaybackIdleRef = React.useRef(false);
   const mutedRef = React.useRef(false);
+  const lastLevelUpdateRef = React.useRef(0);
 
   React.useEffect(() => {
     mutedRef.current = muted;
@@ -1179,6 +1815,7 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
 
     if (!supported) {
       setRoomState('disconnected');
+      setVoiceErrorCode('mic_permission_denied');
     }
 
     return () => {
@@ -1192,7 +1829,9 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
       .then((response) => response.ok ? readJsonResponse(response) : undefined)
       .then((payload) => {
         if (!cancelled && payload?.success) {
-          setVoiceCapabilities(normalizeVoiceRoomStatusPayload(payload, micSupported));
+          const snapshot = normalizeVoiceRoomStatusPayload(payload, micSupported);
+          setVoiceCapabilities(snapshot);
+          setJarvisReply(snapshot.statusMessage);
         }
       })
       .catch(() => {
@@ -1206,19 +1845,24 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     };
   }, [micSupported]);
 
-  const displayState: VoiceRoomState = muted ? 'muted' : roomState;
+  const displayState: VoiceRoomState = roomState === 'error' ? 'error' : muted ? 'muted' : roomState;
   const liveStatusLabel = voiceCapabilities.runtimeStatus === 'connected'
     ? 'Connected'
     : voiceCapabilities.runtimeStatus === 'connecting'
     ? 'Connecting'
     : voiceCapabilities.runtimeStatus === 'configuration_required'
     ? 'Configuration required'
+    : voiceCapabilities.runtimeStatus === 'error'
+    ? 'Error'
     : 'Offline';
-  const liveStatusTone = voiceCapabilities.runtimeStatus === 'connected'
-    ? 'success'
-    : voiceCapabilities.runtimeStatus === 'configuration_required'
-    ? 'warning'
-    : 'warning';
+
+  const publishVoiceLevel = React.useCallback((level: number) => {
+    const now = performance.now();
+    if (level === 0 || now - lastLevelUpdateRef.current >= 72) {
+      lastLevelUpdateRef.current = now;
+      setVoiceLevel(level);
+    }
+  }, []);
 
   const playPcmAudio = React.useCallback((base64Audio: string) => {
     const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
@@ -1232,6 +1876,7 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     void context.resume();
 
     const pcm = base64ToInt16Pcm(base64Audio);
+    publishVoiceLevel(voiceActivityLevel(pcm, 0x8000));
     const buffer = context.createBuffer(1, pcm.length, VOICE_LIVE_OUTPUT_RATE);
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i += 1) {
@@ -1246,9 +1891,17 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     playbackTimeRef.current = startAt + buffer.duration;
     playbackSourcesRef.current.push(source);
     source.onended = () => {
-      playbackSourcesRef.current = playbackSourcesRef.current.filter((candidate) => candidate !== source);
+      const remaining = playbackSourcesRef.current.filter((candidate) => candidate !== source);
+      playbackSourcesRef.current = remaining;
+      if (remaining.length === 0) {
+        publishVoiceLevel(0);
+        if (pendingPlaybackIdleRef.current) {
+          pendingPlaybackIdleRef.current = false;
+          setRoomState('idle');
+        }
+      }
     };
-  }, []);
+  }, [publishVoiceLevel]);
 
   const stopPlayback = React.useCallback(() => {
     playbackSourcesRef.current.forEach((source) => {
@@ -1260,7 +1913,9 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     });
     playbackSourcesRef.current = [];
     playbackTimeRef.current = 0;
-  }, []);
+    pendingPlaybackIdleRef.current = false;
+    publishVoiceLevel(0);
+  }, [publishVoiceLevel]);
 
   const stopCapture = React.useCallback(() => {
     processorRef.current?.disconnect();
@@ -1269,7 +1924,8 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     mediaStreamRef.current = null;
     void captureContextRef.current?.close();
     captureContextRef.current = null;
-  }, []);
+    publishVoiceLevel(0);
+  }, [publishVoiceLevel]);
 
   const stopLiveSession = React.useCallback((reason = 'client_stop') => {
     stopCapture();
@@ -1279,6 +1935,7 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     }
     socketRef.current?.close(1000, reason);
     socketRef.current = null;
+    setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'offline' }));
     setRoomState('idle');
   }, [stopCapture, stopPlayback]);
 
@@ -1307,6 +1964,7 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     processor.onaudioprocess = (event) => {
       if (mutedRef.current || socket.readyState !== WebSocket.OPEN) return;
       const input = event.inputBuffer.getChannelData(0);
+      publishVoiceLevel(voiceActivityLevel(input));
       const pcm = downsampleFloat32ToInt16Pcm(input, context.sampleRate);
       const audio = int16PcmToBase64(pcm);
       socket.send(JSON.stringify({ type: 'audio:chunk', audio, mimeType: VOICE_LIVE_INPUT_MIME }));
@@ -1315,14 +1973,15 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     source.connect(processor);
     processor.connect(context.destination);
     await context.resume();
-  }, []);
+  }, [publishVoiceLevel]);
 
   const interruptLiveSession = () => {
     stopPlayback();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: 'interrupt' }));
     }
-    setRoomState('listening');
+    setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connecting' }));
+    setRoomState('connecting');
   };
 
   const handleServerEvent = React.useCallback((raw: MessageEvent<string>) => {
@@ -1330,24 +1989,40 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     if (!event) return;
 
     if (event.type === 'status') {
-      setRoomState(event.state);
+      const hasQueuedPlayback = playbackSourcesRef.current.length > 0;
+      pendingPlaybackIdleRef.current = event.state === 'idle' && hasQueuedPlayback;
+      setRoomState(voiceRoomStateAfterServerStatus(event.state, hasQueuedPlayback));
+      setVoiceCapabilities((current) => ({
+        ...current,
+        runtimeStatus: voiceRoomRuntimeStatusAfterServerState(event.state, current.runtimeStatus),
+      }));
       if (event.safeMessage) setVoiceError(event.state === 'error' ? event.safeMessage : null);
+      if (event.state !== 'error') setVoiceErrorCode(null);
       return;
     }
 
     if (event.type === 'session:ready') {
-      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connected', liveConnectorBound: true }));
-      setRoomState('listening');
       if (socketRef.current && !mediaStreamRef.current) {
-        void startCapture(socketRef.current).catch((error: any) => {
-          setRoomState('error');
-          setVoiceError(error?.name === 'NotAllowedError' ? 'Microphone permission was denied.' : error?.message ?? 'Could not start microphone capture.');
-        });
+        void startCapture(socketRef.current)
+          .then(() => {
+            setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connected', liveConnectorBound: true }));
+            setRoomState('listening');
+          })
+          .catch((error: any) => {
+            setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'error' }));
+            setRoomState('error');
+            setVoiceError(error?.name === 'NotAllowedError' ? 'Microphone permission was denied.' : error?.message ?? 'Could not start microphone capture.');
+            setVoiceErrorCode(error?.name === 'NotAllowedError' ? 'mic_permission_denied' : 'session_error');
+          });
+      } else {
+        setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connected', liveConnectorBound: true }));
+        setRoomState('listening');
       }
       return;
     }
 
     if (event.type === 'transcript:user') {
+      pendingPlaybackIdleRef.current = false;
       if (event.partial) {
         setPartialTranscript(event.text);
       } else {
@@ -1359,12 +2034,14 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     }
 
     if (event.type === 'transcript:assistant') {
+      pendingPlaybackIdleRef.current = false;
       setJarvisReply(event.text);
       setRoomState('speaking');
       return;
     }
 
     if (event.type === 'audio:chunk') {
+      pendingPlaybackIdleRef.current = false;
       setRoomState('speaking');
       setAudioChunkCount((count) => count + 1);
       setLastAudioMimeType(event.mimeType);
@@ -1373,13 +2050,16 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     }
 
     if (event.type === 'error') {
+      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'error' }));
       setRoomState('error');
       setVoiceError(event.safeMessage);
+      setVoiceErrorCode(event.errorCode);
       return;
     }
 
     if (event.type === 'session:ended') {
       stopCapture();
+      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'offline' }));
       setRoomState('idle');
     }
   }, [playPcmAudio, startCapture, stopCapture]);
@@ -1393,26 +2073,41 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     if (!micSupported) {
       setRoomState('disconnected');
       setVoiceError('Push-to-talk requires microphone access in this desktop WebView/browser.');
+      setVoiceErrorCode('mic_permission_denied');
       return;
     }
 
     try {
       setVoiceError(null);
       setPartialTranscript('');
-      setRoomState('connecting');
       stopLiveSession('restart');
-      const socket = new WebSocket(voiceLiveSocketUrl());
+      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'connecting' }));
+      setRoomState('connecting');
+      const socketUrl = voiceLiveSocketUrl();
+      setLastSocketUrl(socketUrl);
+      let socketOpened = false;
+      const socket = new WebSocket(socketUrl);
       socketRef.current = socket;
       socket.onopen = () => {
+        socketOpened = true;
         socket.send(JSON.stringify({ type: 'session:start' }));
       };
       socket.onmessage = handleServerEvent;
       socket.onerror = () => {
+        const classified = classifyVoiceSocketFailure({ socketUrl, opened: socketOpened });
+        setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'error' }));
         setRoomState('error');
-        setVoiceError('Voice Room WebSocket failed.');
+        setVoiceError(classified.safeMessage);
+        setVoiceErrorCode(classified.code);
       };
       socket.onclose = () => {
         stopCapture();
+        if (!socketOpened) {
+          const classified = classifyVoiceSocketFailure({ socketUrl, opened: false });
+          setVoiceError(classified.safeMessage);
+          setVoiceErrorCode(classified.code);
+        }
+        setVoiceCapabilities((current) => current.runtimeStatus === 'error' ? current : { ...current, runtimeStatus: 'offline' });
         setRoomState((current) => current === 'error' ? current : 'idle');
       };
       await new Promise<void>((resolve, reject) => {
@@ -1423,10 +2118,12 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
         }, { once: true });
         socket.addEventListener('error', () => {
           window.clearTimeout(timeout);
-          reject(new Error('Voice Room socket connection failed.'));
+          const classified = classifyVoiceSocketFailure({ socketUrl, opened: socketOpened });
+          reject(new Error(`${classified.code}: ${classified.safeMessage}`));
         }, { once: true });
       });
     } catch (error: any) {
+      setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'error' }));
       setRoomState('error');
       const message = error?.name === 'NotAllowedError'
         ? 'Microphone permission was denied.'
@@ -1434,6 +2131,7 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
         ? `Could not start live voice: ${error.message}`
         : 'Could not start live voice.';
       setVoiceError(message);
+      setVoiceErrorCode(error?.name === 'NotAllowedError' ? 'mic_permission_denied' : String(error?.message ?? '').split(':')[0] || 'session_error');
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.send(JSON.stringify({ type: 'session:stop' }));
       }
@@ -1453,126 +2151,193 @@ export function VoiceScreen({ onBack }: { onBack?: () => void }) {
     setAudioChunkCount(0);
     setLastAudioMimeType('none');
     setVoiceError(null);
+    setVoiceErrorCode(null);
   };
 
-  const previewStates: VoiceRoomState[] = ['idle', 'listening', 'thinking', 'speaking'];
+  const sessionActive = voiceCapabilities.runtimeStatus === 'connecting' || voiceCapabilities.runtimeStatus === 'connected';
+  const meterStrength = Math.max(displayState === 'listening' ? 2 : 0, Math.round(voiceLevel * 24));
+  const capturedTranscript = partialTranscript || finalTranscript;
+  const primaryControlLabel = sessionActive ? 'End voice session' : 'Start voice session';
 
   return (
-    <div className="edith-voice-room custom-scrollbar">
-      <div className="edith-voice-stars" />
+    <div className="edith-voice-room custom-scrollbar" data-state={displayState}>
+      <div className="edith-voice-grid" />
+      <div className="edith-voice-horizon" />
       <header className="edith-voice-header">
-        <div className="min-w-0">
-          <div className="edith-eyebrow">E.D.I.T.H. / Voice Room</div>
-          <h2 className="mt-2 text-xl font-semibold text-slate-100 sm:text-2xl">JARVIS conversation chamber</h2>
+        <div className="edith-voice-brand">
+          <div className="edith-voice-brand-mark" aria-hidden="true"><CircleDot className="h-4 w-4" /></div>
+          <div>
+            <strong>E.D.I.T.H.</strong>
+            <span>Personal AI System</span>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <StatusPill label={liveStatusLabel} tone={liveStatusTone} />
-          <StatusPill label="Model" value={EDITH_VOICE_ROOM_MODEL} tone="info" />
+        <nav className="edith-voice-nav" aria-label="Primary workspace navigation">
+          <button type="button" className="active" onClick={() => onNavigate?.('voice')}><Mic2 className="h-4 w-4" />Voice Room</button>
+          <button type="button" onClick={() => onNavigate?.('computer')}><Cpu className="h-4 w-4" />Computer Use</button>
+          <button type="button" onClick={() => onNavigate?.('crypto')}><TrendingUp className="h-4 w-4" />Crypto</button>
+          <button type="button" onClick={() => onNavigate?.('settings')} title="Settings" aria-label="Settings"><SlidersHorizontal className="h-4 w-4" /><span>Settings</span></button>
+        </nav>
+        <div className="edith-voice-header-status">
+          <div className="edith-voice-live-badge" data-online={voiceCapabilities.runtimeStatus === 'connected'}>
+            <span />{liveStatusLabel}
+          </div>
           {onBack && (
-            <button onClick={onBack} className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-200 transition hover:border-cyan-300/35 hover:bg-cyan-300/10">
-              Back
+            <button type="button" onClick={onBack} className="edith-voice-back" title="Return to command center" aria-label="Return to command center">
+              <ChevronLeft className="h-4 w-4" />
             </button>
           )}
         </div>
       </header>
 
-      <section className="edith-voice-stage">
-        <div className="edith-voice-core-wrap" data-state={displayState}>
-          <div className="edith-voice-orbit edith-voice-orbit-one" />
-          <div className="edith-voice-orbit edith-voice-orbit-two" />
-          <div className="edith-voice-orbit edith-voice-orbit-three" />
-          <div className="edith-voice-wave edith-voice-wave-one" />
-          <div className="edith-voice-wave edith-voice-wave-two" />
-          <div className="edith-voice-core">
-            <div className="edith-voice-core-inner">
-              <Sparkles className="h-10 w-10 text-cyan-100 drop-shadow-[0_0_18px_rgba(103,232,249,0.95)]" />
+      <div className="edith-voice-chamber">
+        <aside className="edith-voice-left-rail" aria-label="Voice state">
+          <div className="edith-voice-channel-copy">
+            <span>VOICE CHANNEL</span>
+            <strong>{voiceRoomStateLabel[displayState]}</strong>
+            <p>{voiceCapabilities.statusMessage}</p>
+          </div>
+
+          <div className="edith-voice-state-list">
+            <div className="edith-voice-state-item" data-active={displayState === 'listening'}>
+              <div className="edith-voice-state-icon"><Mic2 className="h-4 w-4" /></div>
+              <div><strong>Listening</strong><span>{displayState === 'listening' ? 'Microphone stream active' : 'Waiting for your voice'}</span></div>
+            </div>
+            <div className="edith-voice-state-item" data-active={displayState === 'thinking'}>
+              <div className="edith-voice-state-icon"><Brain className="h-4 w-4" /></div>
+              <div><strong>Thinking</strong><span>{displayState === 'thinking' ? 'Processing this turn' : 'Response engine ready'}</span></div>
+            </div>
+            <div className="edith-voice-state-item" data-active={displayState === 'speaking'}>
+              <div className="edith-voice-state-icon"><Volume2 className="h-4 w-4" /></div>
+              <div><strong>Speaking</strong><span>{displayState === 'speaking' ? 'Audio response playing' : 'Output channel quiet'}</span></div>
             </div>
           </div>
-          <div className="edith-voice-particle edith-voice-particle-a" />
-          <div className="edith-voice-particle edith-voice-particle-b" />
-          <div className="edith-voice-particle edith-voice-particle-c" />
-        </div>
 
-        <div className="edith-voice-status-strip">
-          <StatusPill label={voiceRoomStateLabel[displayState]} tone={voiceRoomStateTone[displayState]} />
-          <StatusPill label="Assistant" value={EDITH_VOICE_ROOM_ASSISTANT} tone="muted" />
-          <StatusPill label="Mode" value={safety?.voice?.mode ?? 'PUSH_TO_TALK'} tone="muted" />
-        </div>
-      </section>
-
-      <section className="edith-voice-transcript">
-        <div className="edith-voice-transcript-line">
-          <span>You said</span>
-          <p>{partialTranscript || finalTranscript || 'Awaiting push-to-talk input. No wake word listener is active.'}</p>
-        </div>
-        <div className="edith-voice-transcript-line">
-          <span>JARVIS replied</span>
-          <p>{jarvisReply}</p>
-        </div>
-        {voiceError && (
-          <div className="rounded-md border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
-            {voiceError}
+          <div className="edith-voice-settings-panel">
+            <div className="edith-voice-panel-heading"><span>Voice channel</span><Activity className="h-4 w-4" /></div>
+            <dl>
+              <div><dt>Mode</dt><dd>{safety?.voice?.mode ?? 'DISABLED'}</dd></div>
+              <div><dt>Input</dt><dd>PCM 16 kHz</dd></div>
+              <div><dt>Output</dt><dd>PCM 24 kHz</dd></div>
+              <div><dt>Wake word</dt><dd>{safety?.voice?.wakeWord ?? 'BLOCKED'}</dd></div>
+            </dl>
           </div>
-        )}
-      </section>
+        </aside>
 
-      <footer className="edith-voice-controls">
-        <div className="flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={displayState === 'listening' ? stopListening : startListening}
-            className={cx(
-              'edith-voice-control-button',
-              displayState === 'listening' ? 'edith-voice-control-button-active' : ''
-            )}
-            title={micSupported ? 'Start or stop Gemini Live push-to-talk' : 'Microphone capture is unavailable in this runtime'}
-          >
-            {displayState === 'listening' ? <Square className="h-5 w-5" /> : <Mic2 className="h-5 w-5" />}
-            <span>{displayState === 'listening' ? 'Stop listening' : 'Start listening'}</span>
-          </button>
-          <button
-            onClick={() => setMuted((current) => !current)}
-            className="edith-voice-icon-button"
-            title={muted ? 'Unmute microphone controls' : 'Mute microphone controls'}
-          >
-            {muted ? <MicOff className="h-5 w-5" /> : <Mic2 className="h-5 w-5" />}
-          </button>
-          <button onClick={resetSession} className="edith-voice-icon-button" title="End and reset the local voice room session">
-            <RotateCcw className="h-5 w-5" />
-          </button>
-          <button onClick={interruptLiveSession} className="edith-voice-icon-button" title="Interrupt current Gemini Live audio playback">
-            {displayState === 'speaking' ? <Square className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
-          </button>
-        </div>
+        <main className="edith-voice-center">
+          <section className="edith-voice-stage" aria-label={`JARVIS core: ${voiceRoomStateLabel[displayState]}`}>
+            <div
+              className="edith-voice-core-wrap"
+              data-state={displayState}
+              style={{ '--voice-level': voiceLevel.toFixed(3) } as React.CSSProperties}
+            >
+              <div className="edith-voice-core-axis" />
+              <div className="edith-voice-orbit edith-voice-orbit-one" />
+              <div className="edith-voice-orbit edith-voice-orbit-two" />
+              <div className="edith-voice-orbit edith-voice-orbit-three" />
+              <div className="edith-voice-orbit edith-voice-orbit-four" />
+              <div className="edith-voice-wave edith-voice-wave-one" />
+              <div className="edith-voice-wave edith-voice-wave-two" />
+              <div className="edith-voice-core-signal" aria-hidden="true">
+                {Array.from({ length: 40 }).map((_, index) => <span key={index} style={{ '--signal-index': index } as React.CSSProperties} />)}
+              </div>
+              <div className="edith-voice-core">
+                <div className="edith-voice-core-shell" />
+                <div className="edith-voice-core-inner">
+                  <span>E.D.I.T.H.</span>
+                  <strong>{EDITH_VOICE_ROOM_ASSISTANT}</strong>
+                  <small>{voiceRoomStateLabel[displayState]}</small>
+                </div>
+              </div>
+              <div className="edith-voice-particle edith-voice-particle-a" />
+              <div className="edith-voice-particle edith-voice-particle-b" />
+              <div className="edith-voice-particle edith-voice-particle-c" />
+            </div>
+          </section>
 
-        <div className="edith-voice-meter" aria-label="Input meter">
-          {Array.from({ length: 20 }).map((_, index) => (
-            <span key={index} className={displayState === 'listening' && index < 12 ? 'edith-voice-meter-active' : ''} />
-          ))}
-        </div>
+          <footer className="edith-voice-controls">
+            <div className="edith-voice-control-row">
+              <div className="edith-voice-meter edith-voice-meter-left" aria-hidden="true">
+                {Array.from({ length: 12 }).map((_, index) => <span key={index} className={index < Math.ceil(meterStrength / 2) ? 'edith-voice-meter-active' : ''} style={{ '--meter-index': index } as React.CSSProperties} />)}
+              </div>
+              <div className="edith-voice-mic-cluster">
+                <button
+                  type="button"
+                  onClick={sessionActive ? stopListening : startListening}
+                  className={cx('edith-voice-mic-button', sessionActive && 'active')}
+                  title={micSupported ? primaryControlLabel : 'Microphone capture is unavailable in this runtime'}
+                  aria-label={primaryControlLabel}
+                >
+                  {sessionActive ? <Square className="h-7 w-7" /> : <Mic2 className="h-8 w-8" />}
+                </button>
+                <strong>{primaryControlLabel}</strong>
+                <span>{muted ? 'Microphone muted' : voiceRoomStateLabel[displayState]}</span>
+              </div>
+              <div className="edith-voice-meter" aria-label="Live audio activity">
+                {Array.from({ length: 12 }).map((_, index) => <span key={index} className={index < Math.ceil(meterStrength / 2) ? 'edith-voice-meter-active' : ''} style={{ '--meter-index': index } as React.CSSProperties} />)}
+              </div>
+            </div>
 
-        <div className="edith-voice-safety-grid">
-          <ActionRow label="Gemini Live" value={voiceCapabilities.liveConnectorBound ? 'backend connector bound' : 'backend connector not wired'} />
-          <ActionRow label="Wake word" value={safety?.voice?.wakeWord ?? 'Not enabled'} />
-          <ActionRow label="Barge-in" value={voiceCapabilities.bargeInEnabled ? 'Enabled' : 'Not enabled'} />
-          <ActionRow label="Audio output" value={audioChunkCount > 0 ? `${audioChunkCount} chunks / ${lastAudioMimeType}` : 'waiting'} />
-          <ActionRow label="API key exposure" value={voiceCapabilities.frontendCanReadApiKey ? 'Unsafe' : 'Frontend has no key access'} />
-        </div>
+            <div className="edith-voice-secondary-controls">
+              <button type="button" onClick={() => setMuted((current) => !current)} className="edith-voice-icon-button" title={muted ? 'Unmute microphone' : 'Mute microphone'} aria-label={muted ? 'Unmute microphone' : 'Mute microphone'}>
+                {muted ? <MicOff className="h-4 w-4" /> : <Mic2 className="h-4 w-4" />}
+              </button>
+              <button type="button" onClick={interruptLiveSession} disabled={!sessionActive} className="edith-voice-icon-button" title="Interrupt current response" aria-label="Interrupt current response">
+                {displayState === 'speaking' ? <Square className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+              </button>
+              <button type="button" onClick={resetSession} className="edith-voice-icon-button" title="Reset voice session" aria-label="Reset voice session">
+                <RotateCcw className="h-4 w-4" />
+              </button>
+            </div>
+          </footer>
+        </main>
 
-        <div className="edith-voice-preview">
-          <span>Animation preview</span>
-          {previewStates.map((state) => (
-            <button key={state} onClick={() => setRoomState(state)} className={displayState === state ? 'active' : ''}>
-              {voiceRoomStateLabel[state]}
-            </button>
-          ))}
-          <span className="inline-flex items-center gap-1 text-amber-200"><WifiOff className="h-3.5 w-3.5" /> UI-only preview, not a live session</span>
-        </div>
-      </footer>
+        <aside className="edith-voice-right-rail">
+          <section className="edith-voice-conversation">
+            <header>
+              <div><MessageSquareText className="h-4 w-4" /><h2>Conversation</h2></div>
+              <span className="edith-voice-conversation-live" data-online={voiceCapabilities.runtimeStatus === 'connected'}><i />{voiceCapabilities.runtimeStatus === 'connected' ? 'Live' : 'Offline'}</span>
+            </header>
+            <div className="edith-voice-transcript custom-scrollbar" aria-live="polite">
+              <article className="edith-voice-message edith-voice-message-user">
+                <div><span>You</span>{partialTranscript && <em>Listening</em>}</div>
+                <p>{capturedTranscript || 'No speech has been captured in this session.'}</p>
+              </article>
+              <article className="edith-voice-message edith-voice-message-assistant">
+                <div><span>{EDITH_VOICE_ROOM_ASSISTANT}</span><em>{voiceRoomStateLabel[displayState]}</em></div>
+                <p>{jarvisReply}</p>
+              </article>
+              {voiceError && (
+                <div className="edith-voice-error" role="status">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>{voiceErrorCode ? `${voiceErrorCode}: ` : ''}{voiceError}</span>
+                </div>
+              )}
+            </div>
+            <footer>
+              <span>{partialTranscript ? 'Receiving partial transcript' : sessionActive ? 'Voice session active' : 'Start a session to speak'}</span>
+              <Activity className="h-4 w-4" />
+            </footer>
+          </section>
+
+          <section className="edith-voice-session-panel">
+            <div className="edith-voice-panel-heading"><span>Session</span><ShieldCheck className="h-4 w-4" /></div>
+            <dl>
+              <div><dt>State</dt><dd>{voiceRoomStateLabel[displayState]}</dd></div>
+              <div><dt>Model</dt><dd>{EDITH_VOICE_ROOM_MODEL}</dd></div>
+              <div title={lastSocketUrl || undefined}><dt>WebSocket</dt><dd>{voiceCapabilities.runtimeStatus === 'connected' ? 'Connected' : lastSocketUrl ? 'Attempted' : 'Not started'}</dd></div>
+              <div><dt>Audio</dt><dd>{audioChunkCount > 0 ? `${audioChunkCount} chunks` : 'Waiting'}</dd></div>
+              <div><dt>API key</dt><dd>{voiceCapabilities.frontendCanReadApiKey ? 'Unsafe exposure' : 'Backend protected'}</dd></div>
+            </dl>
+            {lastAudioMimeType !== 'none' && <p>{lastAudioMimeType}</p>}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
 
 export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?: AutomationTool[]; integrations?: IntegrationConfig[] }) {
+  const safety = useInteractionSafetySnapshot();
   const highRiskTools = tools.filter((tool) => tool.requiresConfirmation);
   const connectedIntegrations = integrations.filter((integration) => integration.status === 'connected' && integration.enabled);
   return (
@@ -1588,12 +2353,12 @@ export function SecurityCenterScreen({ tools = [], integrations = [] }: { tools?
               <ActionRow label="Risk" value={`${highRiskTools.length} gated tools`} />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {['Approve once', 'Approve for session', 'Deny', 'Always ask'].map((action) => <button key={action} className="rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-xs text-slate-200">{action}</button>)}
+              {['Approve once', 'Approve for session', 'Deny', 'Always ask'].map((action) => <button key={action} type="button" disabled className="rounded-md border border-white/10 bg-slate-950/50 px-3 py-2 text-xs text-slate-200 disabled:opacity-40">{action}</button>)}
             </div>
           </div>
         </OSPanel>
         <OSPanel title="Locks" eyebrow="GUARDRAILS" icon={<KeyRound className="h-4 w-4" />}>
-          <ActionRow label="Computer-use lock" value="READ ONLY" />
+          <ActionRow label="Computer-use lock" value={safety?.computer?.mode ?? 'READ ONLY'} />
           <ActionRow label="Trading lock" value="UI ONLY" />
           <ActionRow label="High-risk tools" value="approval required" />
           <ActionRow label="Connected integrations" value={String(connectedIntegrations.length)} />
@@ -1746,7 +2511,11 @@ function observerTone(state: ObserverState): 'success' | 'warning' | 'danger' | 
   return 'muted';
 }
 
-export function TradingScreen({ integrations = [], tools = [], logs = [] }: { integrations?: IntegrationConfig[]; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+export function TradingScreen() {
+  return <CryptoExchangeTerminal />;
+}
+
+function LegacyTradingScreen({ integrations = [], tools = [], logs = [] }: { integrations?: IntegrationConfig[]; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
   const [serviceStatus, setServiceStatus] = React.useState<CryptoServiceStatus | null>(null);
   const [cryptoData, setCryptoData] = React.useState<Record<string, any>>({});
   const [loading, setLoading] = React.useState(false);
@@ -2436,7 +3205,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
 
               <CryptoPanel title="Demo İşlemden Öğrendikleri" eyebrow="SADECE TRADE SONRASI" icon={<Brain className="h-4 w-4" />}>
                 <div className="grid grid-cols-1 gap-2">
-                  <ActionRow label="Vault yolu" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
+                  <ActionRow label="Vault yolu" value={String(obsidianStatus.vaultPath || 'Yapılandırılmadı')} />
                   <ActionRow label="Ders kaynağı" value="sadece demo trade" />
                   <ActionRow label="Trade klasörü" value="Trading/Crypto/Trade Journal" />
                   <ActionRow label="Yazılabilir" value={obsidianReady ? 'evet' : 'hayır / bildirilmedi'} />
@@ -2534,7 +3303,7 @@ export function TradingScreen({ integrations = [], tools = [], logs = [] }: { in
 
             <CryptoPanel title="Obsidian Durumu" eyebrow={obsidianReady ? 'BAĞLI' : 'YAPILANDIRMA GEREKİYOR'} icon={<Archive className="h-4 w-4" />}>
               <div className="space-y-2">
-                <ActionRow label="Vault" value={String(obsidianStatus.vaultPath ?? 'D:\\EDİTH\\EDİTH')} />
+                <ActionRow label="Vault" value={String(obsidianStatus.vaultPath || 'Yapılandırılmadı')} />
                 <ActionRow label="Klasör" value={String(obsidianStatus.folder ?? 'Trading/Crypto Market Learning')} />
                 <ActionRow label="Yazılabilir" value={obsidianReady ? 'evet' : 'hayır'} />
                 <ActionRow label="Son export" value={displayTime(obsidianStatus.lastExport ?? obsidianStatus.lastSync ?? runtime?.lastObservationAt)} />
@@ -3108,6 +3877,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
   const runningTools = tools.filter((tool) => tool.status === 'running').length;
   const safety = useInteractionSafetySnapshot();
   const [shellStatus, setShellStatus] = React.useState<DesktopShellStatus | null>(null);
+  const [computerDesktopStatus, setComputerDesktopStatus] = React.useState<ComputerDesktopStatus | null>(null);
   const [backendOnline, setBackendOnline] = React.useState<boolean | null>(null);
   const [toolsHealth, setToolsHealth] = React.useState<Array<{ toolId: string; state: string; highRisk: boolean; enabled: boolean }>>([]);
   const [permissionMode, setPermissionMode] = React.useState<string>('PENDING');
@@ -3121,6 +3891,12 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
         if (!cancelled) setShellStatus(shell);
       } catch {
         if (!cancelled) setShellStatus({ tauri: false });
+      }
+      try {
+        const nativeStatus = await getComputerDesktopStatus();
+        if (!cancelled) setComputerDesktopStatus(nativeStatus);
+      } catch {
+        if (!cancelled) setComputerDesktopStatus(null);
       }
       try {
         const response = await fetch(`/api/health?ollamaUrl=${encodeURIComponent(settings?.ollamaUrl ?? 'http://localhost:11434')}`);
@@ -3151,8 +3927,25 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
       }
     }
     loadDiagnostics();
+    const desktopTimer = window.setInterval(async () => {
+      try {
+        const [nativeStatus, killSwitchResponse] = await Promise.all([
+          getComputerDesktopStatus(),
+          fetch('/api/edith/kill-switch'),
+        ]);
+        if (cancelled) return;
+        setComputerDesktopStatus(nativeStatus);
+        if (killSwitchResponse.ok) {
+          const payload = await readJsonResponse(killSwitchResponse);
+          if (!cancelled) setKillSwitchActive(Boolean(payload?.state?.active));
+        }
+      } catch {
+        if (!cancelled) setComputerDesktopStatus(null);
+      }
+    }, 3_000);
     return () => {
       cancelled = true;
+      window.clearInterval(desktopTimer);
     };
   }, [settings?.ollamaUrl]);
 
@@ -3170,7 +3963,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
     ['Permissions', permissionMode, permissionMode === 'FULL_ACCESS' ? 'DEGRADED' : 'ONLINE'],
     ['Kill switch', killSwitchActive === null ? 'pending' : killSwitchActive ? 'active' : 'inactive', killSwitchActive ? 'BLOCKED' : 'ONLINE'],
     ['Browser Use mode', safety?.browser?.mode ?? 'READ_ONLY', safety?.browser?.mode === 'READ_ONLY' ? 'BLOCKED' : 'DEGRADED'],
-    ['Computer Use mode', safety?.computer?.mode ?? 'READ_ONLY', 'BLOCKED'],
+    ['Computer Use mode', computerDesktopStatus?.mode ?? safety?.computer?.mode ?? 'READ_ONLY', computerDesktopStatus?.ownerCommandMode ? 'ONLINE' : computerDesktopStatus?.runtime === 'tauri' && computerDesktopStatus.mode === 'read_only' ? 'CONFIGURATION REQUIRED' : 'BLOCKED'],
     ['Trading mode', 'live execution locked', 'BLOCKED'],
   ];
 
@@ -3199,7 +3992,8 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
             <ActionRow label="Running tools" value={String(runningTools)} />
             <ActionRow label="Audit events" value={String(logs.length)} />
             <ActionRow label="Tray" value={shellStatus?.trayConfigured ? 'configured' : 'planned'} />
-            <ActionRow label="Unsafe computer control" value={shellStatus?.unsafeComputerControl ? 'enabled' : 'blocked'} />
+            <ActionRow label="Uncontrolled device access" value={shellStatus?.unsafeComputerControl ? 'enabled' : 'blocked'} />
+            <ActionRow label="Native computer bridge" value={computerDesktopStatus ? `${computerDesktopStatus.runtime}: ${computerDesktopStatus.mode} / ${computerDesktopStatus.screenCapture}` : 'status unavailable'} />
             <ActionRow label="Downloads/forms" value="approval required" />
             <ActionRow label="Policy warning" value={safety?.computer?.policyWarning ? 'elevated policy detected' : 'none'} />
             <ActionRow label="Tauri package build" value={safety?.desktopPackaging?.tauriPackageBuildAvailable ? 'available' : 'Cargo not found'} />

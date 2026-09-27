@@ -26,6 +26,8 @@ function relationshipId(from: string, to: string, type: KnowledgeGraphRelationsh
 }
 
 export class KnowledgeGraphService {
+  private lastRuntimeIngestAt = 0;
+
   snapshot(filters: {
     query?: string;
     nodeType?: KnowledgeGraphNodeType;
@@ -35,7 +37,7 @@ export class KnowledgeGraphService {
     source?: string;
     limit?: number;
   } = {}): KnowledgeGraphSnapshot {
-    this.ingestEdithRuntime();
+    this.refreshRuntimeGraph();
     const store = getEdithPersistenceStore();
     const normalizedQuery = filters.query?.trim().toLocaleLowerCase('tr-TR');
     const nodes = (store.listKnowledgeNodes?.() ?? [])
@@ -112,7 +114,7 @@ export class KnowledgeGraphService {
   }
 
   findNode(id: string): KnowledgeGraphNode | undefined {
-    this.ingestEdithRuntime();
+    this.refreshRuntimeGraph();
     return (getEdithPersistenceStore().listKnowledgeNodes?.() ?? []).find((node) => node.id === id && !node.deletedAt);
   }
 
@@ -196,6 +198,21 @@ export class KnowledgeGraphService {
       for (const toolId of agent.allowedTools) {
         this.upsertRelationship({ from: node.id, to: `tool:${toolId}`, type: 'references', source: 'agent', evidence: 'Agent allowed tool.' });
       }
+    }
+  }
+
+  private refreshRuntimeGraph(): void {
+    const currentTime = Date.now();
+    if (currentTime - this.lastRuntimeIngestAt < 5_000) return;
+    try {
+      this.ingestEdithRuntime();
+      this.lastRuntimeIngestAt = currentTime;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/database is (?:locked|busy)/i.test(message)) throw error;
+      // A second local EDITH process may briefly own the WAL writer lock. The
+      // existing graph remains readable and is safer than failing status APIs.
+      this.lastRuntimeIngestAt = currentTime - 4_000;
     }
   }
 

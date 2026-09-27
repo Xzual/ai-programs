@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EDITH Consolidated Summary",
+  "type": "object",
+  "required": ["run_id", "overall_status", "starting_commit", "ending_commit", "completed_tasks", "failed_tasks", "blocked_tasks", "qa_rejections", "conflicts", "failed_tests", "security_warnings", "git", "recommended_next_tasks", "orchestrator_limitations"],
+  "properties": {
+    "run_id": { "type": "string" },
+    "overall_status": { "type": "string" },
+    "starting_commit": { "type": "string" },
+    "ending_commit": { "type": "string" },
+    "completed_tasks": { "type": "array", "items": { "type": "string" } },
+    "failed_tasks": { "type": "array", "items": { "type": "string" } },
+    "blocked_tasks": { "type": "array", "items": { "type": "string" } },
+    "qa_rejections": { "type": "array", "items": { "type": "string" } },
+    "manual_approvals_pending": { "type": "array", "items": { "type": "object" } },
+    "conflicts": { "type": "array", "items": { "type": "string" } },
+    "failed_tests": { "type": "array", "items": { "type": "string" } },
+    "security_warnings": { "type": "array", "items": { "type": "string" } },
+    "git": { "type": "object" },
+    "recommended_next_tasks": { "type": "array", "items": { "type": "string" } },
+    "orchestrator_limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

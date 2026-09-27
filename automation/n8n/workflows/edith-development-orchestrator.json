@@ -1,0 +1,165 @@
+{
+  "name": "EDITH Development Orchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "e642834e-4c91-4df7-9b27-64f4fd346bd3",
+      "name": "When clicking ‘Execute workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [-1240, 120]
+    },
+    {
+      "parameters": { "method": "POST", "url": "http://127.0.0.1:8765/prepare", "options": { "timeout": 1800000 } },
+      "id": "b29bd06a-5c18-4fbb-954d-afc16d75a32d",
+      "name": "Load validate dependencies risk and locks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-1000, 120]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [{ "id": "cccbcd8e-6775-4fe3-aa37-2fe6883f8b1e", "leftValue": "={{ $json.action }}", "rightValue": "dispatch", "operator": { "type": "string", "operation": "equals" } }]
+        },
+        "options": {}
+      },
+      "id": "478f7f49-c97e-41ee-a5ca-71348130040a",
+      "name": "Eligible safe task?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-760, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/dispatch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id }) }}",
+        "options": { "timeout": 1800000 }
+      },
+      "id": "e2df1786-c40b-4d75-b0dc-443d2569ac64",
+      "name": "Route Codex chat and collect report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-520, 20]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [{ "id": "41b5dcb0-688d-4276-973b-e3175f19b2e1", "leftValue": "={{ $json.action }}", "rightValue": "finalize", "operator": { "type": "string", "operation": "equals" } }]
+        },
+        "options": {}
+      },
+      "id": "e57cbd4e-eec3-4c18-9e65-d6dbb168bba5",
+      "name": "Report collected?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [-280, 20]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/qa",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id }) }}",
+        "options": { "timeout": 1800000 }
+      },
+      "id": "5bb0752a-4ca5-4f6a-ab1c-c4a784997673",
+      "name": "Chat 8 QA gate when required",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [-40, -80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [{ "id": "5c450e31-9ca0-425b-a9b2-536915a99ae8", "leftValue": "={{ $json.action }}", "rightValue": "git_gate", "operator": { "type": "string", "operation": "equals" } }]
+        },
+        "options": {}
+      },
+      "id": "6774fb9a-9d7b-4aef-9e0e-52bfd79e28a7",
+      "name": "QA accepted or skipped?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [200, -80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/gitGate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id }) }}",
+        "options": { "timeout": 1800000 }
+      },
+      "id": "a3d7d379-331b-44bd-bb41-22b85417f4b3",
+      "name": "Git scope secret and branch gate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [440, -180]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "combinator": "and",
+          "conditions": [{ "id": "7eb1f49d-68de-4929-91bf-3229b73161ee", "leftValue": "={{ $json.action }}", "rightValue": "finalize", "operator": { "type": "string", "operation": "equals" } }]
+        },
+        "options": {}
+      },
+      "id": "2e713253-710c-4e75-a4b6-075abdc68d87",
+      "name": "Git gate passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [680, -180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8765/finalize",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ task_id: $json.task_id }) }}",
+        "options": { "timeout": 1800000 }
+      },
+      "id": "676512aa-9a04-4fc6-a92c-282228f29308",
+      "name": "Release locks and update status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [920, -280]
+    },
+    {
+      "parameters": { "method": "POST", "url": "http://127.0.0.1:8765/summarize", "options": { "timeout": 1800000 } },
+      "id": "ee4de7c4-72c9-4d0d-a475-776049275a25",
+      "name": "Generate EDITH Toplu Chat Raporu",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [920, 240]
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": { "main": [[{ "node": "Load validate dependencies risk and locks", "type": "main", "index": 0 }]] },
+    "Load validate dependencies risk and locks": { "main": [[{ "node": "Eligible safe task?", "type": "main", "index": 0 }]] },
+    "Eligible safe task?": { "main": [[{ "node": "Route Codex chat and collect report", "type": "main", "index": 0 }], [{ "node": "Generate EDITH Toplu Chat Raporu", "type": "main", "index": 0 }]] },
+    "Route Codex chat and collect report": { "main": [[{ "node": "Report collected?", "type": "main", "index": 0 }]] },
+    "Report collected?": { "main": [[{ "node": "Chat 8 QA gate when required", "type": "main", "index": 0 }], [{ "node": "Generate EDITH Toplu Chat Raporu", "type": "main", "index": 0 }]] },
+    "Chat 8 QA gate when required": { "main": [[{ "node": "QA accepted or skipped?", "type": "main", "index": 0 }]] },
+    "QA accepted or skipped?": { "main": [[{ "node": "Git scope secret and branch gate", "type": "main", "index": 0 }], [{ "node": "Generate EDITH Toplu Chat Raporu", "type": "main", "index": 0 }]] },
+    "Git scope secret and branch gate": { "main": [[{ "node": "Git gate passed?", "type": "main", "index": 0 }]] },
+    "Git gate passed?": { "main": [[{ "node": "Release locks and update status", "type": "main", "index": 0 }], [{ "node": "Generate EDITH Toplu Chat Raporu", "type": "main", "index": 0 }]] },
+    "Release locks and update status": { "main": [[{ "node": "Load validate dependencies risk and locks", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "active": false,
+  "tags": []
+}

@@ -1,0 +1,356 @@
+E.D.I.T.H. TUM CHATLER, RAPORLAR VE TARAYICI QA BIRLESTIRILMIS RAPORU
+Tarih: 26 Eylul 2026
+Workspace: C:\Users\arday\Desktop\ai programs
+Denetim kapsami: Codex proje gorevleri, ayni workspace'teki arsivli gorevler, alt QA gorevleri ve Voice Room haric canli tarayici kontrolleri
+Nihai genel karar: GELISTIRMEYE DEVAM EDILEBILIR, URETIM YAYININA HAZIR DEGIL
+
+===============================================================================
+1. YONTEM VE KAPSAM
+===============================================================================
+
+- Codex gorev listesi, arsivli gorevler ve yerel session index birlikte tarandi.
+- E.D.I.T.H. ile iliskili 27 gorev/chat kaydi incelendi.
+- Her gorevin son tamamlanmis raporu okundu. Son raporu olmayan gorevler ayrıca isaretlendi.
+- Onceki rapor iddialari mevcut repo, API cevaplari ve calisan UI ile karsilastirildi.
+- Normal gelistirme sunucusu `npm run dev` ile baslatildi ve @Tarayici uzerinden UI test edildi.
+- Voice Room, kullanicinin istegi geregi interaktif test kapsamina alinmadi.
+- API key veya .env degeri rapora yazilmadi.
+- Gercek emir, finansal islem, kontrolsuz Computer Use veya silme islemi yapilmadi.
+
+Verdict tanimlari:
+VERIFIED = mevcut kanit raporu destekliyor.
+PARTIAL = is var, fakat kapsam veya runtime kaniti eksik.
+SUPERSEDED = daha sonraki degisiklikler raporu kismen gecersiz kildi.
+INCORRECT = mevcut kanit onemli bir iddiayla celisiyor.
+NO_FINAL_REPORT = tamamlanmis kullanilabilir final raporu yok.
+EXTERNAL_BLOCKER = baska makine, credential, sertifika veya donanim gerekiyor.
+
+===============================================================================
+2. ANA EKIP CHATLERI
+===============================================================================
+
+CHAT 1 - UI/UX VE PROVIDER UI
+Thread: 01a03f17-58d5-7d21-a46e-19c1d4668790
+Gorev: Ana UI/UX; son turda Gemini/provider/model UI entegrasyonu.
+Yapilanlar: Provider ve model secicileri, Gemini/Ollama durumlari, chat response metadata, Settings provider paneli.
+Rapor sonucu: Build gecti; o tarihte lint baska modullerdeki mevcut hatalar nedeniyle kaldi.
+Guncel kanit: Provider/model secicileri canli UI'da mevcut. Gemini UNKNOWN, Ollama OFFLINE ve Mock ONLINE durumlari gorunuyor.
+Verdict: PARTIAL / SUPERSEDED.
+Neden: UI mevcut, ancak eski sohbet mesajlarinin provider/model metadata'si yeni secime gore geriye donuk degisiyor. Mesaj bazli metadata sabit degil.
+
+CHAT 2 - FRONTEND CALISMA ALANLARI
+Thread: 01a03f18-3215-7090-8bbf-7552030db0b7
+Gorev: React UI; son turda Voice, Computer Use, Crypto ve Settings odakli yeni navigasyon.
+Yapilanlar: Ana menu sadeleştirme, Advanced/Developer bolumu, runtime rozetleri, Computer Use ve Crypto sunumlari, responsive kontroller.
+Guncel kanit: Ana navigasyon ve gelismis ekranlar mevcut. Computer Use runtime-unbound/read-only durumunu durust gosteriyor. Crypto ekranı calisiyor.
+Verdict: PARTIAL.
+Neden: UI uygulanmis; Tools ekrani 'Yetenek durumlari yukleniyor' durumunda takili kaliyor. Knowledge Map 0 node/DEGRADED. Bazi eski raporlar yeni Crypto UI tarafindan gecersiz kilindi.
+
+CHAT 3 - PERSONA / ASSISTANT / THEME
+Thread: 01a03f1b-5127-7571-b3e8-8686973f9f11
+Gorev: E.D.I.T.H. platform kimligini persona, provider ve modelden ayirmak.
+Yapilanlar: AssistantProfile registry; JARVIS, FRIDAY, ULTRON, KAREN, ALFRED, HOMER; activeAssistant kaynagi; AURA temizligi.
+Guncel Browser kaniti: JARVIS -> ULTRON degisince Gemini modeli sabit kaldi. Model gemini-3.6-flash -> gemini-2.5-pro degisince ULTRON sabit kaldi. Test sonrasi JARVIS/gemini-3.6-flash geri yuklendi.
+Verdict: VERIFIED (Voice kimligi haric).
+Not: Voice Room kullanici istegi geregi test edilmedi.
+
+CHAT 4 - BACKEND, SUPABASE, WORKSPACE VE DESKTOP BUILD
+Thread: 01a03f21-5c27-74b3-b98b-cc36f5dbb2eb
+Gorev: Express modulleri; son turda Supabase registry, device/workspace modeli ve Tauri sidecar.
+Yapilanlar: Sekiz RLS tablosu, account/device/workspace metadata API'leri, offline queue, sidecar build ve installerlar.
+Guncel kanit: Supabase migration ve yerel FakeRegistry testi var. Settings Account ekrani CONFIG REQUIRED gosteriyor. Workspace ekrani unavailable/not configured. Installer artifactlari mevcut.
+Verdict: PARTIAL + EXTERNAL_BLOCKER.
+Neden: Gercek iki kullanicili Supabase RLS testi yok. Frontend account akisi tam bagli degil. Paketli Crypto/Jev runtime calismiyor.
+
+CHAT 5 - CORE PROTOKOL, SKILL/TOOL REGISTRY, MEMORY
+Thread: 01a04f0b-046c-7a41-acc3-538042e8cfae
+Gorev: Core davranis protokolu, registry, memory/context, Obsidian bilgi yapisi.
+Yapilanlar: Core protocol, 14 skill, backend tool registry, capability API, compact context, Obsidian knowledge notlari, SQLite dayaniklilik.
+Guncel kanit: Agents ekraninda 49 kayitli arac fakat 0 calisan arac gorunuyor. System ekraninda 34 gorunur arac yazarken baska yerde 49 yaziyor. Tools ekrani yuklemede takili.
+Verdict: PARTIAL.
+Neden: Temel mevcut, fakat canli UI sayaclari celiskili ve Tools registry ekrani tamamlanmiyor. Son full QA'da bazi core testleri kirmizi.
+
+CHAT 6 - VOICE / COMPUTER USE / DESKTOP RELEASE
+Thread: 01a04f0d-5c4f-7a70-a5e2-86ed74f56253
+Gorev: Voice, Computer Use ve desktop release.
+Son rapor: Urun fazlarini uygulamak yerine `edith-desktop-release-operator` subagent'i olusturdu.
+Guncel kanit: Computer Use ekrani runtime unbound, read_only, session inactive; Start disabled; Stop/Esc ve global Emergency Stop gorunur. Paketli uygulamada Tauri bridge kopuk.
+Verdict: PARTIAL.
+Neden: Guvenlik yuzeyi durust ve bloklu, fakat son gorev uygulama degil ajan tanimi teslim etti. Gercek native Computer Use kabul testi yok. Voice Room test edilmedi.
+
+CHAT 7 - CRYPTO / JEV DEMO EXCHANGE
+Thread: 01a04f0d-7a3d-7de0-b829-5a771fbaaefb
+Gorev: Guvenli demo Crypto, public Binance verisi, Jev karar, risk ve ledger.
+Yapilanlar: 10.000 CR izole demo ledger, sekiz parite, Binance public data, BUY/SELL/HOLD siniri, risk veto, idempotency, real-order kilitleri.
+Guncel Browser kaniti: Dev modda 'Servisi Baslat' gercekten port 5000 servisini baslatti. UI 9.996,10 CR, 7 demo kayit, public Binance fiyati, NO REAL MONEY/NO REAL ORDERS ve live trading disabled gosterdi. Jev configured/unverified; son kayitli karar HOLD.
+Verdict: VERIFIED DEV / FAIL PACKAGED.
+Neden: Kaynak/dev akisi calisiyor. Paketli app'te `crypto/run_agent.py` bundle'a girmedigi icin Crypto/Jev 503.
+
+CHAT 8 - QA / TEST / CLEANUP
+Thread: 01a04f0d-939a-7671-8862-001815b861bc
+Gorev: Lint/build/test, guvenlik, runtime, Tauri ve release kabul denetimi.
+Yapilanlar: 38 E.D.I.T.H. test matrisi, packaged smoke, process/port, signing, artifact hash, secret ve security taramalari.
+Son rapor: docs/EDITH_FINAL_RELEASE_VALIDATION_2026-09-24.md
+Verdict: VERIFIED.
+Nihai karar: FAIL. Lint/build gecerken 32/38 script gecti; packaged Crypto/Jev, Tauri bridge, portable, signing ve kritik permission guvenligi engel.
+
+===============================================================================
+3. KOORDINASYON VE OZEL PROJE CHATLERI
+===============================================================================
+
+CHAT KORDINE
+Thread: 01a03f15-eb5d-7eb2-904b-c1607e2a8b5e
+Gorev: Ekipleri, mimari sirayi ve raporlari karsilastirmak.
+Verdict: PARTIAL / TARIHSEL.
+Not: Eski rapor Chat 1 ve Chat 3'u 'bulunamadi' saymisti. Yerel session index ile iki chat de bulundu; bu kisim artik yanlis.
+
+GEMINI API SORUNUNU DUZELT
+Thread: 01a086aa-f420-7871-908b-b08c3ac3e35a
+Gorev: Gemini auth/model problemi.
+Yapilanlar: Yeni auth-key formu ve Interactions API denemesi; model adaylari; durum ayrimi.
+Verdict: PARTIAL / SUPERSEDED.
+Not: Son key Google tarafindan API_KEY_INVALID dondu. Daha sonraki provider reset bu akisi yeniden yapilandirdi. Canli UI halen Gemini UNKNOWN ve anahtar dogrulanamadi diyor.
+
+PROVIDER RESET / GOAL OBJECTIVE
+Thread: 01a096e7-f4a9-77b1-a1c6-ee908c86c5ff
+Gorev: Deterministic provider router ve temiz chat SSE.
+Yapilanlar: Router, clean chat route, Gemini env-only semantics, Ollama live model listesi, fallback ve testler.
+Verdict: PARTIAL.
+Not: Testler raporda yesil. Guncel Browser'da Mock gercekten yanit veriyor. Gercek Gemini basarisi ve gercek Ollama generation kaniti yok.
+
+PROGRAMI UCTAN UCA TEST ET
+Thread: 01a080a1-23fd-7bc2-a038-dea555e8d1d0
+Gorev: Normal kullanici gibi Ollama/API/UI testi.
+Verdict: NO_FINAL_REPORT.
+Not: Son okunabilir turda tamamlanmis final rapor yok.
+
+MASTER RELEASE REPORT CONSOLIDATION
+Thread: 01a0cf3c-acec-78c0-ba59-c2fe79d1ccfe
+Gorev: Worktree icinde tum ekip raporlarini birlestirmek.
+Yapilanlar: Ayri worktree'de master-final-report.md/json ve chat8-final-qa.md.
+Verdict: TARIHSEL / ANA WORKTREE ICIN GECERLI DEGIL.
+Neden: Ayri `edith/master-release-candidate` worktree ve iki commit icin REVIEW_REQUIRED raporlandi. Mevcut ana workspace daha sonra tekrar FAIL kaniti verdi; rapor main'e merge edilmedi.
+
+E.D.I.T.H. CINEMATIC LANDING
+Thread: 01a0b420-6825-7393-8fad-5cea9bd384a7
+Gorev: Pazarlama landing sayfasi ve scroll/3D duzeltmeleri.
+Yapilanlar: Scroll görünürlük ve orb kamera duzeltmeleri; build testi.
+Verdict: PARTIAL / AYRI YUZEY.
+Not: Ana uygulamanin release hazirligini kanitlamaz.
+
+ORGANIZE E.D.I.T.H. VAULT
+Thread: 01a08cf8-1659-7a02-8a35-411169be0b6e
+Gorev: D:\EDITH\EDITH Obsidian vault index, wikilink ve frontmatter temizligi.
+Yapilanlar: Indexler, graph notlari, Crypto indexleri, Needs Review ve secret scan.
+Verdict: PARTIAL.
+Not: Dosya seviyesinde is yapildi; fakat guncel EDITH Settings Workspace ekrani vault'u configured olarak gormuyor. Ayrica ilk script yanlis encoding ile `D:\EDÄ°TH` klasoru olusturmus ve rapora gore silememis.
+
+===============================================================================
+4. ARSIVLI CHATLER
+===============================================================================
+
+PROJEYI INCELE VE RAPORLA
+Thread: 01a03f0f-e5e1-7973-8a57-9d2f0e8ec7d5
+Gorev: Genel repo incelemesi.
+Verdict: TARIHSEL.
+Not: Mimari ozeti yararli, fakat 'Git temiz' ve bazi runtime durumlari artik gecerli degil.
+
+CRYPTO PROJESINI TANIMLA
+Thread: 01a03ef9-187c-7830-95ca-88bb01729d04
+Gorev: Crypto klasorunu incelemek; son turda sahte bakiye/trade verisi eklemek.
+Yapilanlar: Legacy dashboard DB'sine 1.468.000 USDT bakiye ve sahte trade kayitlari eklendi; iki agent prosesi durduruldu; DB yedegi alindi.
+Verdict: INCORRECT / KRITIK VERI KIRLILIGI.
+Guncel kanit: `/api/edith/crypto/status` icindeki legacy `overview` halen yaklasik 1.468.001 bakiye, yuzlerce trade ve gercek disi PnL donuyor. Yeni 10.000 CR demo ledger ayri ve dogru olsa da legacy fake metrics kaynakta/runtime verisinde kalmis.
+Oneri: Legacy fake DB'yi urun runtime'indan ayirin, fixture olarak etiketleyin veya temiz bir demo seed ile degistirin. Kullanici arayuzunde gercek performans gibi asla sunmayin.
+
+E.D.I.T.H. UI TASARIMINI YENILE
+Thread: 01a03a46-8bdc-7b41-b850-1c4e0633aa5c
+Gorev: Tum UI redesign ve Knowledge Map.
+Yapilanlar: Knowledge Map kontrolleri, SVG graph, inspector ve tasarim backup.
+Verdict: SUPERSEDED / PARTIAL.
+Guncel kanit: Knowledge Map ekrani aciliyor ancak backend 0 node ve DEGRADED; gercek graph kaniti yok.
+
+TXT PROMPTLARINI UYGULA
+Thread: 01a02097-18f0-7090-bb14-6212c6c727dd
+Gorev: Phase 2, Obsidian, UI ve skill katalog promptlarini uygulamak.
+Yapilanlar: Task/planner/executor temelleri, Obsidian graph, Crypto entegrasyonu, 572 skill kataloglama, testler.
+Verdict: PARTIAL / KAPSAMI ASIRI GENIS.
+Not: Pek cok foundation var, fakat bugunku UI'da Browser/Automation/Files gibi alanlar config-required veya shell. 'Fake basari yok' iddiasi legacy Crypto fake DB nedeniyle tum proje icin dogru degil.
+
+BILGISAYAR PROJESINI TANIMLA
+Thread: 019ffc6c-9c2d-75b3-92c3-d0705200484e
+Gorev: Bilgisayar kontrol projesini tanimlamak.
+Verdict: NO_FINAL_REPORT.
+
+===============================================================================
+5. BAGIMSIZ RELEASE QA ALT GOREVLERI
+===============================================================================
+
+RELEASE LIFECYCLE QA
+Thread: 01a0d499-403e-7760-a54f-cec698dca594
+Sonuc: OS-level iki kapanis PASS; in-app Kapat FAIL; clean install ve portable EXTERNAL_BLOCKER.
+Verdict: VERIFIED.
+
+PORTABLE BUILD QA
+Thread: 01a0d499-9a96-75e2-be97-26c282e517c7
+Sonuc: Portable dizin/ZIP/manifest yok; ikinci makine testi yapilamadi.
+Verdict: VERIFIED FAIL.
+
+SUPABASE ISOLATION QA
+Thread: 01a0d499-9d6d-7e53-ba29-a6813c56cbd3
+Sonuc: Statik RLS PASS; FakeRegistry testi PASS; gercek User A/B testi EXTERNAL_BLOCKER; metadata alanlari not icerigini teknik olarak engellemiyor.
+Verdict: VERIFIED PARTIAL.
+
+JEV PACKAGED RUNTIME QA
+Thread: 01a0d499-a07d-7622-8d6c-7fcba07c29ec
+Sonuc: Sidecar health 200; packaged Crypto/Jev 503; app-data icinde crypto/run_agent.py yok.
+Verdict: VERIFIED FAIL.
+
+WINDOWS PROCESS / GRACEFUL SHUTDOWN QA
+Thread: 01a0d499-a3a5-7032-b2fc-155a60c367fa
+Sonuc: Iki normal close temiz; single-instance yok; sidecar crash restart yok; port TOCTOU ve hard-kill riski var.
+Verdict: VERIFIED PARTIAL.
+
+SECURITY / SIGNING QA
+Thread: 01a0d499-a6c7-7441-9abf-b218feb33215
+Sonuc: Client-supplied permissions + code_helper CRITICAL; integration secrets localStorage HIGH; CSP null HIGH; Mark-L direct import HIGH; tum artifactlar NotSigned.
+Verdict: VERIFIED FAIL.
+
+FINAL EVIDENCE CONSOLIDATION
+Thread: 01a0d499-a9db-7a00-99c6-1f686a33287f
+Sonuc: Release karari FAIL. Packaged Crypto, Computer Use, portable, security ve external gates kapanmadi.
+Verdict: VERIFIED.
+
+===============================================================================
+6. CANLI TARAYICI QA - VOICE ROOM HARIC
+===============================================================================
+
+PASS / DOGRU DAVRANISLAR
+
+1. Boot ekrani gercek durumlari ONLINE/PENDING/OFFLINE olarak gosterdi; sahte 'tum sistemler online' iddiasi yok.
+2. Browser mode acikca 'Tarayici Modu' yaziyor; masaustu pencere dugmeleri disabled.
+3. Global Durdur/Emergency Stop her ana ekranda gorunur.
+4. Computer Use runtime-unbound, read_only, session inactive ve owner approval required gosteriyor. Native eylem baslatma disabled.
+5. Persona ve model birbirinden bagimsiz: JARVIS/ULTRON ve iki Gemini modeliyle UI state testi gecti.
+6. EDITH Mock ile `QA_BROWSER_SMOKE` mesaji gercekten tamamlandi ve 'MOCK RESPONSE / degraded mode' etiketiyle dondu.
+7. Crypto servisi UI dugmesiyle dev modda basladi. Public Binance data geldi. 10.000 CR demo ledger, no real money/no real orders ve live trading disabled gorundu.
+8. Security ekraninda approval kontrolleri aktif istek yokken disabled; Computer Use blocked, Trading UI-only.
+9. Account ekrani Supabase'i CONFIG REQUIRED gosteriyor; bagliymis gibi davranmiyor.
+10. Workspace ekrani unavailable/not configured gosteriyor; Obsidian backup'in calistigini iddia etmiyor.
+11. Browser ekraninda read-only ve config-required yetenekler acikca etiketli.
+12. Tarayici console error/warn listesi bu smoke sirasinda bos kaldi.
+
+FAIL / TUTARSIZLIKLAR
+
+1. CHAT METADATA REGRESYONU
+   Eski bir JARVIS mesaji provider Mock'a gecince EDITH Mock/edith-mock olarak, Gemini'ye donunce Google Gemini/gemini-3.6-flash olarak yeniden etiketlendi. Mesaj metadata'si cevap aninda sabitlenmiyor; secili provider/modelden render ediliyor.
+
+2. LEGACY FAKE CRYPTO METRICS
+   Legacy overview API'si arsivli chat tarafindan eklenmis 1.468.001 bakiye, yuzlerce trade ve gercek disi PnL tutuyor. Aktif 10.000 CR demo UI ayri ledger kullansa da bu veri hala runtime cevabinda.
+
+3. TOOLS EKRANI YUKLEMEDE TAKILI
+   Araçlar / MCP ekrani 'Yetenek durumlari yukleniyor...' durumundan cikmadi. Ayni uygulamanin baska bolumleri 49 tool, System ise 34 tool bildiriyor.
+
+4. SISTEM TANILAMA CELISKISI
+   Ust bar Gemini UNKNOWN ve 'anahtar dogrulanamadi' derken System Diagnostics 'key verified by backend health' yaziyor. Bu ifade current health ile celisiyor.
+
+5. INTEGRATION SECRET STORAGE CELISKISI
+   Privacy/Settings 'non-secret preferences only' ve key'lerin backend env'de oldugunu soyluyor. Integrations ekrani webhook/token bilgisinin IndexedDB/LocalStorage'da tutuldugunu acikca yaziyor. Security QA kaynak kodda apiKey/webhookUrl persistence buldu.
+
+6. KNOWLEDGE MAP RUNTIME DEGRADED
+   Tasarim ekrani aciliyor fakat 0 domain/0 node ve 'Graph data yok'. Obsidian vault duzenlenmis olsa da EDITH runtime workspace configured degil.
+
+7. AJAN/GOREV/OTOMASYON EKRANLARI SINIRLI
+   Ajanlar 0 running tool ve STANDBY/BLOCKED durumlari gosteriyor. Tasks ekranı durum modeli ve bos timeline; Automations backend-dependent; Files bekleme kabugu; Browser cogu yetenekte config-required. Bunlar tamamlanmis otonom operasyon kaniti degil.
+
+8. DEV NETWORK DEFAULT
+   `npm run dev` sunucusu `http://0.0.0.0:3000` uzerinde dinliyor. Auth/permission zafiyetleri kapanmadan LAN exposure ciddi risk.
+
+9. PACKAGED/DESKTOP FARKI
+   Browser/dev Crypto calisti; paketli Crypto/Jev ayri testte 503. Browser smoke sonucu packaged release icin PASS sayilamaz.
+
+10. JEV STATUS SUNUMU
+    UI 'JEV DOGRULANMADI/configured' derken gecmisten HOLD ve latency gosteriyor. Bu tarihsel karar olabilir, ancak current-session provider status ile last-decision provenansi daha acik olmali.
+
+===============================================================================
+7. HANGI CHATLER GOREVINI DOGRU YAPTI?
+===============================================================================
+
+Guclu ve mevcut kanitla desteklenen:
+- Chat 3 persona/model/provider ayrimi (Voice haric)
+- Chat 7 dev Crypto demo guvenlik sinirlari
+- Chat 8 QA ve FAIL release karari
+- Release Lifecycle QA'nin OS close bulgusu
+- Portable QA
+- Supabase statik QA
+- Jev Packaged Runtime QA
+- Windows Process QA
+- Security/Signing QA
+- Final Evidence Consolidation
+
+Kismen dogru, eksik veya sonradan degismis:
+- Chat 1 provider UI
+- Chat 2 ana UI
+- Chat 4 Supabase/workspace/desktop
+- Chat 5 registry/core protocol
+- Chat 6 desktop/Computer Use
+- Gemini fix ve provider reset
+- Obsidian vault organizer
+- UI redesign / Knowledge Map
+- Phase 2 TXT prompt uygulama
+- Coordinator raporu
+- Cinematic landing
+
+Yanlis veya guvenilmez sonuc ureten:
+- Arsivli 'Crypto projesini tanimla' gorevinin fake bakiye ve fake trade eklemesi
+- Master release worktree raporunun ana workspace icin REVIEW_REQUIRED sonucunu genellemek
+- Son raporu olmayan end-to-end ve bilgisayar-projesi gorevlerini tamamlanmis saymak
+
+===============================================================================
+8. ONCELIKLI DUZELTME LISTESI
+===============================================================================
+
+P0 - Guvenlik
+1. `/api/tools/execute` icin authenticated owner/session zorunlu kilin.
+2. Request body `authorizedPermissions` degerine guvenmeyin.
+3. Permission/grant ve kill-switch mutation endpointlerini owner auth + CSRF/origin ile koruyun.
+4. Integration secret'larini localStorage/IndexedDB'den kaldirin.
+5. Dev sunucusunu varsayilan olarak loopback'e baglayin.
+6. Mark-L direct import ve unsandboxed execution yolunu kaldirin veya izole adapter'a alin.
+7. Tauri CSP ve capability scope'larini daraltin.
+
+P0 - Runtime / Release
+1. Crypto Python runtime'i package resources icine alin; packaged Crypto/Jev 503'u kapatin.
+2. Tauri WebView bridge kaybini duzeltin; in-app Kapat ve native Computer Use calissin.
+3. Single-instance, supervised sidecar restart ve graceful shutdown ekleyin.
+4. Portable ZIP + manifest + hash seti uretin.
+5. Artifactlari Authenticode ile imzalayin.
+
+P1 - Veri Dogrulugu
+1. Legacy fake Crypto DB/verisini production runtime'dan ayirin veya temizleyin.
+2. Chat response provider/model/persona metadata'sini mesaj olusturulurken immutable saklayin.
+3. System Diagnostics, top bar ve Settings status metinlerini tek backend kaynagina baglayin.
+4. Tool sayaclarini 34/49 celiskisinden kurtarin ve Tools loading sorununu duzeltin.
+5. Jev current health ile historical last decision'i ayri etiketleyin.
+
+P1 - Tamamlama Kaniti
+1. Kirmizi testleri kapatip 38/38 calistirin.
+2. Gercek iki kullanicili Supabase RLS testi yapin.
+3. Obsidian workspace'i UI'dan configure edip read/write/watch/backup smoke yapin.
+4. Temiz Windows install/uninstall ve ikinci makine portable testi yapin.
+5. Voice Room'u ayrica mikrofon ve audio ile test edin; bu raporda bilerek disarida birakildi.
+
+===============================================================================
+9. SON KARAR
+===============================================================================
+
+Proje kapsamli ve bircok temel gercekten uygulanmis. Ozellikle persona ayrimi, dev Crypto demo guvenligi, public market data, mock/degraded provider davranisi ve guvenlik durumlarinin UI'da durust gosterilmesi olumlu.
+
+Ancak chat raporlarinin hepsi ayni derecede guvenilir degil. Bazi raporlar sonraki degisikliklerle gecersiz, iki gorev finalsiz, Chat 6'nin son teslimi yalnız subagent tanimi ve arsivli Crypto gorevi dogrudan fake runtime verisi olusturmus. Canli UI ayrica message metadata, Tools loading, status source ve secret storage celiskilerini ortaya cikardi.
+
+Sonuc: Branch gelistirmeye devam etmek icin kullanilabilir, fakat production release, gercek finansal guven, signed distribution veya tam otonom Computer Use icin hazir degildir. Chat 8'in FAIL karari korunmalidir.
+
+Olusturulan denetci:
+.cursor/agents/edith-chat-audit-reporter.md
+
+Bu denetimde uygulama davranisi degistirilmedi. Yalnizca denetci tanimi ve bu TXT raporu eklendi.

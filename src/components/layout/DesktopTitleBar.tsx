@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Maximize2, Minus, Monitor, Power, Square, X } from 'lucide-react';
 import { getDesktopShellStatus, invokeDesktopCommand, type DesktopShellStatus } from '../../edith/desktopShell';
+import { getComputerDesktopStatus, type ComputerDesktopStatus } from '../../edith/computerDesktopClient';
 import { AssistantProfile } from '../../types';
 
 interface DesktopTitleBarProps {
@@ -10,16 +11,40 @@ interface DesktopTitleBarProps {
 
 export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({ activeAssistant, onEmergencyStop }) => {
   const [status, setStatus] = useState<DesktopShellStatus>({ tauri: false, trayConfigured: false, unsafeComputerControl: false });
+  const [computerStatus, setComputerStatus] = useState<ComputerDesktopStatus | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getDesktopShellStatus().then((nextStatus) => {
-      if (!cancelled) setStatus(nextStatus);
-    });
+    const refresh = async () => {
+      const [nextStatus, nextComputerStatus] = await Promise.all([
+        getDesktopShellStatus(),
+        getComputerDesktopStatus().catch(() => null),
+      ]);
+      if (!cancelled) {
+        setStatus(nextStatus);
+        setComputerStatus(nextComputerStatus);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 3_000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
+
+  const computerLabel = computerStatus?.mode === 'owner_command'
+    ? 'Bilgisayar SAHİP KOMUTU'
+    : computerStatus?.mode === 'disabled'
+      ? 'Bilgisayar ENGELLİ'
+      : computerStatus?.mode === 'error'
+        ? 'Bilgisayar HATA'
+        : 'Bilgisayar SADECE OKUMA';
+  const computerTone = computerStatus?.mode === 'owner_command'
+    ? 'border-cyan-300/35 bg-cyan-300/10 text-cyan-100'
+    : computerStatus?.mode === 'disabled' || computerStatus?.mode === 'error'
+      ? 'border-red-400/35 bg-red-500/10 text-red-100'
+      : 'border-emerald-400/25 bg-emerald-400/10 text-emerald-200';
 
   const runWindowCommand = async (command: string) => {
     await invokeDesktopCommand(command);
@@ -44,8 +69,8 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({ activeAssistan
         <span className="hidden sm:inline text-slate-500">Kişisel Yapay Zeka Sistemi</span>
         <span className="hidden md:inline text-slate-600">/</span>
         <span className="hidden md:inline text-[var(--assistant-primary)]">{activeAssistant.name}</span>
-        <span className="ml-2 rounded border border-emerald-400/25 bg-emerald-400/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-200">
-          Bilgisayar SADECE OKUMA
+        <span className={`ml-2 rounded border px-1.5 py-0.5 font-mono text-[10px] ${computerTone}`}>
+          {computerLabel}
         </span>
         <span className="hidden lg:inline rounded border border-white/10 bg-white/[0.035] px-1.5 py-0.5 font-mono text-[10px]">
           {status.tauri ? `Masaüstü ${status.version ?? ''}` : 'Tarayıcı Modu'}
@@ -57,7 +82,7 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({ activeAssistan
           type="button"
           onClick={onEmergencyStop}
           className="mr-1 hidden items-center gap-1 rounded-md border border-red-400/35 bg-red-500/10 px-2 py-1 font-mono text-[10px] text-red-100 hover:bg-red-500/18 sm:flex"
-          title="Acil durdurma: yalnızca ses ve akış durumunu durdurur"
+          title="Acil durdurma: ses, akış ve onaylı Computer Use oturumunu durdurur"
         >
           <Power className="h-3.5 w-3.5" />
           Durdur

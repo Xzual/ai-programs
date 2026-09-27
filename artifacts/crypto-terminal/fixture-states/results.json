@@ -1,0 +1,5272 @@
+{
+  "testOnlyFixtures": true,
+  "results": [
+    {
+      "name": "whole-offline",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 503
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        ]
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "market-only-failure",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        ]
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "malformed-loop",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "reversed-market-responses",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200,
+            "selectedAfterHold": true
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200,
+            "releasedLate": true
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "missing-numbers-null",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "missing-numbers-omitted",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "missing-numbers-empty",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "decision-buy",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "decision-sell",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "decision-hold",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "decision-error",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": []
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    },
+    {
+      "name": "decision-feed-error",
+      "testOnlyFixtures": true,
+      "passed": true,
+      "audit": {
+        "fixtures": [
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ETHUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BNBUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "XRPUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "DOGEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ADAUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "AVAXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/symbols",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "BTCUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/portfolio",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/trades",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/decision/latest",
+            "symbol": null,
+            "status": 503
+          },
+          {
+            "pathname": "/api/crypto/jev/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/jev/loop",
+            "symbol": null,
+            "status": 200
+          }
+        ],
+        "blockedWrites": [],
+        "unknownCryptoRoutes": [],
+        "forwarded": [
+          {
+            "method": "GET",
+            "pathname": "/"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@vite/client"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/main.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom_client.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/App.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Sidebar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/settings/FocusedSettingsScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/Header.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/BootScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/layout/DesktopTitleBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/DashboardView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/ChatConsoleView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/IntegrationsView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/views/CodeChatView.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/effects/ThemeTransition.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/modals/OllamaGuideModal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/auth/LoginScreen.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/desktopShell.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerDesktopClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/providerService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/ui/edithOS.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfileRegistry.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/lib/storage.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lucide-react.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/settingsRuntimeService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/config/assistantProfiles.json"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerOperatorEvents.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceRoomService.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/voiceLiveClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/crypto-terminal.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/cryptoApi.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/crypto/useCryptoOperation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tools"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/providers/health"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/skills/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          }
+        ],
+        "pageErrors": [],
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
+        ]
+      },
+      "reducedMotion": {
+        "requested": true,
+        "activeAnimations": 0
+      }
+    }
+  ]
+}

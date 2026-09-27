@@ -23,9 +23,11 @@ import {
   SlidersHorizontal,
   TrendingUp,
   Wrench,
+  ChevronDown,
 } from 'lucide-react';
 import { ProviderRuntimeStatus } from '../../types';
 import { providerStatusLabel, providerTone } from '../../edith/providerService';
+import { fetchSettingsRuntimeSnapshot, type SettingsSkillSnapshot } from '../../edith/settingsRuntimeService';
 
 export type ActiveTab =
   | 'dashboard'
@@ -64,6 +66,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   providerName = 'Ollama',
   providerStatus,
 }) => {
+  const [skillStatuses, setSkillStatuses] = React.useState<SettingsSkillSnapshot[]>([]);
+  React.useEffect(() => {
+    let mounted = true;
+    const refresh = () => void fetchSettingsRuntimeSnapshot().then((snapshot) => {
+      if (mounted) setSkillStatuses(snapshot.skills);
+    });
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    return () => { mounted = false; window.clearInterval(timer); };
+  }, []);
   const status = providerStatus ?? (ollamaConnected ? 'available' : 'offline');
   const tone = providerTone(status);
   const statusDotClass =
@@ -81,26 +93,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ) : (
     <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0" />
   );
-  const menuItems = [
+  const primaryItems = [
+    { id: 'voice' as ActiveTab, label: 'Voice Room', icon: BotMessageSquare },
+    { id: 'computer' as ActiveTab, label: 'Computer Use', icon: Cpu },
+    { id: 'crypto' as ActiveTab, label: 'Crypto Demo', icon: TrendingUp },
+  ];
+  const advancedItems = [
     { id: 'dashboard' as ActiveTab, label: 'Komuta Merkezi', icon: LayoutDashboard },
     { id: 'chat' as ActiveTab, label: 'Sohbet', icon: MessageSquare },
     { id: 'agents' as ActiveTab, label: 'Ajanlar', icon: Bot },
     { id: 'tasks' as ActiveTab, label: 'Görevler', icon: CalendarClock },
-    { id: 'computer' as ActiveTab, label: 'Bilgisayar Kullanımı', icon: Cpu },
     { id: 'browser' as ActiveTab, label: 'Tarayıcı', icon: Chrome },
     { id: 'memory' as ActiveTab, label: 'Bellek', icon: Brain },
     { id: 'knowledge' as ActiveTab, label: 'Bilgi Grafiği', icon: Network },
     { id: 'automations' as ActiveTab, label: 'Otomasyonlar', icon: Zap },
     { id: 'files' as ActiveTab, label: 'Dosyalar', icon: Files },
     { id: 'code' as ActiveTab, label: 'Kodlama', icon: Code2 },
-    { id: 'crypto' as ActiveTab, label: 'Alım Satım', icon: TrendingUp },
     { id: 'tools' as ActiveTab, label: 'Araçlar / MCP', icon: Wrench },
-    { id: 'voice' as ActiveTab, label: 'Ses', icon: BotMessageSquare },
     { id: 'integrations' as ActiveTab, label: 'Entegrasyonlar', icon: Boxes },
     { id: 'security' as ActiveTab, label: 'Güvenlik', icon: ShieldCheck },
     { id: 'system' as ActiveTab, label: 'Sistem', icon: Activity },
-    { id: 'settings' as ActiveTab, label: 'Ayarlar', icon: Settings },
   ];
+  const [advancedOpen, setAdvancedOpen] = React.useState(() => advancedItems.some((item) => item.id === activeTab));
+  const skillIdByTab: Partial<Record<ActiveTab, string>> = {
+    voice: 'voice_room',
+    computer: 'computer_use',
+    crypto: 'crypto_demo_exchange',
+  };
+
+  React.useEffect(() => {
+    if (advancedItems.some((item) => item.id === activeTab)) setAdvancedOpen(true);
+  }, [activeTab]);
+
+  const renderItem = (item: (typeof primaryItems)[number]) => {
+    const Icon = item.icon;
+    const isActive = activeTab === item.id;
+    const capability = skillStatuses.find((entry) => entry.id === skillIdByTab[item.id]);
+    return (
+      <button
+        key={item.id}
+        onClick={() => setActiveTab(item.id)}
+        title={item.label}
+        className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-xs font-medium transition-all duration-200 ${
+          isActive
+            ? 'border border-[var(--assistant-primary)]/34 bg-[var(--assistant-primary)]/14 text-slate-100 shadow-[0_0_28px_var(--assistant-glow),inset_0_1px_0_rgba(255,255,255,0.06)]'
+            : 'text-slate-400 hover:bg-white/[0.04] hover:text-slate-200'
+        }`}
+      >
+        <span className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-all duration-300 ${isActive ? 'bg-[var(--assistant-primary)]/12 shadow-[0_0_22px_var(--assistant-glow)]' : 'bg-white/[0.025] group-hover:bg-[var(--assistant-primary)]/10'}`}>
+          <Icon className={`relative z-10 h-5 w-5 transition-transform duration-200 group-hover:scale-110 ${isActive ? 'text-[var(--assistant-accent)]' : 'text-slate-300/86 group-hover:text-[var(--assistant-primary)]'}`} />
+        </span>
+        <span className="hidden min-w-0 truncate font-sans md:inline">{item.label}</span>
+        {capability ? <span className={`ml-auto hidden rounded border px-1.5 py-0.5 font-mono text-[8px] uppercase md:block ${capability.status === 'ready' ? 'border-emerald-400/25 text-emerald-300' : capability.status === 'offline' || capability.status === 'broken' ? 'border-red-400/25 text-red-300' : 'border-amber-300/25 text-amber-200'}`}>{capability.status.replaceAll('_', ' ')}</span> : isActive ? <span className="ml-auto hidden h-1.5 w-1.5 rounded-full bg-[var(--assistant-primary)] shadow-[0_0_10px_var(--assistant-glow)] md:block" /> : null}
+      </button>
+    );
+  };
 
   return (
     <aside className="relative top-0 z-30 flex h-full w-[var(--edith-sidebar-compact)] shrink-0 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-3 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 md:w-[var(--edith-sidebar-wide)] md:px-3 md:py-4">
@@ -126,42 +173,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Items */}
-        <nav className="space-y-1.5">
-          {menuItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                title={item.label}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all duration-200 group relative overflow-hidden ${
-                  isActive
-                    ? 'bg-[var(--assistant-primary)]/14 text-slate-100 border border-[var(--assistant-primary)]/34 shadow-[0_0_28px_var(--assistant-glow),inset_0_1px_0_rgba(255,255,255,0.06)]'
-                    : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
-                }`}
-              >
-                <span
-                  className={`relative flex h-7 w-7 items-center justify-center rounded-md transition-all duration-300 ${
-                    isActive
-                      ? 'bg-[var(--assistant-primary)]/12 shadow-[0_0_22px_var(--assistant-glow),inset_0_0_12px_rgba(255,255,255,0.08)]'
-                      : 'bg-white/[0.025] group-hover:bg-[var(--assistant-primary)]/10'
-                  }`}
-                >
-                  <span className={`absolute inset-0 rounded-md blur-md transition-opacity ${isActive ? 'bg-[var(--assistant-primary)]/26 opacity-100' : 'bg-[var(--assistant-primary)]/16 opacity-0 group-hover:opacity-100'}`} />
-                  <Icon
-                    className={`relative z-10 w-5 h-5 transition-transform duration-200 group-hover:scale-110 ${
-                      isActive ? 'text-[var(--assistant-accent)]' : 'text-slate-300/86 group-hover:text-[var(--assistant-primary)]'
-                    }`}
-                  />
-                </span>
-                <span className="hidden min-w-0 truncate font-sans md:inline">{item.label}</span>
-                {isActive && (
-                  <span className="ml-auto hidden h-1.5 w-1.5 rounded-full bg-[var(--assistant-primary)] shadow-[0_0_10px_var(--assistant-glow)] md:block" />
-                )}
-              </button>
-            );
-          })}
+        <nav className="space-y-1.5" aria-label="Primary navigation">
+          {primaryItems.map(renderItem)}
+          <div className="my-3 border-t border-white/8" />
+          {renderItem({ id: 'settings', label: 'Ayarlar', icon: Settings })}
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-medium text-slate-500 transition hover:bg-white/[0.035] hover:text-slate-300"
+            aria-expanded={advancedOpen}
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.025]"><SlidersHorizontal className="h-4 w-4" /></span>
+            <span className="hidden min-w-0 flex-1 text-left md:inline">Gelişmiş / Geliştirici</span>
+            <ChevronDown className={`hidden h-4 w-4 transition-transform md:block ${advancedOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {advancedOpen && <div className="space-y-1 border-l border-white/8 pl-1 md:ml-3">{advancedItems.map(renderItem)}</div>}
         </nav>
       </div>
 

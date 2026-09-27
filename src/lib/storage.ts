@@ -33,6 +33,8 @@ const LEGACY_STORAGE_KEYS = {
   INTEGRATIONS: `${legacyPrefix}_integrations_v1`,
 };
 
+const SENSITIVE_FIELD = /(?:api[_-]?key|token|secret|password|authorization|credential|private[_-]?key|cookie|webhook[_-]?url)/i;
+
 export const EDITH_ADMIN_USERS: EdithUserAccount[] = [
   {
     id: 'admin-can-ipkin',
@@ -621,6 +623,29 @@ export const DEFAULT_INTEGRATIONS: IntegrationConfig[] = [
   },
 ];
 
+function stripSensitiveFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSensitiveFields);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !SENSITIVE_FIELD.test(key))
+      .map(([key, item]) => [key, stripSensitiveFields(item)]),
+  );
+}
+
+function withoutIntegrationSecrets(integration: IntegrationConfig): IntegrationConfig {
+  return stripSensitiveFields(integration) as IntegrationConfig;
+}
+
+function runtimeIntegration(integration: IntegrationConfig): IntegrationConfig {
+  const template = DEFAULT_INTEGRATIONS.find((candidate) => candidate.id === integration.id);
+  return {
+    ...integration,
+    ...(template?.apiKey !== undefined ? { apiKey: '' } : {}),
+    ...(template?.webhookUrl !== undefined ? { webhookUrl: '' } : {}),
+  };
+}
+
 export const DEFAULT_MEMORIES: MemoryItem[] = [
   {
     id: 'mem-1',
@@ -650,7 +675,14 @@ export function loadSettings(): UserSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.SETTINGS);
     if (!raw) return DEFAULT_SETTINGS;
-    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const stored = JSON.parse(raw) as Partial<UserSettings>;
+    const containedLegacySecret = Object.prototype.hasOwnProperty.call(stored, 'claudeVoiceApiKey');
+    delete stored.claudeVoiceApiKey;
+    const parsed = { ...DEFAULT_SETTINGS, ...stored, claudeVoiceApiKey: '' };
+    if (containedLegacySecret) {
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(stored));
+      localStorage.removeItem(LEGACY_STORAGE_KEYS.SETTINGS);
+    }
     return {
       ...parsed,
       assistantPersona: isAssistantPersona(parsed.assistantPersona) ? parsed.assistantPersona : DEFAULT_ASSISTANT_ID,
@@ -662,7 +694,9 @@ export function loadSettings(): UserSettings {
 
 export function saveSettings(settings: UserSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    const safeSettings = { ...settings };
+    delete safeSettings.claudeVoiceApiKey;
+    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(safeSettings));
   } catch (e) {
     console.error('Settings save failed:', e);
   }
@@ -770,17 +804,22 @@ export function saveToolLogs(logs: ToolExecutionLog[]): void {
 
 export function loadIntegrations(): IntegrationConfig[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.INTEGRATIONS) ?? localStorage.getItem(LEGACY_STORAGE_KEYS.INTEGRATIONS);
+    const currentRaw = localStorage.getItem(STORAGE_KEYS.INTEGRATIONS);
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEYS.INTEGRATIONS);
+    const raw = currentRaw ?? legacyRaw;
     if (!raw) {
       saveIntegrations(DEFAULT_INTEGRATIONS);
       return DEFAULT_INTEGRATIONS;
     }
-    const parsed = JSON.parse(raw) as IntegrationConfig[];
+    const parsed = stripSensitiveFields(JSON.parse(raw)) as IntegrationConfig[];
     const parsedById = new Map(parsed.map((integration) => [integration.id, integration]));
-    return DEFAULT_INTEGRATIONS.map((integration) => ({
+    const integrations = DEFAULT_INTEGRATIONS.map((integration) => runtimeIntegration({
       ...integration,
       ...parsedById.get(integration.id),
     }));
+    saveIntegrations(integrations);
+    if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEYS.INTEGRATIONS);
+    return integrations;
   } catch (e) {
     return DEFAULT_INTEGRATIONS;
   }
@@ -788,7 +827,10 @@ export function loadIntegrations(): IntegrationConfig[] {
 
 export function saveIntegrations(integrations: IntegrationConfig[]): void {
   try {
-    localStorage.setItem(STORAGE_KEYS.INTEGRATIONS, JSON.stringify(integrations));
+    localStorage.setItem(
+      STORAGE_KEYS.INTEGRATIONS,
+      JSON.stringify(integrations.map(withoutIntegrationSecrets)),
+    );
   } catch (e) {
     console.error('Integrations save failed:', e);
   }

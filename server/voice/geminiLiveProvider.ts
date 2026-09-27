@@ -5,6 +5,7 @@ import {
   GEMINI_LIVE_MODEL,
   GEMINI_LIVE_OUTPUT_MIME,
   type GeminiLiveProvider,
+  type GeminiLiveConnectOptions,
   type GeminiLiveSession,
   type VoiceLiveErrorCode,
 } from "./types";
@@ -45,9 +46,8 @@ function partText(part: any): string {
 }
 
 function extractText(message: LiveServerMessage): string {
-  const direct = typeof (message as any).text === "string" ? (message as any).text : "";
   const modelTurnText = message.serverContent?.modelTurn?.parts?.map(partText).filter(Boolean).join(" ") ?? "";
-  return direct || modelTurnText;
+  return modelTurnText;
 }
 
 function extractAudio(message: LiveServerMessage): string | undefined {
@@ -69,7 +69,10 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
     this.apiKey = apiKey;
   }
 
-  async connect(callbacks: Parameters<GeminiLiveProvider["connect"]>[0]): Promise<GeminiLiveSession> {
+  async connect(
+    callbacks: Parameters<GeminiLiveProvider["connect"]>[0],
+    options?: GeminiLiveConnectOptions,
+  ): Promise<GeminiLiveSession> {
     const ai = new GoogleGenAI({ apiKey: this.apiKey });
     let sdkSession: Session | undefined;
 
@@ -79,6 +82,7 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          ...(options?.systemInstruction ? { systemInstruction: options.systemInstruction } : {}),
           speechConfig: {
             languageCode: "tr-TR",
           },
@@ -152,9 +156,6 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
       },
       endAudioStream() {
         sdkSession?.sendRealtimeInput({ audioStreamEnd: true });
-      },
-      interrupt() {
-        sdkSession?.sendRealtimeInput({ activityEnd: {} });
       },
       close() {
         sdkSession?.close();

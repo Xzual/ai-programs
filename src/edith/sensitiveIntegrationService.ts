@@ -2,6 +2,7 @@ import { appendAuditEvent, createAuditEvent } from './audit';
 import type { EdithRegisteredTool, EdithRiskLevel, EdithToolResult } from './core';
 import { KillSwitchActiveError, killSwitchService } from './killSwitch';
 import { permissionService } from './permissionService';
+import { sanitizeSensitiveValue } from './securityRedaction';
 
 export type SensitiveIntegrationDomain = 'iot' | 'finance';
 
@@ -126,7 +127,7 @@ export class SensitiveIntegrationService {
       errorCode: 'TOOL_ERROR',
       structuredOutput: {
         capability,
-        request,
+        request: sanitizeSensitiveValue(request),
         honestStatus: 'No IoT, broker, exchange, bank, or trading action was executed.',
       },
     };

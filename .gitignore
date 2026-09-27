@@ -38,6 +38,8 @@ Mark-L-main/config/certs/*.crt
 # Generated app artifacts
 *.tmp
 *.temp
+.edith-build/
+src-tauri/binaries/
 
 # Tauri / Rust
 src-tauri/target/

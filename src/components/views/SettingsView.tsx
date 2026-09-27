@@ -12,8 +12,11 @@ import {
   KeyRound,
   AlertTriangle,
   CheckCircle2,
+  FolderOpen,
 } from 'lucide-react';
+import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { UserSettings, AiProvider, ProviderProfile, ProviderRuntimeStatus } from '../../types';
+import { isTauriShell } from '../../edith/desktopShell';
 import {
   fetchProviderProfiles,
   modelDisabledReason,
@@ -34,6 +37,7 @@ interface SettingsViewProps {
 }
 
 interface ObsidianStatus {
+  connectionStatus: string;
   vaultExists: boolean;
   obsidianConfigExists: boolean;
   watcherActive: boolean;
@@ -82,6 +86,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, { tone: 'good' | 'warn'; text: string }>>({});
   const [savingProviderKey, setSavingProviderKey] = useState<AiProvider | null>(null);
   const [obsidianStatus, setObsidianStatus] = useState<ObsidianStatus | null>(null);
+  const [obsidianVaultBusy, setObsidianVaultBusy] = useState(false);
+  const [obsidianVaultMessage, setObsidianVaultMessage] = useState<{ error: boolean; text: string } | null>(null);
   const [permissionPolicy, setPermissionPolicy] = useState<PermissionPolicyStatus | null>(null);
 
   useEffect(() => {
@@ -177,6 +183,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   async function syncObsidianNow() {
     await fetch('/api/edith/obsidian/sync-now', { method: 'POST' });
     await loadObsidianStatus();
+  }
+
+  async function chooseObsidianVaultParent() {
+    setObsidianVaultMessage(null);
+    try {
+      const parentPath = await openDirectoryDialog({ directory: true, multiple: false, title: 'E.D.İ.T.H vault konumunu seç' });
+      if (typeof parentPath !== 'string') return;
+      setObsidianVaultBusy(true);
+      const response = await fetch('/api/edith/obsidian/vault', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentPath }),
+      });
+      const data = await readJsonResponse(response);
+      if (!response.ok || !data.success) throw new Error(String(data.error ?? 'Vault oluşturulamadı.'));
+      setObsidianStatus(data.status as ObsidianStatus);
+      setObsidianVaultMessage({ error: false, text: `Vault hazır: ${data.vaultPath}` });
+    } catch (error) {
+      setObsidianVaultMessage({ error: true, text: error instanceof Error ? error.message : 'Klasör seçilemedi.' });
+    } finally {
+      setObsidianVaultBusy(false);
+    }
   }
 
   async function loadPermissionPolicy() {
@@ -613,9 +641,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               Reindex
             </button>
           </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-xs">
+            <div className="min-w-0 flex-1">
+              <div className="text-slate-400">Vault konumu</div>
+              <div className="mt-1 break-all font-mono text-slate-200">{obsidianStatus?.settings.vaultPath ?? 'Henüz yüklenmedi'}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void chooseObsidianVaultParent()}
+              disabled={!isTauriShell() || obsidianVaultBusy}
+              title={isTauriShell() ? 'Vault üst klasörünü seç' : 'Klasör seçimi masaüstü uygulamasında kullanılabilir'}
+              className="inline-flex shrink-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-slate-100 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FolderOpen className="h-4 w-4" />
+              {obsidianVaultBusy ? 'Oluşturuluyor...' : 'Klasör Seç'}
+            </button>
+          </div>
+          {obsidianVaultMessage && <p role="status" className={`break-all text-xs ${obsidianVaultMessage.error ? 'text-rose-300' : 'text-emerald-300'}`}>{obsidianVaultMessage.text}</p>}
+          {!isTauriShell() && <p className="text-xs text-slate-500">Klasör seçimi masaüstü uygulamasında kullanılabilir.</p>}
           <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <StatusRow label="Vault" value={obsidianStatus?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'} />
+              <StatusRow label="Vault" value={obsidianStatus?.connectionStatus ?? 'unknown'} tone={obsidianStatus?.connectionStatus === 'connected' ? 'good' : 'warn'} />
               <StatusRow label="Watcher" value={obsidianStatus?.watcherActive ? 'active' : 'idle'} tone={obsidianStatus?.watcherActive ? 'good' : 'warn'} />
               <StatusRow label="Obsidian Config" value={obsidianStatus?.obsidianConfigExists ? 'found' : 'missing'} tone={obsidianStatus?.obsidianConfigExists ? 'good' : 'warn'} />
               <StatusRow label="Indexed Notes" value={String(obsidianStatus?.indexedNotes ?? 0)} />

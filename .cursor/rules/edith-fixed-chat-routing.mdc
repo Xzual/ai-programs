@@ -1,0 +1,22 @@
+---
+description: E.D.I.T.H. görevlerini yalnız sabit chatlere, zorunlu model ve prompt ekleriyle yönlendirir
+alwaysApply: true
+---
+
+# E.D.I.T.H. Sabit Chat Yönlendirmesi
+
+- Kullanıcı açıkça istemedikçe yeni task/chat oluşturma ve `create_thread` çağırma.
+- Görevleri yalnız aşağıdaki mevcut chatlere `send_message_to_thread` ile gönder:
+  - Chat 2 / Frontend: `01a03f18-3215-7090-8bbf-7552030db0b7`
+  - Chat 4 / Backend-Security: `01a03f21-5c27-74b3-b98b-cc36f5dbb2eb`
+  - Chat 5 / Registry-Knowledge: `01a04f0b-046c-7a41-acc3-538042e8cfae`
+  - Chat 6 / Desktop-Voice: `01a04f0d-5c4f-7a70-a5e2-86ed74f56253`
+  - Chat 7 / Crypto-Jev: `01a04f0d-7a3d-7de0-b829-5a771fbaaefb`
+  - Chat 8 / QA-Testing: `01a04f0d-939a-7671-8862-001815b861bc`
+- Her gönderimde model override `gpt-5.6-sol`, thinking/effort `medium` olmalı.
+- Kullanıcı eklemeyi unutsa bile her gönderilen promptun içine aynen şunları ekle:
+  - `[$create-subagent](C:\Users\arday\.agents\skills\create-subagent\SKILL.md)`
+  - `[$goal](C:\Users\arday\.agents\skills\goal\SKILL.md)`
+- Görev yalnız kontrol, inceleme, doğrulama veya QA ise prompta ayrıca `@Tarayıcı` eklentisini ekle.
+- `@Tarayıcı`, uygulama/değişiklik görevi için otomatik eklenmez; yalnız kontrol ağırlıklı işlerde eklenir.
+- Göndermeden önce hedef chat kimliği, model, effort ve zorunlu prompt eklerini doğrula.

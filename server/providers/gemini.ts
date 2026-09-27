@@ -7,11 +7,8 @@ const DEFAULT_MODEL = "gemini-3.6-flash";
 const DEFAULT_MODELS = ["gemini-3.6-flash", "gemini-2.5-pro"];
 const UNSUPPORTED_GEMINI_MODELS = new Set(["gemini-2.5-flash"]);
 const INVALID_KEY_LOG_THROTTLE_MS = 60_000;
-const INVALID_HEALTH_CACHE_MS = 60_000;
 
 let lastInvalidKeyLogAt = 0;
-let cachedInvalidHealth: { keyMarker: string; health: ProviderHealth; expiresAt: number } | undefined;
-let cachedHealth: { keyMarker: string; model: string; health: ProviderHealth; expiresAt: number } | undefined;
 
 function envNumber(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] || "", 10);
@@ -189,14 +186,11 @@ export class GeminiProvider implements AIProviderAdapter {
   }
 
   async healthCheck(options: Record<string, unknown> = {}): Promise<ProviderHealth> {
-    const startedAt = Date.now();
     const base = this.metadata();
     const config = readGeminiConfig();
-    const timeoutMs = Math.max(
-      typeof options.timeoutMs === "number" ? options.timeoutMs : config.timeoutMs,
-      envNumber("GEMINI_HEALTH_TIMEOUT_MS", 15_000),
-    );
     const checkedModel = typeof options.model === "string" && options.model !== "auto" ? options.model : config.defaultModel;
+    const models = uniqueModels([config.defaultModel, ...DEFAULT_MODELS]);
+    const modelAvailable = models.some((model) => model.id === checkedModel);
 
     if (!config.configured) {
       return {
@@ -222,94 +216,30 @@ export class GeminiProvider implements AIProviderAdapter {
         status: "invalid_api_key",
         checkedAt: new Date().toISOString(),
         checkedModel,
-        latencyMs: Date.now() - startedAt,
+        latencyMs: 0,
         errorCode: providerError.code,
         error: providerError.message,
         errorMessage: providerError.message,
       };
     }
 
-    if (cachedInvalidHealth?.keyMarker === config.keyMarker && cachedInvalidHealth.expiresAt > Date.now()) {
-      return {
-        ...cachedInvalidHealth.health,
-        checkedAt: new Date().toISOString(),
-        latencyMs: 0,
-      };
-    }
-    if (cachedHealth?.keyMarker === config.keyMarker && cachedHealth.model === checkedModel && cachedHealth.expiresAt > Date.now()) {
-      return {
-        ...cachedHealth.health,
-        checkedAt: new Date().toISOString(),
-        latencyMs: 0,
-      };
-    }
-
-    try {
-      const models = await this.getModels({ timeoutMs });
-      const modelIds = models.map((model) => model.id);
-      const model = modelIds.includes(checkedModel) ? checkedModel : modelIds[0] ?? config.defaultModel;
-      const result = await this.generate({
-        model,
-        messages: [{ role: "user", content: "Reply with OK." }],
-        temperature: 0,
-        timeoutMs,
-      });
-      if (!result.text.trim()) throw new ProviderError("empty_response", "Gemini returned an empty health response.", 502);
-      const health: ProviderHealth = {
-        ...base,
-        models,
-        defaultModel: model,
-        available: true,
-        healthy: true,
-        modelAvailable: true,
-        status: "available",
-        checkedAt: new Date().toISOString(),
-        checkedModel: model,
-        latencyMs: Date.now() - startedAt,
-      };
-      cachedHealth = {
-        keyMarker: config.keyMarker,
-        model,
-        health,
-        expiresAt: Date.now() + envNumber("GEMINI_HEALTH_CACHE_MS", 60_000),
-      };
-      return health;
-    } catch (error) {
-      const providerError = normalizeGeminiError(error);
-      if (providerError.code === "invalid_api_key") throttledInvalidKeyLog(checkedModel);
-      const status = providerError.code === "invalid_api_key"
-        ? "invalid_api_key"
-        : providerError.code === "timeout"
-        ? "timeout"
-        : providerError.code === "rate_limited"
-        ? "rate_limited"
-        : "unavailable";
-      const health: ProviderHealth = {
-        ...base,
-        configured: true,
-        available: false,
-        healthy: false,
-        modelAvailable: false,
-        status,
-        checkedAt: new Date().toISOString(),
-        checkedModel,
-        latencyMs: Date.now() - startedAt,
-        errorCode: providerError.code,
-        error: providerError.message,
-        errorMessage: providerError.message,
-      };
-      if (providerError.code === "invalid_api_key") {
-        cachedInvalidHealth = {
-          keyMarker: config.keyMarker,
-          health,
-          expiresAt: Date.now() + INVALID_HEALTH_CACHE_MS,
-        };
-      }
-      return health;
-    }
+    return {
+      ...base,
+      configured: true,
+      available: false,
+      healthy: false,
+      modelAvailable,
+      status: "pending",
+      models,
+      defaultModel: config.defaultModel,
+      checkedAt: new Date().toISOString(),
+      checkedModel,
+      latencyMs: 0,
+    };
   }
 
   async getModels(options: Record<string, unknown> = {}): Promise<ProviderMetadata["models"]> {
+    if (options.remote !== true) return this.metadata().models;
     const config = readGeminiConfig();
     const gemini = client();
     if (!config.configured || !gemini) return this.metadata().models;

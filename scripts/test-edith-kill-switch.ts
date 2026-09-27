@@ -85,7 +85,7 @@ try {
   assert.equal(blockedTool.errorCode, 'PERMISSION_DENIED');
   assert.equal(blockedTool.structuredOutput?.disabledCapability, 'tool_execution');
   assert.equal(blockedExecution.success, false);
-  assert.equal(blockedExecution.status, 'PAUSED');
+  assert.equal(blockedExecution.status, 'BLOCKED');
   assert.equal(afterBlockTasks.some((candidate) => candidate.id === task.id), true);
   assert.equal(afterBlockTasks.some((candidate) => candidate.title === 'Blocked task'), false);
   assert.equal(inactive.active, false);
@@ -109,7 +109,7 @@ try {
       'activate',
       'block_task_creation',
       'block_tool_execution',
-      'pause_executor_without_deleting_task',
+      'block_executor_without_deleting_task',
       'deactivate',
       'audit',
     ],

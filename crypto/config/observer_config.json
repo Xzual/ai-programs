@@ -14,9 +14,13 @@
     "PEPE/USDT",
     "SHIB/USDT"
   ],
-  "analysisEnabled": true,
+  "analysisEnabled": false,
   "tradingEnabled": false,
   "paperTradingEnabled": false,
   "liveTradingEnabled": false,
-  "obsidianExportEnabled": true
+  "obsidianExportEnabled": false,
+  "newsEnabled": false,
+  "learningEnabled": false,
+  "ollamaEnabled": false,
+  "decisionModel": "jev"
 }

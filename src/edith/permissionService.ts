@@ -75,6 +75,10 @@ const READ_ONLY_PERMISSIONS = [
   'memory:read',
   'system:notify',
 ];
+const DISABLED_UNSANDBOXED_TOOL_IDS = new Set([
+  'steam_game_search',
+  'steam_game_install',
+]);
 const DEFAULT_POLICY: EdithPermissionPolicy = {
   mode: 'ask',
   updatedAt: new Date(0).toISOString(),
@@ -201,6 +205,20 @@ export class PermissionService {
       ...grantMatches.flatMap((grant) => grant.permissions),
     ]);
     const requiredPermissions = params.tool.metadata.requiredPermissions;
+    if (DISABLED_UNSANDBOXED_TOOL_IDS.has(params.tool.id)) {
+      return {
+        status: 'DENY',
+        toolId: params.tool.id,
+        actor: params.actor,
+        riskLevel: params.tool.metadata.riskLevel,
+        requiredPermissions,
+        authorizedPermissions,
+        missingPermissions: ['runtime:sandboxed_adapter'],
+        activeGrantIds: grantMatches.map((grant) => grant.id),
+        highRisk: true,
+        rationale: `Tool ${params.tool.id} is disabled until a sandboxed adapter replaces the direct runtime bridge.`,
+      };
+    }
     const missingPermissions = requiredPermissions.filter(
       (permission) => !authorizedPermissions.includes(permission)
     );

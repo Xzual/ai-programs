@@ -50,7 +50,7 @@ try {
   });
   permissionService.createGrant({
     actor: 'capability-test',
-    toolIds: ['computer_control_agent'],
+    toolIds: ['computer_control_agent', 'computer_use_guard'],
     permissions: ['computer:control', 'system:exec'],
     reason: 'Regression test scoped high-risk grant.',
     grantedBy: 'test',

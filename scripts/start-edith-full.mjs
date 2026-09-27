@@ -7,7 +7,21 @@ const ROOT = process.cwd();
 const EDITH_URL = process.env.EDITH_SERVICE_URL || 'http://localhost:3000';
 const CRYPTO_URL = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || 'http://localhost:5000';
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://localhost:11434';
-const OBSIDIAN_VAULT_PATH = process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH || 'D:\\EDİTH\\EDİTH';
+function configuredVaultPath() {
+  const environmentPath = process.env.OBSIDIAN_VAULT_PATH || process.env.EDITH_OBSIDIAN_VAULT_PATH;
+  if (environmentPath) return environmentPath;
+  const configFile = process.env.EDITH_WORKSPACE_CONFIG_PATH || path.join(ROOT, '.edith', 'workspace.json');
+  try {
+    const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+    if (!config.obsidianVaultPath) return '';
+    const workspaceRoot = path.isAbsolute(config.workspaceRoot) ? config.workspaceRoot : path.resolve(ROOT, config.workspaceRoot);
+    return path.isAbsolute(config.obsidianVaultPath) ? config.obsidianVaultPath : path.resolve(workspaceRoot, config.obsidianVaultPath);
+  } catch {
+    return '';
+  }
+}
+
+const OBSIDIAN_VAULT_PATH = configuredVaultPath();
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 let mainChild;

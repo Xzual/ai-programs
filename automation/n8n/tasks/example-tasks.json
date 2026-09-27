@@ -1,0 +1,25 @@
+{
+  "run_id": "EXAMPLE-ONLY",
+  "tasks": [
+    {
+      "task_id": "VOICE-004",
+      "title": "Voice buffer hardening",
+      "owner_chat": "6",
+      "prompt_file": "automation/n8n/prompts/chat6/VOICE-004.txt",
+      "dependencies": [],
+      "priority": "high",
+      "risk_level": "REVIEW",
+      "expected_files": [],
+      "protected_files": ["src/App.tsx", "src/components/ui/edithOS.tsx"],
+      "tests": ["npm run lint", "npm run build", "npm run test:edith-voice-room"],
+      "success_conditions": ["required tests pass", "QA accepts", "final report produced"],
+      "qa_required": true,
+      "git_commit": true,
+      "git_push": true,
+      "timeout_minutes": 90,
+      "retry_limit": 1,
+      "status": "queued",
+      "notes": "Illustrative only. Code-changing dispatch stays disabled until the dry run and an explicit later enablement."
+    }
+  ]
+}

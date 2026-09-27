@@ -1,6 +1,39 @@
 import { Router } from "express";
 import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { cryptoService } from "../../src/edith/cryptoService";
+
+const resourceId = /^[a-zA-Z0-9_-]{1,160}$/;
+const operationIdentity = /^[A-Za-z0-9_-]{8,128}$/;
+const errorCodes = new Set([
+  "duplicate_request", "operation_in_progress", "stale_market_data", "market_unavailable",
+  "insufficient_balance", "position_not_found", "risk_rejected", "invalid_decision_output",
+  "jev_unavailable", "jev_timeout", "trade_execution_failed", "portfolio_locked",
+  "reset_not_allowed", "invalid_request", "operation_not_found", "trade_not_found",
+  "decision_not_found", "session_not_found", "not_found", "idempotency_conflict", "operation_expired",
+]);
+
+function canonicalError(body: Record<string, any>) {
+  const object = (value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value);
+  return body.ok === false && object(body.data) && object(body.meta) && object(body.error) &&
+    typeof body.meta.requestId === "string" && typeof body.meta.timestamp === "string" &&
+    errorCodes.has(body.errorCode) && body.error.code === body.errorCode &&
+    typeof body.error.message === "string" && body.error.message.length > 0 && body.safeMessage === body.error.message;
+}
+
+function sendSafeError(res: Response, status: number, code: string, clientRequestId?: string, requestId = randomUUID()) {
+  const message = clientRequestId
+    ? "İşlem sonucu doğrulanamadı. Aynı istek kimliğiyle durumunu kontrol edin."
+    : "Crypto isteği tamamlanamadı. Durumu kontrol edin.";
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("X-Request-Id", requestId);
+  res.status(status).json({
+    ok: false, success: false, error: { code, message }, errorCode: code, safeMessage: message,
+    ...(clientRequestId ? { clientRequestId } : {}),
+    meta: { requestId, timestamp: new Date().toISOString() },
+    ...(clientRequestId ? { recovery: { required: true, clientRequestId, path: `/api/crypto/operations/${clientRequestId}` } } : {}),
+  });
+}
 
 export function createCryptoRouter(): Router {
   const router = Router();
@@ -21,13 +54,17 @@ export function createCryptoRouter(): Router {
     "/api/learning-notes",
     "/api/obsidian-status",
     "/api/crypto/portfolio",
-    "/api/crypto/watchlist",
-    "/api/crypto/news",
+    "/api/crypto/market",
+    "/api/crypto/symbols",
+    "/api/crypto/positions",
     "/api/crypto/trades",
+    "/api/crypto/session",
+    "/api/crypto/sessions",
     "/api/crypto/decisions",
-    "/api/crypto/lessons",
-    "/api/crypto/models",
-    "/api/crypto/obsidian/status",
+    "/api/crypto/decisions/latest",
+    "/api/crypto/decision/latest",
+    "/api/crypto/jev/status",
+    "/api/crypto/jev/loop",
     "/api/crypto/demo-loop",
   ];
 
@@ -35,7 +72,11 @@ export function createCryptoRouter(): Router {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(`${dashboardUrl}${path}`, { ...init, signal: controller.signal });
+      const response = await fetch(`${dashboardUrl}${path}`, { ...init, signal: controller.signal, redirect: "error" });
+      // The deadline includes the entire body, including a stalled stream after headers.
+      const body: unknown = await response.json();
+      if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("INVALID_RESPONSE");
+      return { status: response.status, ok: response.ok, body: body as Record<string, any> };
     } finally {
       clearTimeout(timeoutId);
     }
@@ -47,11 +88,8 @@ export function createCryptoRouter(): Router {
         success: true,
         status: await cryptoService.status(),
       });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
   }
 
@@ -61,11 +99,8 @@ export function createCryptoRouter(): Router {
         success: true,
         status: await cryptoService.start(reason),
       });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
   }
 
@@ -75,11 +110,8 @@ export function createCryptoRouter(): Router {
         success: true,
         status: await cryptoService.startObserver(reason),
       });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
   }
 
@@ -89,11 +121,8 @@ export function createCryptoRouter(): Router {
         success: true,
         status: await cryptoService.stopObserver(reason),
       });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
   }
 
@@ -103,25 +132,32 @@ export function createCryptoRouter(): Router {
         success: true,
         status: cryptoService.stop(reason),
       });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
   }
 
-  async function proxyDashboardJson(res: Response, path: string, init?: RequestInit, timeoutMs?: number) {
+  async function proxyDashboardJson(res: Response, path: string, init?: RequestInit, timeoutMs?: number, clientRequestId?: string) {
+    const requestId = randomUUID();
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-Request-Id", requestId);
     try {
       const response = await fetchDashboard(path, init, timeoutMs);
-      const text = await response.text();
-      res.status(response.status).type(response.headers.get("content-type") ?? "application/json").send(text);
-    } catch (error) {
-      res.status(503).json({
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        serviceUrl: dashboardUrl,
-      });
+      if (!response.ok || response.body.ok === false || response.body.success === false ||
+          (response.body.error != null && response.body.ok !== true && response.body.success !== true)) {
+        if (canonicalError(response.body)) {
+          res.status(response.status).json(response.body);
+          return;
+        }
+        const rawCode = response.body.errorCode ?? response.body.error?.code ?? response.body.error;
+        const normalizedCode = typeof rawCode === "string" ? rawCode.toLowerCase() : "";
+        const code = errorCodes.has(normalizedCode) ? normalizedCode : "crypto_response_unconfirmed";
+        sendSafeError(res, response.ok ? 502 : response.status, code, clientRequestId, requestId);
+        return;
+      }
+      res.status(response.status).json(response.body);
+    } catch {
+      sendSafeError(res, 503, "crypto_response_unconfirmed", clientRequestId, requestId);
     }
   }
 
@@ -130,7 +166,7 @@ export function createCryptoRouter(): Router {
   });
 
   router.get("/api/crypto/status", async (_req, res) => {
-    await sendCryptoStatus(res);
+    await proxyDashboardJson(res, "/api/crypto/status");
   });
 
   router.get("/api/crypto/health", async (_req, res) => {
@@ -138,26 +174,54 @@ export function createCryptoRouter(): Router {
   });
 
   for (const path of safeReadOnlyDashboardPaths) {
-    router.get(path, async (_req, res) => {
-      await proxyDashboardJson(res, path);
+    router.get(path, async (req, res) => {
+      const query = new URL(req.originalUrl, "http://localhost").search;
+      await proxyDashboardJson(res, `${path}${query}`, undefined, path === "/api/crypto/market" ? 15000 : 5000);
     });
   }
 
+  for (const collection of ["trades", "decisions", "operations"]) {
+    router.get(`/api/crypto/${collection}/:id`, async (req, res) => {
+      const id = req.params.id;
+      if (!(collection === "operations" ? operationIdentity : resourceId).test(id)) {
+        sendSafeError(res, 400, "invalid_request");
+        return;
+      }
+      const query = new URL(req.originalUrl, "http://localhost").search;
+      await proxyDashboardJson(res, `/api/crypto/${collection}/${encodeURIComponent(id)}${query}`, undefined, 5000, collection === "operations" ? id : undefined);
+    });
+  }
+
+  const idempotentPaths = new Set([
+    "/api/crypto/decision/run", "/api/crypto/demo/buy", "/api/crypto/demo/sell",
+    "/api/crypto/demo/hold", "/api/crypto/demo/reset",
+  ]);
   const safeDashboardPostPaths = [
-    "/api/crypto/analyze",
-    "/api/crypto/demo-trade",
-    "/api/crypto/watchlist/update",
-    "/api/crypto/model/select",
+    "/api/crypto/decision/run",
+    "/api/crypto/demo/buy",
+    "/api/crypto/demo/sell",
+    "/api/crypto/demo/hold",
+    "/api/crypto/demo/reset",
+    "/api/crypto/jev/loop/start",
+    "/api/crypto/jev/loop/stop",
     "/api/crypto/demo-loop",
   ];
 
   for (const path of safeDashboardPostPaths) {
     router.post(path, async (req, res) => {
+      const primaryId = req.body?.clientRequestId;
+      const aliasId = req.body?.idempotencyKey;
+      const clientRequestId = primaryId !== undefined ? primaryId : aliasId;
+      if (idempotentPaths.has(path) && (typeof clientRequestId !== "string" || !operationIdentity.test(clientRequestId) ||
+          (primaryId !== undefined && aliasId !== undefined && primaryId !== aliasId))) {
+        sendSafeError(res, 400, "invalid_request");
+        return;
+      }
       await proxyDashboardJson(res, path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req.body ?? {}),
-      }, path === "/api/crypto/analyze" ? 70000 : 10000);
+      }, path === "/api/crypto/decision/run" ? 15000 : 10000, idempotentPaths.has(path) ? clientRequestId : undefined);
     });
   }
 

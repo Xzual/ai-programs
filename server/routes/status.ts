@@ -49,6 +49,7 @@ export function createStatusRouter(): Router {
     const obsidian = obsidianVaultService.status();
     const killSwitch = killSwitchService.status();
     const safety = interactionSafetyService.snapshot();
+    const cloudConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
 
     res.json({
       ok: true,
@@ -90,6 +91,14 @@ export function createStatusRouter(): Router {
           readable: obsidian.readable,
           writable: obsidian.writable,
           lastSyncAt: obsidian.lastSyncAt,
+        },
+        cloud: {
+          provider: "supabase",
+          configured: cloudConfigured,
+          available: false,
+          status: cloudConfigured ? "not_checked" : "configuration_required",
+          healthEndpoint: "/api/cloud/status",
+          mode: "metadata_only",
         },
         safety: {
           killSwitch: killSwitch.active ? "active" : "ready",

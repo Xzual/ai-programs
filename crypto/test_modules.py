@@ -1,6 +1,6 @@
 """
 Module-level integration test for the Crypto Agent project.
-Run with: .venv/Scripts/python.exe test_modules.py
+Run from the repository root: node scripts/run-edith-crypto-python.mjs crypto/test_modules.py
 """
 import sys
 import os
@@ -11,11 +11,16 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 os.chdir(BASE_DIR)
 sys.path.insert(0, str(BASE_DIR / 'src'))
-os.makedirs(BASE_DIR / 'data', exist_ok=True)
-os.makedirs(BASE_DIR / 'logs', exist_ok=True)
-TEST_DB = BASE_DIR / 'data' / 'test_agent_memory.db'
-if TEST_DB.exists():
-    TEST_DB.unlink()
+TEST_RUNTIME_CONTEXT = tempfile.TemporaryDirectory(prefix='edith-crypto-modules-')
+TEST_RUNTIME = Path(TEST_RUNTIME_CONTEXT.name)
+TEST_DATA = TEST_RUNTIME / 'data'
+TEST_LOGS = TEST_RUNTIME / 'logs'
+TEST_DATA.mkdir(parents=True)
+TEST_LOGS.mkdir(parents=True)
+TEST_DB = TEST_DATA / 'test_agent_memory.db'
+os.environ['EDITH_CRYPTO_RUNTIME_DATA_DIR'] = str(TEST_RUNTIME)
+os.environ['CRYPTO_DATA_DIR'] = str(TEST_DATA)
+os.environ['CRYPTO_LOG_DIR'] = str(TEST_LOGS)
 os.environ['CRYPTO_DB_PATH'] = str(TEST_DB)
 os.environ.setdefault('PYTHONUTF8', '1')
 os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
@@ -296,7 +301,7 @@ try:
                 "invalidation_condition": "Breakout with volume",
                 "model_used": "qwen2.5:3b",
             },
-            {"initialBalance": 100, "currentCash": 100, "currentEquity": 100, "currentExposurePct": 0},
+            {"initialBalance": 10000, "currentCash": 10000, "currentEquity": 10000, "currentExposurePct": 0},
         )
         assert demo_result["status"] == "exported"
         demo_text = Path(demo_result["journal_path"]).read_text(encoding="utf-8")
@@ -394,57 +399,28 @@ try:
 
     demo = DemoPortfolioEngine(str(TEST_DB))
     portfolio = demo.summary()
-    assert portfolio["initialBalance"] == 100.0
-    assert portfolio["currentCash"] == 100.0
+    assert portfolio["initialBalance"] == 10000.0
+    assert portfolio["currentCash"] == 10000.0
     assert portfolio["realMoneyUsed"] is False
     assert portfolio["liveExecutionEnabled"] is False
     loop = demo.loop_settings()
-    assert loop["intervalMinutes"] == 0.0
-    assert loop["continuous"] is True
+    assert loop["status"] == "disabled"
+    assert loop["continuous"] is False
     updated_loop = demo.update_loop_settings(2, False)
-    assert updated_loop["ok"] is True
-    assert updated_loop["settings"]["intervalMinutes"] == 2.0
-    assert updated_loop["settings"]["continuous"] is False
-    demo.update_loop_settings(0, False)
+    assert updated_loop == {"ok": False, "error": "FEATURE_DISABLED", "feature": "legacy_demo_loop"}
+    packaged_modes = (BASE_DIR / "config" / "demo_asset_modes.json").read_bytes()
     modes = AssetModeManager()
-    assert modes.get_mode("BTC-USDT") == "ANALYZE_ONLY"
-    assert modes.get_mode("DOGE/USDT") == "WATCH_ONLY"
-    no_trade_id = demo.save_decision(
-        {"asset": "BTC/USDT", "symbol": "BTC/USDT", "decision": "NO_TRADE", "confidence": 0.1, "decision_reason": "test no trade"},
-        "ANALYZE_ONLY",
-        "APPROVED",
-        "Safe non-execution decision.",
-    )
-    blocked_trade = demo.execute_decision(no_trade_id)
-    assert blocked_trade["ok"] is False
-    assert blocked_trade["error"] == "DECISION_NOT_EXECUTABLE"
+    assert modes.get_mode("BTC-USDT") == "DEMO_TRADE_ALLOWED"
+    assert modes.get_mode("DOGE/USDT") == "DEMO_TRADE_ALLOWED"
+    assert modes.update_mode("BTC/USDT", "WATCH_ONLY")["ok"] is True
+    assert modes.get_mode("BTC/USDT") == "WATCH_ONLY"
+    assert (BASE_DIR / "config" / "demo_asset_modes.json").read_bytes() == packaged_modes
+    assert modes.config_path.is_relative_to(TEST_RUNTIME)
     assert demo.lessons() == []
-    demo_trade_id = demo.save_decision(
-        {
-            "asset": "BTC/USDT",
-            "symbol": "BTC/USDT",
-            "decision": "BUY",
-            "confidence": 0.9,
-            "decision_reason": "test demo trade learning only",
-            "entry_price": 50000,
-            "position_size": 10,
-            "stop_loss": 48500,
-            "take_profit": 53000,
-            "model_used": "qwen2.5:3b",
-        },
-        "DEMO_TRADE_ALLOWED",
-        "APPROVED",
-        "Risk engine approved simulated demo trade only.",
-    )
-    opened_trade = demo.execute_decision(demo_trade_id)
-    assert opened_trade["ok"] is True
-    lessons = demo.lessons()
-    assert len(lessons) == 1
-    assert lessons[0]["lesson_type"] == "DEMO_TRADE_OPENED"
     models = CryptoModelManager(str(TEST_DB))
     assert models.select_model("primary", "qwen2.5:3b")["ok"] is True
     assert models.settings()["primary"] == "qwen2.5:3b"
-    print("  100 USD demo portfolio, asset modes, and model selection  [OK]")
+    print("  10,000 CR portfolio and runtime-only asset-mode overrides  [OK]")
 except Exception as e:
     errors.append(f"demo_portfolio: {e}")
     print(f"  ERROR: {e}")
@@ -520,6 +496,7 @@ except Exception as e:
 print("=== Testing dashboard import ===")
 try:
     from dashboard import app
+    app.testing = True
     with app.test_client() as client:
         r = client.get('/health')
         print(f"  /health -> {r.status_code}  [OK]")
@@ -532,11 +509,8 @@ try:
         assert health["runtime"]["state"] == "STOPPED"
         assert health["runtime"]["observerRunning"] is False
         assert health["runtime"]["safetyStatus"]["status"] == "LOCKED"
-        assert health["obsidian"]["vaultPath"] == r"D:\EDİTH\EDİTH"
-        assert health["obsidian"]["folder"] == "Trading/Crypto Market Learning"
-        assert "ED─░TH" not in (health["obsidian"].get("vaultPath") or "")
-        assert health["obsidian"]["errorCode"] is None
-        assert health["obsidianTargetPath"].endswith("Trading\\Crypto Market Learning") or health["obsidianTargetPath"].endswith("Trading/Crypto Market Learning")
+        assert health["obsidianEnabled"] is False
+        assert health["features"]["obsidian"] == "disabled"
         r0 = client.get('/api/health')
         print(f"  /api/health -> {r0.status_code}  [OK]")
         r2 = client.get('/')
@@ -582,17 +556,17 @@ try:
         r22 = client.get('/api/obsidian-status')
         print(f"  /api/obsidian-status -> {r22.status_code}  [OK]")
         obsidian_status = r22.get_json()
-        assert obsidian_status["vaultPath"] == r"D:\EDİTH\EDİTH"
-        assert "ED─░TH" not in obsidian_status["vaultPath"]
+        assert obsidian_status == {"status": "disabled", "feature": "obsidian", "enabled": False}
         r23 = client.get('/api/crypto/status')
         print(f"  /api/crypto/status -> {r23.status_code}  [OK]")
         runtime = r23.get_json()
-        assert runtime["state"] == "STOPPED"
-        assert runtime["observerRunning"] is False
-        assert runtime["mode"] == "OBSERVER_ONLY"
-        assert runtime["tradingEnabled"] is False
+        assert runtime["state"] == "READY"
+        assert runtime["running"] is True
+        assert runtime["demoMode"] is True
+        assert runtime["realMoneyUsed"] is False
+        assert runtime["liveExecutionEnabled"] is False
         assert runtime["paperTradingEnabled"] is False
-        assert runtime["liveTradingEnabled"] is False
+        assert runtime["realOrderEndpointsAvailable"] is False
         r24 = client.post('/api/crypto/stop-observer')
         print(f"  /api/crypto/stop-observer -> {r24.status_code}  [OK]")
         assert r24.get_json()["status"]["state"] == "STOPPED"
@@ -605,9 +579,8 @@ try:
         print(f"  /api/crypto/latest-observations -> {r27.status_code}  [OK]")
         r28 = client.get('/api/crypto/portfolio')
         print(f"  /api/crypto/portfolio -> {r28.status_code}  [OK]")
-        assert r28.get_json()["portfolio"]["initialBalance"] == 100.0
+        assert r28.get_json()["portfolio"]["initialBalance"] == 10000.0
         assert r28.get_json()["portfolio"]["realMoneyUsed"] is False
-        assert r28.get_json()["demoLoop"]["intervalMinutes"] == 0.0
         r29 = client.get('/api/crypto/watchlist')
         print(f"  /api/crypto/watchlist -> {r29.status_code}  [OK]")
         assert r29.get_json()["liveTradingAllowedSymbols"] == []
@@ -618,20 +591,16 @@ try:
         r32 = client.get('/api/crypto/lessons')
         print(f"  /api/crypto/lessons -> {r32.status_code}  [OK]")
         r33 = client.post('/api/crypto/model/select', json={"role": "primary", "model": "qwen2.5:3b"})
-        print(f"  /api/crypto/model/select -> {r33.status_code}  [OK]")
-        assert r33.get_json()["ok"] is True
+        print(f"  /api/crypto/model/select -> {r33.status_code}  [OK/LOCKED]")
+        assert r33.status_code == 409
+        assert r33.get_json()["errorCode"] == "feature_disabled"
         r34 = client.post('/api/crypto/demo-trade', json={"decisionId": 999999})
         print(f"  /api/crypto/demo-trade invalid -> {r34.status_code}  [OK/LOCKED]")
         assert r34.status_code == 409
         assert r34.get_json()["realOrderSent"] is False
         r35 = client.get('/api/crypto/demo-loop')
         print(f"  /api/crypto/demo-loop -> {r35.status_code}  [OK]")
-        assert r35.get_json()["settings"]["continuous"] is True
-        r36 = client.post('/api/crypto/demo-loop', json={"intervalMinutes": 3, "autoExecuteDemoTrades": False})
-        print(f"  /api/crypto/demo-loop update -> {r36.status_code}  [OK]")
-        assert r36.get_json()["settings"]["intervalMinutes"] == 3.0
-        assert r36.get_json()["settings"]["autoExecuteDemoTrades"] is False
-        client.post('/api/crypto/demo-loop', json={"intervalMinutes": 0, "autoExecuteDemoTrades": False})
+        assert r35.get_json()["feature"] == "jev_demo_loop"
         assert client.get('/api/mode').get_json()["trading_mode"] == "OBSERVER_ONLY"
         os.environ['BINANCE_API_KEY'] = 'TEST_SECRET_SHOULD_NOT_APPEAR'
         body = client.get('/api/mode').get_data(as_text=True) + client.get('/api/trading-status').get_data(as_text=True)

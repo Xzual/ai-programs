@@ -106,6 +106,7 @@ export const EdithOpsView: React.FC = () => {
   const [grantTtlMinutes, setGrantTtlMinutes] = useState(15);
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [deactivateArmed, setDeactivateArmed] = useState(false);
   const [grantBusy, setGrantBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -178,13 +179,14 @@ export const EdithOpsView: React.FC = () => {
       const response = await fetch(`/api/edith/kill-switch/${active ? 'activate' : 'deactivate'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: active ? JSON.stringify({ reason: killReason }) : undefined,
+        body: JSON.stringify(active ? { reason: killReason } : { confirmation: 'DISABLE_KILL_SWITCH' }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error ?? 'Kill switch güncellenemedi.');
       }
       setKillSwitch(data.state);
+      setDeactivateArmed(false);
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Kill switch güncellenemedi.');
@@ -350,14 +352,15 @@ export const EdithOpsView: React.FC = () => {
                   Durdur
                 </button>
                 <button
-                  onClick={() => setKillSwitchActive(false)}
+                  onClick={() => deactivateArmed ? void setKillSwitchActive(false) : setDeactivateArmed(true)}
                   disabled={!killSwitch?.active || switching}
-                  className="px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-950/20 text-xs text-emerald-100 hover:bg-emerald-900/25 disabled:opacity-45 disabled:hover:bg-emerald-950/20 flex items-center justify-center gap-2"
+                  className={`px-3 py-2 rounded-lg border text-xs disabled:opacity-45 flex items-center justify-center gap-2 ${deactivateArmed ? 'border-amber-400/45 bg-amber-950/30 text-amber-100 hover:bg-amber-900/35' : 'border-emerald-500/30 bg-emerald-950/20 text-emerald-100 hover:bg-emerald-900/25 disabled:hover:bg-emerald-950/20'}`}
                 >
                   <CheckCircle2 className="w-4 h-4" />
-                  Devam Et
+                  {deactivateArmed ? 'Onayla ve Devam Et' : 'Devam Et'}
                 </button>
               </div>
+              {deactivateArmed && <p role="alert" className="text-[11px] text-amber-200">Kill switch kapatılırsa yeni yerel eylemler yeniden izin ve sahip onayı isteyebilir. Devam etmek için ikinci kez onaylayın.</p>}
               <div className="text-[10px] text-slate-600 font-mono flex items-center justify-between">
                 <span>paused tasks: {pausedTasks}</span>
                 <span>{switching ? 'updating...' : 'backend enforced'}</span>

@@ -6,10 +6,47 @@ import path from 'node:path';
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-sensitive-integrations-test-'));
 const originalCwd = process.cwd();
 
+class MemoryStorage {
+  private readonly values = new Map<string, string>();
+
+  getItem(key: string): string | null { return this.values.get(key) ?? null; }
+  setItem(key: string, value: string): void { this.values.set(key, value); }
+  removeItem(key: string): void { this.values.delete(key); }
+}
+
 try {
   process.chdir(tempRoot);
   process.env.EDITH_PERSISTENCE = 'json';
   delete process.env.EDITH_ENABLE_HIGH_RISK_TOOLS;
+
+  const browserStorage = new MemoryStorage();
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: browserStorage });
+  const { DEFAULT_INTEGRATIONS, loadIntegrations, saveIntegrations } = await import('../src/lib/storage');
+  const secretCanary = 'edith-sensitive-canary';
+  const integrationWithSecrets = {
+    ...DEFAULT_INTEGRATIONS[0],
+    enabled: true,
+    apiKey: secretCanary,
+    webhookUrl: `https://example.invalid/${secretCanary}`,
+    region: 'eu-local',
+    providerMetadata: {
+      displayName: 'Local Provider',
+      accessToken: secretCanary,
+      nested: { clientSecret: secretCanary, tenant: 'local-tenant' },
+    },
+  };
+  saveIntegrations([integrationWithSecrets] as typeof DEFAULT_INTEGRATIONS);
+  const persistedIntegration = browserStorage.getItem('edith_integrations_v1') ?? '';
+  assert.equal(persistedIntegration.includes(secretCanary), false);
+  assert.equal(persistedIntegration.includes('eu-local'), true);
+  assert.equal(persistedIntegration.includes('local-tenant'), true);
+
+  browserStorage.setItem('aura_integrations_v1', JSON.stringify([integrationWithSecrets]));
+  browserStorage.removeItem('edith_integrations_v1');
+  const migratedIntegrations = loadIntegrations();
+  assert.equal(JSON.stringify(migratedIntegrations).includes(secretCanary), false);
+  assert.equal((browserStorage.getItem('edith_integrations_v1') ?? '').includes(secretCanary), false);
+  assert.equal(browserStorage.getItem('aura_integrations_v1'), null);
 
   const { sensitiveIntegrationService } = await import('../src/edith/sensitiveIntegrationService');
   const { executeEdithTool, edithToolRegistry } = await import('../src/edith/serverRegistry');
@@ -103,6 +140,9 @@ try {
     success: true,
     scenarios: [
       'capability_catalog',
+      'browser_secret_persistence_removed',
+      'legacy_browser_secret_migrated',
+      'non_secret_integration_metadata_preserved',
       'registry_tools',
       'default_iot_denied',
       'default_finance_denied',

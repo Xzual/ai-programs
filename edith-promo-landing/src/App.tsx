@@ -87,53 +87,15 @@ export function App() {
     );
 
     if (!reducedMotion) {
-      gsap.utils.toArray<HTMLElement>('.story-section').forEach((section) => {
-        const copy = section.querySelector('.section-copy');
-        if (!copy) return;
-        gsap.fromTo(
-          copy,
-          { autoAlpha: 0, y: 34, scale: 0.988, filter: 'blur(10px)' },
-          {
-            autoAlpha: 1,
-            y: 0,
-            scale: 1,
-            filter: 'blur(0px)',
-            ease: 'none',
-            scrollTrigger: {
-              trigger: section,
-              start: 'top 95%',
-              end: 'top 75%',
-              scrub: 0.55,
-            },
-          }
-        );
-
-        gsap.to(copy, {
-          autoAlpha: 0.7,
-          y: -12,
-          scale: 0.992,
-          filter: 'blur(3px)',
-          ease: 'none',
-          scrollTrigger: {
-            trigger: section,
-            start: 'bottom 32%',
-            end: 'bottom 8%',
-            scrub: 0.55,
-          },
-        });
-      });
-
       gsap.utils.toArray<HTMLElement>('.reveal').forEach((element) => {
         gsap.fromTo(
           element,
-          { opacity: 0, y: 34, filter: 'blur(10px)' },
+          { y: 18 },
           {
-            opacity: 1,
             y: 0,
-            filter: 'blur(0px)',
-            duration: 0.95,
-            ease: 'power3.out',
-            scrollTrigger: { trigger: element, start: 'top 82%', once: true },
+            duration: 0.8,
+            ease: 'power2.out',
+            scrollTrigger: { trigger: element, start: 'top 90%', once: true },
           }
         );
       });

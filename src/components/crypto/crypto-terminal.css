@@ -1,0 +1,123 @@
+.crypto-terminal {
+  --terminal-bg: #090c10;
+  --terminal-panel: #101419;
+  --terminal-raised: #171c23;
+  --terminal-line: #ffffff12;
+  --terminal-muted: #9ba4b4;
+  --terminal-accent: var(--assistant-primary, #38bdf8);
+  --terminal-up: #34d399;
+  --terminal-down: #fb7185;
+  container-type: inline-size;
+  background: var(--terminal-bg);
+  padding: 12px;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.crypto-terminal-workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; width: 100%; }
+.crypto-terminal-header, .crypto-terminal-panel, .crypto-terminal-chart-panel { background: var(--terminal-panel); border: 1px solid var(--terminal-line); border-radius: 4px; }
+.crypto-terminal-primary, .crypto-terminal-secondary, .crypto-terminal-execution, .crypto-terminal-inspector { display: contents; }
+.crypto-terminal-header, .crypto-terminal-safety, .crypto-terminal-notice, .crypto-terminal-message, .crypto-terminal-workspace > footer { grid-column: 1 / -1; }
+.crypto-terminal-header { order: -10; }
+.crypto-terminal-safety { order: -9; position: sticky; top: 0; z-index: 15; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; background: #111a20f5; padding: 10px 14px; color: #b8d3df; border: 1px solid color-mix(in srgb, var(--terminal-accent) 22%, transparent); border-radius: 4px; font-size: 11px; }
+.crypto-terminal-safety strong, .crypto-terminal-brand { color: var(--terminal-accent); }
+.crypto-terminal-brand { border: 1px solid color-mix(in srgb, var(--terminal-accent) 35%, transparent); background: color-mix(in srgb, var(--terminal-accent) 10%, transparent); border-radius: 4px; }
+.crypto-terminal-demo { padding: 5px 8px; background: color-mix(in srgb, var(--terminal-accent) 14%, transparent); color: var(--terminal-accent); border: 1px solid color-mix(in srgb, var(--terminal-accent) 30%, transparent); font-weight: 700; border-radius: 3px; }
+.crypto-terminal-notice, .crypto-terminal-message { order: -8; }
+.crypto-terminal-notice { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid #fbbf2433; color: #fcd98b; background: #fbbf2408; }
+.crypto-terminal-notice p { margin: 3px 0 0; }
+.crypto-terminal-notice button { display: inline-flex; gap: 6px; align-items: center; border: 1px solid #ffffff25; padding: 8px; }
+.crypto-terminal-panel > header { min-height: 42px; height: auto; gap: 12px; background: var(--terminal-raised); }
+.crypto-terminal-panel > header h2 { font-size: 12px; line-height: 1.4; }
+.crypto-terminal-panel > header span { text-align: right; }
+.crypto-terminal :is(.text-zinc-600, .text-zinc-500) { color: var(--terminal-muted); }
+.crypto-terminal :is(.text-\[9px\], .text-\[10px\]) { font-size: 11px; }
+.crypto-terminal .font-mono { font-variant-numeric: tabular-nums; }
+.crypto-terminal button { transition: background-color 140ms, border-color 140ms, color 140ms; }
+.crypto-terminal button:disabled { cursor: not-allowed; }
+.crypto-terminal :is(button,input,select):focus-visible { outline: 2px solid var(--terminal-accent); outline-offset: 2px; }
+.crypto-terminal select { color-scheme: dark; }
+.crypto-terminal [data-panel="Piyasalar"] { order: 5; }
+.crypto-terminal [data-panel="Piyasalar"] > div:first-of-type { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.crypto-terminal-market-row { min-width: 0; gap: 8px; border-left: 2px solid transparent; }
+.crypto-terminal-market-row.is-selected { background: color-mix(in srgb, var(--terminal-accent) 9%, transparent); color: var(--terminal-accent); border-left-color: var(--terminal-accent); }
+.crypto-terminal-market-detail { display: grid; text-align: right; gap: 3px; font: 12px ui-monospace, monospace; }
+.crypto-terminal-market-detail small { font: 10px ui-sans-serif, sans-serif; color: var(--terminal-muted); }
+.crypto-terminal-chart-panel { order: 1; overflow: hidden; animation: terminal-reveal 250ms ease-out; }
+.crypto-terminal-symbol-select { min-width: 0; max-width: 130px; padding: 8px 4px; background: var(--terminal-raised); border: 1px solid var(--terminal-line); border-radius: 3px; }
+.crypto-terminal-connected { animation: terminal-connection 600ms ease-out; }
+.crypto-terminal-chart { width: 100%; height: 330px; background: #0d1015; }
+.crypto-terminal-chart-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; color: var(--terminal-muted); }
+.crypto-terminal [data-panel="Demo Emir"] { order: 2; }
+.crypto-terminal [data-panel="Jev Kararı"] { order: 3; }
+.crypto-terminal [data-panel="Demo Portföy"] { order: 4; }
+.crypto-terminal [data-panel="Emir Defteri"] { order: 5; }
+.crypto-terminal [data-panel="Açık Pozisyonlar"] { order: 6; }
+.crypto-terminal [data-panel="Demo İşlem Geçmişi"] { order: 7; }
+.crypto-terminal [data-panel="Güvenlik / Faz"] { order: 8; }
+.crypto-terminal-workspace > footer { order: 9; }
+.crypto-terminal-ticket-safety { display: flex; align-items: center; gap: 6px; color: var(--terminal-accent); font-size: 11px; }
+.crypto-terminal-spread { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; padding: 12px; border-block: 1px solid var(--terminal-line); font: 16px ui-monospace, monospace; }
+.crypto-terminal-spread > span:last-child { font-size: 10px; color: var(--terminal-muted); }
+.crypto-terminal-depth-row { display: grid; position: relative; isolation: isolate; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 6px 12px; font: 11px ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.crypto-terminal-depth-row > [role="cell"] { z-index: 1; overflow: hidden; text-overflow: ellipsis; }
+.crypto-terminal-depth-amount, .crypto-terminal-depth-total { text-align: right; }
+.crypto-terminal-depth-total { color: var(--terminal-muted); }
+.crypto-terminal-depth-row--asks { --depth-color: var(--terminal-down); }
+.crypto-terminal-depth-row--bids { --depth-color: var(--terminal-up); }
+.crypto-terminal-depth-price { color: var(--depth-color); }
+.crypto-terminal-depth-fill { position: absolute; inset: 0 0 0 auto; width: var(--crypto-terminal-depth); background: color-mix(in srgb, var(--depth-color) 9%, transparent); transition: width 200ms ease-out; }
+.crypto-terminal-depth-flash, .crypto-terminal-tick-flash, .crypto-terminal-decision-pulse { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; background: currentColor; animation: terminal-flash 450ms ease-out both; }
+.crypto-terminal-tick-price { position: relative; display: inline-block; border-radius: 2px; }
+.crypto-terminal-tick-price--up { color: var(--terminal-up); }
+.crypto-terminal-tick-price--down { color: var(--terminal-down); }
+.crypto-terminal-decision-badge { position: relative; display: inline-flex; align-items: center; justify-content: center; padding: 6px 12px; min-width: 66px; border-radius: 4px; color: #7dd3fc; background: #38bdf811; border: 1px solid #38bdf830; font-weight: 700; }
+.crypto-terminal-decision-badge[data-decision="BUY"] { color: var(--terminal-up); border-color: #34d39940; background: #34d39910; }
+.crypto-terminal-decision-badge[data-decision="SELL"] { color: var(--terminal-down); border-color: #fb718540; background: #fb718510; }
+.crypto-terminal-empty-state { min-height: 92px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; gap: 8px; text-align: center; color: var(--terminal-muted); }
+.crypto-terminal-empty-description { max-width: 36ch; font-size: 11px; }
+.crypto-terminal-loading { background-image: linear-gradient(110deg, transparent 20%, #ffffff06 50%, transparent 80%); background-size: 220% 100%; animation: terminal-shimmer 1.8s ease-in-out infinite; }
+.crypto-terminal [data-panel="Demo İşlem Geçmişi"] tbody tr { animation: terminal-reveal 250ms ease-out; }
+.crypto-terminal-jev-controls { display: grid; gap: 8px; margin-block: 12px; }
+.crypto-terminal-primary-button { display: flex; gap: 8px; align-items: center; justify-content: center; width: 100%; min-height: 38px; background: color-mix(in srgb, var(--terminal-accent) 15%, transparent); border: 1px solid color-mix(in srgb, var(--terminal-accent) 30%, transparent); color: var(--terminal-accent); font-weight: 600; }
+.crypto-terminal-primary-button:disabled { opacity: .45; }
+.crypto-terminal-portfolio-value { font: 600 26px ui-monospace, monospace; line-height: 1.4; overflow-wrap: anywhere; }
+.crypto-terminal-portfolio-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 8px; padding-block: 16px; }
+.crypto-terminal [data-panel="Jev Kararı"] .bg-amber-400 { background: var(--terminal-accent); }
+.crypto-terminal [data-panel="Jev Kararı"] .text-amber-300 { color: var(--terminal-accent); }
+@container (min-width: 700px) {
+  .crypto-terminal-workspace { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .crypto-terminal [data-panel="Piyasalar"], .crypto-terminal-chart-panel, .crypto-terminal [data-panel="Açık Pozisyonlar"], .crypto-terminal [data-panel="Demo İşlem Geçmişi"] { grid-column: 1 / -1; }
+  .crypto-terminal [data-panel="Piyasalar"] > div:first-of-type { grid-template-columns: repeat(4,minmax(0,1fr)); }
+  .crypto-terminal-chart { height: 420px; }
+}
+@container (min-width: 1080px) {
+  .crypto-terminal-workspace { grid-template-columns: minmax(165px,.7fr) minmax(360px,2.3fr) minmax(235px,1fr) minmax(250px,1.1fr); align-items: stretch; }
+  .crypto-terminal [data-panel="Piyasalar"] { grid-column: 1; grid-row: auto; order: 0; }
+  .crypto-terminal [data-panel="Piyasalar"] > div:first-of-type { display: block; }
+  .crypto-terminal-chart-panel { grid-column: 2; order: 0; }
+  .crypto-terminal [data-panel="Emir Defteri"] { grid-column: 3; order: 0; }
+  .crypto-terminal [data-panel="Demo Emir"] { grid-column: 4; order: 0; }
+  .crypto-terminal [data-panel="Demo Portföy"] { grid-column: 1 / 3; order: 1; }
+  .crypto-terminal [data-panel="Jev Kararı"] { grid-column: 3 / 5; order: 1; }
+  .crypto-terminal [data-panel="Jev Kararı"] > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; align-content: start; }
+  .crypto-terminal [data-panel="Jev Kararı"] > div > :first-child { grid-column: 1 / -1; }
+  .crypto-terminal [data-panel="Açık Pozisyonlar"], .crypto-terminal [data-panel="Demo İşlem Geçmişi"] { grid-column: 1 / -1; }
+  .crypto-terminal [data-panel="Güvenlik / Faz"] { grid-column: 1 / -1; }
+  .crypto-terminal [data-panel="Güvenlik / Faz"] > div { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
+  .crypto-terminal [data-panel="Güvenlik / Faz"] > div > div { gap: 12px; }
+  .crypto-terminal [data-panel="Güvenlik / Faz"] button { width: auto; padding-inline: 14px; margin-left: auto; }
+  .crypto-terminal-chart { height: max(390px, calc(100dvh - 430px)); max-height: 760px; }
+}
+@container (min-width: 1700px) {
+  .crypto-terminal-workspace { grid-template-columns: minmax(205px,.7fr) minmax(600px,3fr) minmax(275px,1fr) minmax(285px,1fr); }
+  .crypto-terminal [data-panel="Demo Portföy"] { grid-column: 1 / 3; }
+  .crypto-terminal [data-panel="Açık Pozisyonlar"] { grid-column: 1 / 3; }
+  .crypto-terminal [data-panel="Demo İşlem Geçmişi"] { grid-column: 3 / 5; order: 6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .crypto-terminal *, .crypto-terminal *::before, .crypto-terminal *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+@keyframes terminal-flash { from { opacity: .18; } to { opacity: 0; } }
+@keyframes terminal-reveal { from { opacity: .35; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes terminal-shimmer { to { background-position: -220% 0; } }
+@keyframes terminal-connection { from { box-shadow: 0 0 0 4px #34d39933; } to { box-shadow: 0 0 0 0 #34d39900; } }

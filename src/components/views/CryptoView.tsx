@@ -290,7 +290,7 @@ export const CryptoView: React.FC = () => {
                 />
                 <InfoPanel title="Obsidian" rows={[
                   ['Status', obsidianReady ? 'connected' : String(obsidianDetails.status ?? 'not connected')],
-                  ['Vault path', String(obsidianDetails.vaultPath ?? 'D:\\EDİTH\\EDİTH')],
+                  ['Vault path', String(obsidianDetails.vaultPath || 'Yapılandırılmadı')],
                   ['Learning folder', String(obsidianDetails.folder ?? 'Trading/Crypto Market Learning')],
                   ['Writable', obsidianReady ? 'yes' : 'no'],
                 ]} />

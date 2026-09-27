@@ -82,6 +82,7 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
     this.db = new sqliteModule.DatabaseSync(this.paths.sqliteFile);
     this.db.exec(`
       PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
       PRAGMA foreign_keys = ON;
 
       CREATE TABLE IF NOT EXISTS schema_migrations (

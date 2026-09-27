@@ -1,6 +1,7 @@
 import { contextService } from './contextService';
 import type { EdithContextSnapshot } from './core';
 import type { MemoryItem } from '../types';
+import { buildEdithCoreBehaviorContext } from './coreBehaviorProtocol';
 
 export interface BuildChatSystemPromptInput {
   systemPrompt: string;
@@ -8,6 +9,8 @@ export interface BuildChatSystemPromptInput {
   memories?: Array<Partial<MemoryItem>>;
   memoryEnabled?: boolean;
   lastUserMessage?: string;
+  capabilityContext?: string;
+  runtimeContext?: string;
 }
 
 export interface BuildChatSystemPromptResult {
@@ -39,7 +42,11 @@ export function buildChatSystemPrompt(input: BuildChatSystemPromptInput): BuildC
   const memoryEnabled = input.memoryEnabled !== false;
   const lastUserMessage = input.lastUserMessage?.trim() ?? '';
   const sections = [
-    `${input.systemPrompt}\nKullanıcı Adı: ${safeText(input.userName, 80) || 'Kullanıcı'}.`,
+    `ACTIVE PERSONA\n${input.systemPrompt}\nKullanıcı Adı: ${safeText(input.userName, 80) || 'Kullanıcı'}.`,
+    buildEdithCoreBehaviorContext({
+      channel: 'text',
+      runtimeContext: input.runtimeContext ?? input.capabilityContext,
+    }),
   ];
 
   if (memoryEnabled && input.memories && input.memories.length > 0) {

@@ -1,0 +1,15 @@
+{
+  "realBinance": true,
+  "isolatedPortfolio": true,
+  "lostBuyResponseRecovered": true,
+  "buyRequestCount": 1,
+  "replayMatched": true,
+  "buyTradeId": "demo_trade_2baa448ffa7c4021bfa48786a7f8e65c",
+  "decisionId": "jev_decision_24ec93a6f6fb4c38a3282fde5b0f27cf",
+  "action": "HOLD",
+  "model": "jev-1.13.0",
+  "latencyMs": 716,
+  "riskResult": "approved",
+  "executed": false,
+  "userAccountUntouched": true
+}

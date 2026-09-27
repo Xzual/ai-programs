@@ -13,6 +13,9 @@ import {
   type VoiceServerEvent,
 } from "./types";
 import { GoogleGeminiLiveProvider } from "./geminiLiveProvider";
+import { buildEdithCoreBehaviorContext } from "../../src/edith/coreBehaviorProtocol";
+
+type CapabilityContextProvider = () => Promise<string> | string;
 
 function safeJsonParse(value: string): VoiceClientEvent | undefined {
   try {
@@ -33,15 +36,22 @@ function send(socket: WebSocket, event: VoiceServerEvent): void {
   }
 }
 
-class ManagedVoiceSession {
+export class ManagedVoiceSession {
   private liveSession: GeminiLiveSession | null = null;
+  private liveReady = false;
   private state: VoiceLiveState = "disconnected";
+  private generation = 0;
   private readonly sessionId = `voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   constructor(
     private readonly socket: WebSocket,
     private readonly providerFactory: () => GeminiLiveProvider | undefined,
+    private readonly capabilityContextProvider: CapabilityContextProvider,
   ) {}
+
+  isLiveReady(): boolean {
+    return this.liveReady;
+  }
 
   handleMessage(raw: WebSocket.RawData): void {
     const message = safeJsonParse(raw.toString("utf8"));
@@ -70,7 +80,7 @@ class ManagedVoiceSession {
     }
   }
 
-  async start(): Promise<void> {
+  async start(openingMessage = "Opening Gemini Live session."): Promise<void> {
     if (this.liveSession) {
       this.status("listening");
       return;
@@ -82,24 +92,57 @@ class ManagedVoiceSession {
       return;
     }
 
+    const generation = ++this.generation;
     try {
-      this.status("connecting", "Opening Gemini Live session.");
-      this.liveSession = await provider.connect({
+      const isCurrent = () => generation === this.generation;
+      this.status("connecting", openingMessage);
+      let capabilityContext = '';
+      try {
+        capabilityContext = await this.capabilityContextProvider();
+      } catch {
+        // Voice remains available if the local registry cannot be read.
+      }
+      const liveSession = await provider.connect({
         onReady: (geminiSessionId) => {
+          if (!isCurrent()) return;
+          this.liveReady = true;
           send(this.socket, {
             type: "session:ready",
             sessionId: geminiSessionId ?? this.sessionId,
             model: GEMINI_LIVE_MODEL,
           });
         },
-        onState: (state, safeMessage) => this.status(state, safeMessage),
-        onUserTranscript: (text, partial) => send(this.socket, { type: "transcript:user", text, partial }),
-        onAssistantTranscript: (text, partial) => send(this.socket, { type: "transcript:assistant", text, partial }),
-        onAudio: (audio, mimeType) => send(this.socket, { type: "audio:chunk", audio, mimeType }),
-        onError: (errorCode, safeMessage) => this.error(errorCode, safeMessage),
-        onClose: () => this.status("disconnected", "Gemini Live session closed."),
+        onState: (state, safeMessage) => {
+          if (isCurrent()) this.status(state, safeMessage);
+        },
+        onUserTranscript: (text, partial) => {
+          if (isCurrent()) send(this.socket, { type: "transcript:user", text, partial });
+        },
+        onAssistantTranscript: (text, partial) => {
+          if (isCurrent()) send(this.socket, { type: "transcript:assistant", text, partial });
+        },
+        onAudio: (audio, mimeType) => {
+          if (isCurrent()) send(this.socket, { type: "audio:chunk", audio, mimeType });
+        },
+        onError: (errorCode, safeMessage) => {
+          if (isCurrent()) this.error(errorCode, safeMessage);
+        },
+        onClose: () => {
+          if (isCurrent()) this.status("disconnected", "Gemini Live session closed.");
+        },
+      }, {
+        systemInstruction: buildEdithCoreBehaviorContext({
+          channel: 'voice',
+          runtimeContext: capabilityContext,
+        }),
       });
+      if (!isCurrent()) {
+        liveSession.close();
+        return;
+      }
+      this.liveSession = liveSession;
     } catch {
+      if (generation !== this.generation) return;
       this.liveSession = null;
       this.status("error");
     }
@@ -107,6 +150,7 @@ class ManagedVoiceSession {
 
   sendAudio(audio: string, mimeType = GEMINI_LIVE_INPUT_MIME): void {
     if (!this.liveSession) {
+      if (this.state === "connecting") return;
       this.error("session_error", "Voice session is not connected yet.");
       return;
     }
@@ -116,23 +160,35 @@ class ManagedVoiceSession {
       return;
     }
 
-    this.status("listening");
     this.liveSession.sendAudio(audio, mimeType);
   }
 
   interrupt(): void {
-    this.liveSession?.interrupt();
-    this.status("listening", "Voice response interrupted.");
+    const liveSession = this.liveSession;
+    if (!liveSession) return;
+
+    this.generation += 1;
+    this.liveSession = null;
+    this.liveReady = false;
+    try {
+      liveSession.close();
+    } catch {
+      // Reconnection below is authoritative even if close is already in progress.
+    }
+    void this.start("Voice response interrupted. Reconnecting Gemini Live.");
   }
 
   stop(reason: string): void {
+    const liveSession = this.liveSession;
+    this.generation += 1;
+    this.liveSession = null;
+    this.liveReady = false;
     try {
-      this.liveSession?.endAudioStream();
-      this.liveSession?.close();
+      liveSession?.endAudioStream();
+      liveSession?.close();
     } catch {
       // Close is best-effort; the socket close handler will finish cleanup.
     } finally {
-      this.liveSession = null;
       this.status("disconnected", "Voice session stopped.");
       send(this.socket, { type: "session:ended", reason });
     }
@@ -140,11 +196,13 @@ class ManagedVoiceSession {
 
   private status(state: VoiceLiveState, safeMessage?: string): void {
     this.state = state;
+    if (state === 'disconnected' || state === 'error') this.liveReady = false;
     send(this.socket, { type: "status", state, sessionId: this.sessionId, safeMessage });
   }
 
   private error(errorCode: VoiceLiveErrorCode, safeMessage: string): void {
     this.state = "error";
+    this.liveReady = false;
     send(this.socket, { type: "error", errorCode, safeMessage });
     send(this.socket, { type: "status", state: "error", sessionId: this.sessionId, safeMessage });
   }
@@ -153,10 +211,15 @@ class ManagedVoiceSession {
 export class VoiceSessionManager {
   private readonly socketServer = new WebSocketServer({ noServer: true });
   private readonly sessions = new Map<WebSocket, ManagedVoiceSession>();
+  private capabilityContextProvider?: CapabilityContextProvider;
 
   constructor() {
     this.socketServer.on("connection", (socket) => {
-      const session = new ManagedVoiceSession(socket, () => this.createProvider());
+      const session = new ManagedVoiceSession(
+        socket,
+        () => this.createProvider(),
+        () => this.capabilityContextProvider?.() ?? '',
+      );
       this.sessions.set(socket, session);
       send(socket, { type: "status", state: "idle", safeMessage: "Voice Room socket connected." });
 
@@ -174,7 +237,7 @@ export class VoiceSessionManager {
 
   status(): VoiceLiveStatus {
     const keyPresent = Boolean(process.env.GEMINI_API_KEY);
-    const connected = Array.from(this.sessions.keys()).some((socket) => socket.readyState === WebSocket.OPEN);
+    const connected = Array.from(this.sessions).some(([socket, session]) => socket.readyState === WebSocket.OPEN && session.isLiveReady());
 
     return {
       success: true,
@@ -193,6 +256,7 @@ export class VoiceSessionManager {
       secretExposed: false,
       frontendCanReadApiKey: false,
       liveConnectorBound: true,
+      capabilityContextBound: Boolean(this.capabilityContextProvider),
       wakeWordEnabled: false,
       ttsOutputConnected: keyPresent,
       bargeInEnabled: keyPresent,
@@ -213,6 +277,19 @@ export class VoiceSessionManager {
         this.socketServer.emit("connection", webSocket, request);
       });
     });
+  }
+
+  setCapabilityContextProvider(provider: CapabilityContextProvider): void {
+    this.capabilityContextProvider = provider;
+  }
+
+  shutdown(): void {
+    for (const [socket, session] of this.sessions) {
+      session.stop("server_shutdown");
+      socket.close(1001, "server_shutdown");
+    }
+    this.sessions.clear();
+    this.socketServer.close();
   }
 
   private createProvider(): GeminiLiveProvider | undefined {

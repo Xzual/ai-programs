@@ -5,10 +5,16 @@ All tunable parameters live here.
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Dict
-from obsidian_path import CRYPTO_OBSIDIAN_FOLDER as DEFAULT_CRYPTO_OBSIDIAN_FOLDER, EXPECTED_VAULT_PATH, resolve_obsidian_vault_path
+from typing import List
+from obsidian_path import CRYPTO_OBSIDIAN_FOLDER as DEFAULT_CRYPTO_OBSIDIAN_FOLDER, resolve_obsidian_vault_path
 
-CRYPTO_ROOT = Path(__file__).resolve().parents[1]
+_MODULE_CRYPTO_ROOT = Path(__file__).resolve().parents[1]
+CRYPTO_ROOT = Path(os.getenv("EDITH_CRYPTO_RESOURCE_DIR", str(_MODULE_CRYPTO_ROOT))).expanduser().resolve()
+if CRYPTO_ROOT != _MODULE_CRYPTO_ROOT:
+    raise RuntimeError("EDITH_CRYPTO_RESOURCE_DIR does not match the loaded crypto module tree")
+RUNTIME_ROOT = Path(os.getenv("EDITH_CRYPTO_RUNTIME_DATA_DIR", str(CRYPTO_ROOT))).expanduser().resolve()
+DEFAULT_DATA_DIR = RUNTIME_ROOT / "data"
+DEFAULT_LOG_DIR = RUNTIME_ROOT / "logs"
 OBSIDIAN_RESOLUTION = resolve_obsidian_vault_path(CRYPTO_ROOT / "config" / "observer_config.json")
 
 @dataclass
@@ -78,8 +84,25 @@ class Config:
     CRYPTO_PAPER_TRADING_ENABLED: bool = os.getenv("CRYPTO_PAPER_TRADING_ENABLED", "false").strip().lower() == "true"
     CRYPTO_LIVE_TRADING_ENABLED: bool = os.getenv("CRYPTO_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
     CRYPTO_DEMO_TRADING_ENABLED: bool = os.getenv("CRYPTO_DEMO_TRADING_ENABLED", "true").strip().lower() == "true"
-    DEMO_INITIAL_BALANCE: float = float(os.getenv("CRYPTO_DEMO_INITIAL_BALANCE", "100"))
-    ALLOWED_ACTIONS: List[str] = field(default_factory=lambda: ["BUY", "SELL", "HOLD", "NO TRADE"])
+    DEMO_INITIAL_BALANCE: float = float(
+        os.getenv("CRYPTO_STARTING_BALANCE", os.getenv("CRYPTO_DEMO_INITIAL_BALANCE", "10000"))
+    )
+    CRYPTO_DECISION_MODEL: str = os.getenv("CRYPTO_DECISION_MODEL", "jev").strip().lower()
+    CRYPTO_LEARNING_ENABLED: bool = os.getenv("CRYPTO_LEARNING_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_NEWS_ENABLED: bool = os.getenv("CRYPTO_NEWS_ENABLED", "false").strip().lower() == "true"
+    CRYPTO_OLLAMA_ENABLED: bool = os.getenv("CRYPTO_OLLAMA_ENABLED", "false").strip().lower() == "true"
+    DEMO_FEE_RATE: float = float(os.getenv("CRYPTO_DEMO_FEE_RATE", "0.001"))
+    DEMO_MAX_POSITION_PCT: float = float(os.getenv("CRYPTO_DEMO_MAX_POSITION_PCT", "0.20"))
+    DEMO_MAX_EXPOSURE_PCT: float = float(os.getenv("CRYPTO_DEMO_MAX_EXPOSURE_PCT", "0.60"))
+    DEMO_DEFAULT_JEV_POSITION_PCT: float = float(os.getenv("CRYPTO_DEMO_JEV_POSITION_PCT", "0.10"))
+    DEMO_COOLDOWN_MINUTES: int = int(os.getenv("CRYPTO_DEMO_COOLDOWN_MINUTES", "15"))
+    JEV_LOOP_DEFAULT_INTERVAL_SECONDS: int = int(os.getenv("CRYPTO_JEV_LOOP_INTERVAL_SECONDS", "60"))
+    JEV_LOOP_MIN_INTERVAL_SECONDS: int = int(os.getenv("CRYPTO_JEV_LOOP_MIN_INTERVAL_SECONDS", "10"))
+    MARKET_STALE_SECONDS: int = int(os.getenv("CRYPTO_MARKET_STALE_SECONDS", "30"))
+    MAX_MARKET_DATA_AGE_MS: int = int(os.getenv("CRYPTO_MAX_MARKET_DATA_AGE_MS", "15000"))
+    MARKET_CACHE_SECONDS: float = float(os.getenv("CRYPTO_MARKET_CACHE_SECONDS", "5"))
+    OPERATION_LEASE_SECONDS: int = int(os.getenv("CRYPTO_OPERATION_LEASE_SECONDS", "120"))
+    ALLOWED_ACTIONS: List[str] = field(default_factory=lambda: ["BUY", "SELL", "HOLD"])
     BINANCE_READ_ONLY: bool = os.getenv("BINANCE_READ_ONLY", "true").strip().lower() == "true"
     BINANCE_TRADING_ENABLED: bool = os.getenv("BINANCE_TRADING_ENABLED", "false").strip().lower() == "true"
     PERMISSIONS_CONFIG_PATH: str = os.getenv(
@@ -93,7 +116,7 @@ class Config:
     EDITH_OBSIDIAN_VAULT_PATH: str = OBSIDIAN_RESOLUTION.get("vaultPath") if OBSIDIAN_RESOLUTION.get("ok") else ""
     OBSIDIAN_PATH_ERROR_CODE: str = OBSIDIAN_RESOLUTION.get("errorCode")
     OBSIDIAN_PATH_RECEIVED: str = OBSIDIAN_RESOLUTION.get("receivedPath")
-    OBSIDIAN_PATH_EXPECTED: str = OBSIDIAN_RESOLUTION.get("expectedPath", EXPECTED_VAULT_PATH)
+    OBSIDIAN_PATH_EXPECTED: str = OBSIDIAN_RESOLUTION.get("expectedPath") or ""
     CRYPTO_OBSIDIAN_ENABLED: bool = os.getenv("CRYPTO_OBSIDIAN_ENABLED", "false").strip().lower() == "true"
     CRYPTO_OBSIDIAN_FOLDER: str = DEFAULT_CRYPTO_OBSIDIAN_FOLDER
     CRYPTO_ALLOW_MARKET_DATA_ONLY_WHEN_OLLAMA_OFFLINE: bool = (
@@ -101,11 +124,15 @@ class Config:
     )
 
     # --- Paths ---
-    DATA_DIR: str = os.getenv("CRYPTO_DATA_DIR", "data")
-    LOG_DIR: str = os.getenv("CRYPTO_LOG_DIR", "logs")
-    DB_PATH: str = os.getenv("CRYPTO_DB_PATH", "data/agent_memory.db")
+    DATA_DIR: str = str(Path(os.getenv("CRYPTO_DATA_DIR", str(DEFAULT_DATA_DIR))).expanduser().resolve())
+    LOG_DIR: str = str(Path(os.getenv("CRYPTO_LOG_DIR", str(DEFAULT_LOG_DIR))).expanduser().resolve())
+    DB_PATH: str = str(
+        Path(os.getenv("CRYPTO_DB_PATH", str(DEFAULT_DATA_DIR / "agent_memory.db"))).expanduser().resolve()
+    )
 
     def __post_init__(self):
+        if self.DEMO_INITIAL_BALANCE != 10_000.0:
+            raise ValueError("CRYPTO_STARTING_BALANCE must be exactly 10000 for the isolated demo ledger")
         aliases = {"PAPER": "PAPER_TRADING", "LIVE": "LIVE_TRADING_LOCKED"}
         self.TRADING_MODE = aliases.get(self.TRADING_MODE, self.TRADING_MODE)
         if self.TRADING_MODE not in ("OBSERVER_ONLY", "PAPER_TRADING", "READ_ONLY_ACCOUNT", "LIVE_TRADING_LOCKED"):

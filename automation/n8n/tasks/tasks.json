@@ -1,0 +1,29 @@
+{
+  "run_id": "RUN-2026-09-23-004",
+  "tasks": [
+    {
+      "task_id": "QA-DRYRUN-001",
+      "title": "Read-only build and Git status audit",
+      "owner_chat": "8",
+      "prompt_file": "automation/n8n/prompts/chat8/QA-DRYRUN-001.txt",
+      "dependencies": [],
+      "priority": "high",
+      "risk_level": "SAFE",
+      "expected_files": [],
+      "protected_files": [],
+      "tests": ["git status --short", "npm run lint", "npm run build"],
+      "success_conditions": [
+        "read-only audit report produced",
+        "raw and normalized reports stored",
+        "summary.md and summary.json generated",
+        "no application source file modified by the audit"
+      ],
+      "qa_required": false,
+      "git_commit": false,
+      "git_push": false,
+      "timeout_minutes": 30,
+      "retry_limit": 0,
+      "status": "queued"
+    }
+  ]
+}

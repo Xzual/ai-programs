@@ -1320,7 +1320,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
                   )}
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
-                    <button disabled={!selectedNode.path} onClick={() => selectedNode.path && navigator.clipboard?.writeText(`${status?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'}\\${selectedNode.path.replace(/\//g, '\\')}`)} className="flex items-center justify-center gap-2 rounded-xl border border-cyan-300/12 bg-black/28 px-3 py-2 text-[11px] text-slate-200 disabled:opacity-40"><Copy className="h-3.5 w-3.5" /> Copy Path</button>
+                    <button disabled={!selectedNode.path || !status?.settings.vaultPath} onClick={() => selectedNode.path && status?.settings.vaultPath && navigator.clipboard?.writeText(`${status.settings.vaultPath}\\${selectedNode.path.replace(/\//g, '\\')}`)} className="flex items-center justify-center gap-2 rounded-xl border border-cyan-300/12 bg-black/28 px-3 py-2 text-[11px] text-slate-200 disabled:opacity-40"><Copy className="h-3.5 w-3.5" /> Copy Path</button>
                     <button onClick={reindex} className="flex items-center justify-center gap-2 rounded-xl border border-cyan-300/22 bg-cyan-300/10 px-3 py-2 text-[11px] text-cyan-100"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
                     <button onClick={() => setIsolateSelected((current) => !current)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[11px] ${isolateSelected ? 'border-cyan-300/45 bg-cyan-300/14 text-cyan-100' : 'border-cyan-300/12 bg-black/28 text-slate-200'}`}><Network className="h-3.5 w-3.5" /> Isolate</button>
                     <button onClick={() => setPinnedId((current) => current === selectedNode.id ? '' : selectedNode.id)} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-[11px] ${pinnedId === selectedNode.id ? 'border-violet-300/45 bg-violet-300/14 text-violet-100' : 'border-cyan-300/12 bg-black/28 text-slate-200'}`}><LockKeyhole className="h-3.5 w-3.5" /> {pinnedId === selectedNode.id ? 'Pinned' : 'Pin'}</button>
@@ -1432,7 +1432,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
         <section className="p-4">
           <button className="w-full px-3 py-3 rounded-xl border border-sky-300/10 bg-slate-950/70 text-xs text-slate-300 flex items-center justify-center gap-2">
             <Home className="w-4 h-4" />
-            {status?.settings.vaultPath ?? 'D:\\EDİTH\\EDİTH'}
+            {status?.settings.vaultPath || 'Vault yapılandırılmadı'}
           </button>
           <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
             Ekran varsayılan olarak sadece Obsidian vault verisini gösterir. EDITH runtime node'ları için kaynak filtresini tüm kaynaklara alabilirsin.

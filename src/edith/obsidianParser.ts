@@ -20,6 +20,11 @@ const REQUIRED_FOLDERS = [
   'Organizations',
   'Research',
   'Tasks',
+  'Decisions',
+  'Workflows',
+  'Computer Use',
+  'Voice',
+  'System',
   'Meetings',
   'Trading',
   'Memory',
@@ -64,6 +69,9 @@ export function inferNodeType(relativePath: string, properties: Record<string, u
   if (folder === 'Organizations') return 'Organization';
   if (folder === 'Projects') return 'Project';
   if (folder === 'Tasks') return 'Task';
+  if (folder === 'Decisions') return 'Decision';
+  if (folder === 'Workflows') return 'Automation';
+  if (folder === 'Computer Use' || folder === 'Voice' || folder === 'System') return 'System';
   if (folder === 'Conversations') return 'Conversation';
   if (folder === 'Trading') return 'Trade';
   if (folder === 'Memory') return 'Memory';

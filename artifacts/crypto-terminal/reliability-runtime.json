@@ -1,0 +1,37 @@
+{
+  "isolated": true,
+  "userAccountUntouched": true,
+  "startingCash": 10000.0,
+  "port": 53491,
+  "buy": {
+    "clientRequestId": "9601cf3d-ea39-444c-9afd-df32846147e1",
+    "operationId": "crypto_op_11817f561ed9475d8173801e19570926",
+    "tradeId": "demo_trade_638d11e0b2f5497eb230ec941835493a",
+    "fee": 0.1
+  },
+  "replayMatched": true,
+  "operationRecoveryMatched": true,
+  "processRestartReplay": true,
+  "holdDecisionId": "demo_decision_85eb212903d84cd2926bfd3072666abf",
+  "portfolioValuationStatus": "fresh",
+  "priceTimestamp": "2026-09-24T18:12:08.092799+00:00",
+  "jev": {
+    "decisionId": "jev_decision_43c27cc844b84cdf93142101c3ab4a37",
+    "action": "HOLD",
+    "model": "jev-1.13.0",
+    "latencyMs": 819.0,
+    "valid": true,
+    "executed": false,
+    "tradeId": null,
+    "errorCode": null,
+    "riskResult": "approved"
+  },
+  "realOrdersAvailable": false,
+  "features": {
+    "learning": "disabled",
+    "liveTrading": "disabled",
+    "news": "disabled",
+    "obsidian": "disabled",
+    "ollama": "disabled"
+  }
+}

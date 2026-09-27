@@ -53,6 +53,7 @@ export interface VoiceLiveStatus {
   secretExposed: false;
   frontendCanReadApiKey: false;
   liveConnectorBound: boolean;
+  capabilityContextBound: boolean;
   wakeWordEnabled: false;
   ttsOutputConnected: boolean;
   bargeInEnabled: boolean;
@@ -61,8 +62,7 @@ export interface VoiceLiveStatus {
   checkedAt: number;
 }
 
-export interface GeminiLiveProvider {
-  connect(callbacks: {
+export interface GeminiLiveCallbacks {
     onReady: (sessionId?: string) => void;
     onState: (state: VoiceLiveState, safeMessage?: string) => void;
     onUserTranscript: (text: string, partial: boolean) => void;
@@ -70,13 +70,19 @@ export interface GeminiLiveProvider {
     onAudio: (base64Audio: string, mimeType: typeof GEMINI_LIVE_OUTPUT_MIME) => void;
     onError: (errorCode: VoiceLiveErrorCode, safeMessage: string) => void;
     onClose: () => void;
-  }): Promise<GeminiLiveSession>;
+}
+
+export interface GeminiLiveConnectOptions {
+  systemInstruction?: string;
+}
+
+export interface GeminiLiveProvider {
+  connect(callbacks: GeminiLiveCallbacks, options?: GeminiLiveConnectOptions): Promise<GeminiLiveSession>;
 }
 
 export interface GeminiLiveSession {
   sendAudio(base64Audio: string, mimeType?: string): void;
   endAudioStream(): void;
-  interrupt(): void;
   close(): void;
 }
 

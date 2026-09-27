@@ -1,6 +1,14 @@
 import { Router } from "express";
 import assistantProfiles from "../../src/config/assistantProfiles.json";
 import { buildChatSystemPrompt } from "../../src/edith/chatContext";
+import { buildAssistantRuntimeContext } from "../../src/edith/assistantContext";
+import {
+  formatCapabilityAnswer,
+  getSkillRegistry,
+  isCapabilityQuestion,
+} from "../../src/edith/skillRegistry";
+import { computerTaskAcknowledgement, parseComputerCommand } from "../../src/edith/computerCommandService";
+import { computerUseStatus } from "./computerUse";
 import { providerRegistry } from "../providers/registry";
 import { ProviderError } from "../providers/types";
 import type { ProviderMessage, ProviderRouteResult, RuntimeProviderId } from "../providers/types";
@@ -137,6 +145,46 @@ export function createChatRouter(): Router {
       }, "done");
     };
 
+    if (isCapabilityQuestion(lastUserText)) {
+      try {
+        const snapshot = await getSkillRegistry();
+        sendEvent({ type: 'route', routeKind: 'registry', requestedProvider, resolvedProvider: 'local', resolvedModel: 'edith-skill-registry', providerStatus: 'available', fallbackUsed: false });
+        sendEvent({ type: 'chunk', routeKind: 'registry', text: formatCapabilityAnswer(snapshot, lastUserText), done: false, provider: 'local', model: 'edith-skill-registry' });
+        sendEvent({ type: 'done', routeKind: 'registry', completed: true, finalState: 'completed', requestedProvider, resolvedProvider: 'local', resolvedModel: 'edith-skill-registry', providerStatus: 'available', fallbackUsed: false, modelAvailable: true, configured: true, available: true }, 'done');
+      } catch (error) {
+        sendEvent({ type: 'error', error: error instanceof Error ? error.message : 'Registry unavailable.', errorCode: 'REGISTRY_UNAVAILABLE' }, 'error');
+        sendEvent({ type: 'done', completed: false, finalState: 'failed', errorCode: 'REGISTRY_UNAVAILABLE' }, 'done');
+      }
+      res.end();
+      return;
+    }
+
+    const computerTask = parseComputerCommand(lastUserText);
+    if (computerTask) {
+      const computerStatus = computerUseStatus();
+      const desktopAvailable = computerStatus.available;
+      const policyBlocked = computerTask.kind === 'blocked';
+      const providerStatus = policyBlocked ? 'blocked' : desktopAvailable ? 'available' : 'unavailable';
+      sendEvent({ type: 'route', routeKind: 'computer-use', requestedProvider, resolvedProvider: 'local', resolvedModel: 'edith-desktop-bridge', providerStatus, fallbackUsed: false });
+      sendEvent({ type: 'computer_task', task: computerTask, computerStatus }, 'computer_task');
+      sendEvent({ type: 'chunk', routeKind: 'computer-use', text: computerTaskAcknowledgement(computerTask), done: false, provider: 'local', model: 'edith-desktop-bridge' });
+      sendEvent({ type: 'done', routeKind: 'computer-use', completed: true, finalState: 'completed', requestedProvider, resolvedProvider: 'local', resolvedModel: 'edith-desktop-bridge', providerStatus, fallbackUsed: false, modelAvailable: desktopAvailable && !policyBlocked, configured: computerStatus.runtime === 'tauri', available: desktopAvailable && !policyBlocked }, 'done');
+      res.end();
+      return;
+    }
+
+    let runtimeContext = '';
+    try {
+      runtimeContext = await buildAssistantRuntimeContext({
+        channel: 'text',
+        userName,
+        assistantPersona: activeAssistant?.name ?? 'default',
+        query: lastUserText,
+      });
+    } catch (error) {
+      console.warn('[EDITH Context] Compact runtime context skipped:', error instanceof Error ? error.message : error);
+    }
+
     const systemPrompt = String(req.body?.systemPrompt ?? activeAssistant?.systemPrompt ?? "You are EDITH. Be concise and helpful.");
     const { fullSystem } = buildChatSystemPrompt({
       systemPrompt,
@@ -144,6 +192,7 @@ export function createChatRouter(): Router {
       memories: Array.isArray(req.body?.memories) ? req.body.memories : [],
       memoryEnabled,
       lastUserMessage: lastUserText,
+      runtimeContext,
     });
     const providerMessages = toProviderMessages(fullSystem, messages);
     const health = await providerRegistry.health({

@@ -45,6 +45,23 @@ try {
     (error) => error instanceof ProviderError && error.code === "configuration_required",
   );
 
+  process.env.GEMINI_API_KEY = "AIzaSyNoNetworkHealthKey12345678901234567890";
+  let geminiNetworkCalls = 0;
+  globalThis.fetch = async () => {
+    geminiNetworkCalls += 1;
+    throw new Error("Gemini health/model metadata must not call the network");
+  };
+  const configuredPassiveGeminiHealth = await geminiProvider.healthCheck({ model: "gemini-3.6-flash" });
+  assert.equal(configuredPassiveGeminiHealth.configured, true);
+  assert.equal(configuredPassiveGeminiHealth.status, "pending");
+  assert.equal(configuredPassiveGeminiHealth.available, false);
+  assert.equal(configuredPassiveGeminiHealth.modelAvailable, true);
+  const passiveGeminiModels = await geminiProvider.getModels?.();
+  assert.equal(passiveGeminiModels?.some((model) => model.id === "gemini-3.6-flash"), true);
+  assert.equal(geminiNetworkCalls, 0);
+  globalThis.fetch = originalFetch;
+  process.env.GEMINI_API_KEY = "";
+
   const parsedThinkingOnlyChunk = parseOllamaStreamChunk({
     message: { role: "assistant", content: "", thinking: "internal reasoning only" },
     done: true,
@@ -214,6 +231,7 @@ try {
     scenarios: [
       "gemini_missing_key_configuration_required",
       "gemini_placeholder_key_configuration_required",
+      "gemini_health_and_model_metadata_do_not_ping_api",
       "provider_responses_do_not_include_key",
       "ollama_available_requires_local_model",
       "ollama_empty_model_list_degraded_unavailable",

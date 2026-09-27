@@ -25,6 +25,12 @@ export function createHealthRouter(): Router {
       geminiConfigured: Boolean(gemini?.configured),
       geminiStatus: gemini?.status ?? "configuration_required",
       providers,
+      cloud: {
+        provider: "supabase",
+        configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+        status: process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY ? "not_checked" : "configuration_required",
+        healthEndpoint: "/api/cloud/status",
+      },
       timestamp: Date.now(),
     });
   });
