@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_process';
+import { randomBytes } from 'crypto';
 import { appendAuditEvent, createAuditEvent } from './audit';
 import { workspaceManager } from './workspaceManager';
 
@@ -19,26 +20,94 @@ export interface CryptoAgentStatus {
     signal: NodeJS.Signals | null;
     at: string;
   };
-  overview?: unknown;
   health?: unknown;
   runtime?: unknown;
   obsidian?: unknown;
   error?: string;
+  errorCode?: 'resource_missing' | 'runtime_missing' | 'dependency_missing' | 'service_unavailable';
 }
 
 const DASHBOARD_URL = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || 'http://localhost:5000';
-const PROJECT_PATH = process.env.EDITH_CRYPTO_PROJECT_PATH || path.join(process.cwd(), 'crypto');
+
+const REQUIRED_CRYPTO_RESOURCES = [
+  'run_agent.py',
+  'src/config.py',
+  'src/dashboard.py',
+  'src/demo_portfolio.py',
+  'src/jev_adapter.py',
+  'src/market_service.py',
+  'templates/dashboard.html',
+  'config/coin_permissions.json',
+  'config/demo_asset_modes.json',
+  'config/observer_config.json',
+] as const;
+
+function hasCompleteCryptoManifest(candidate: string): boolean {
+  return REQUIRED_CRYPTO_RESOURCES.every((relativePath) => {
+    try {
+      return fs.statSync(path.join(candidate, relativePath)).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
+function resolveCryptoProjectPath(): string {
+  const packagedResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const candidates = [
+    process.env.EDITH_CRYPTO_RESOURCE_DIR,
+    process.env.EDITH_CRYPTO_PROJECT_PATH,
+    process.env.EDITH_APP_RESOURCE_DIR ? path.join(process.env.EDITH_APP_RESOURCE_DIR, 'crypto') : undefined,
+    packagedResourcesPath ? path.join(packagedResourcesPath, 'crypto') : undefined,
+    path.join(process.cwd(), 'resources', 'crypto'),
+    path.join(process.cwd(), 'crypto'),
+  ].filter((candidate): candidate is string => Boolean(candidate?.trim()))
+    .map((candidate) => path.resolve(candidate));
+  const uniqueCandidates = [...new Set(candidates)];
+  return uniqueCandidates.find(hasCompleteCryptoManifest)
+    ?? uniqueCandidates[0]
+    ?? path.resolve(process.cwd(), 'crypto');
+}
+
+const PROJECT_PATH = resolveCryptoProjectPath();
 const SCRIPT_PATH = path.join(PROJECT_PATH, 'run_agent.py');
+const RUNTIME_DATA_PATH = path.resolve(process.env.EDITH_CRYPTO_RUNTIME_DATA_DIR
+  || path.join(workspaceManager.getResolvedPaths()?.dataPath ?? path.join(process.cwd(), '.edith'), 'crypto'));
 const LOG_PATH = process.env.EDITH_CRYPTO_LOG_PATH
-  || path.join(workspaceManager.getResolvedPaths()?.logsPath ?? path.join(PROJECT_PATH, 'logs'), 'crypto', 'edith-autostart.log');
+  || path.join(workspaceManager.getResolvedPaths()?.logsPath ?? RUNTIME_DATA_PATH, 'crypto', 'edith-autostart.log');
+
+function isPackagedRuntime(): boolean {
+  return process.env.EDITH_PACKAGED === 'true'
+    || Boolean(process.env.EDITH_APP_RESOURCE_DIR)
+    || Boolean((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath);
+}
+
+function existingAbsoluteFile(candidate: string | undefined): string | undefined {
+  if (!candidate || !path.isAbsolute(candidate)) return undefined;
+  try {
+    return fs.statSync(candidate).isFile() ? path.resolve(candidate) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function resolvePythonPath(): string {
-  if (process.env.EDITH_CRYPTO_PYTHON_PATH) return process.env.EDITH_CRYPTO_PYTHON_PATH;
+  const explicit = process.env.EDITH_CRYPTO_PYTHON_PATH?.trim();
+  if (explicit) {
+    const resolved = existingAbsoluteFile(explicit);
+    if (!resolved) throw new Error('runtime_missing');
+    return resolved;
+  }
+  const resourceRoot = process.env.EDITH_APP_RESOURCE_DIR
+    || (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   const candidates = [
+    resourceRoot ? path.join(resourceRoot, 'python', 'python.exe') : undefined,
+    path.join(PROJECT_PATH, '..', 'python', 'python.exe'),
     path.join(PROJECT_PATH, '.venv', 'Scripts', 'python.exe'),
     path.join(process.cwd(), '.venv', 'Scripts', 'python.exe'),
-  ];
-  const existing = candidates.find((candidate) => fs.existsSync(candidate));
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const existing = candidates.map(existingAbsoluteFile).find(Boolean);
+  if (isPackagedRuntime() && !existing) throw new Error('runtime_missing');
   return existing ?? (process.platform === 'win32' ? 'py' : 'python');
 }
 
@@ -47,6 +116,11 @@ export class CryptoService {
   private startedAt?: string;
   private lastExit?: CryptoAgentStatus['lastExit'];
   private shutdownHooksRegistered = false;
+  private internalToken?: string;
+
+  internalRequestHeaders(): Record<string, string> {
+    return this.internalToken ? { 'X-EDITH-Internal-Token': this.internalToken } : {};
+  }
 
   async status(): Promise<CryptoAgentStatus> {
     const base = this.baseStatus();
@@ -54,15 +128,13 @@ export class CryptoService {
       const healthResponse = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`);
       const health = healthResponse.ok ? await healthResponse.json() : undefined;
       const healthRecord = health && typeof health === 'object' ? health as Record<string, unknown> : {};
-      const overviewResult = await this.readOptionalJson(`${DASHBOARD_URL}/api/overview`);
       return {
         ...base,
         healthy: healthResponse.ok,
         health,
         runtime: healthRecord.runtime,
         obsidian: healthRecord.obsidian,
-        overview: overviewResult.value,
-        error: healthResponse.ok ? overviewResult.error : `Crypto health check failed: ${healthResponse.status}`,
+        error: healthResponse.ok ? undefined : `Crypto health check failed: ${healthResponse.status}`,
       };
     } catch (error) {
       return {
@@ -78,13 +150,21 @@ export class CryptoService {
     if (current.healthy || this.child) {
       return current;
     }
-    if (!fs.existsSync(PROJECT_PATH)) {
-      return { ...current, error: `Crypto project path not found: ${PROJECT_PATH}` };
+    if (!hasCompleteCryptoManifest(PROJECT_PATH)) {
+      return { ...current, error: 'Crypto runtime resources are incomplete or unavailable.', errorCode: 'resource_missing' };
     }
-    if (!fs.existsSync(SCRIPT_PATH)) {
-      return { ...current, error: `Crypto agent script not found: ${SCRIPT_PATH}` };
+    let pythonPath: string;
+    try {
+      pythonPath = resolvePythonPath();
+    } catch {
+      return { ...current, error: 'Packaged Crypto Python runtime is unavailable.', errorCode: 'runtime_missing' };
     }
-    const pythonPath = resolvePythonPath();
+    const dependencyProbe = spawnSync(pythonPath, [
+      '-I', '-c', 'import flask, ccxt, pandas, requests, dotenv, feedparser',
+    ], { cwd: PROJECT_PATH, windowsHide: true, stdio: 'ignore', timeout: 10_000 });
+    if (dependencyProbe.error || dependencyProbe.status !== 0) {
+      return { ...current, pythonPath, error: 'Crypto Python dependencies are unavailable.', errorCode: 'dependency_missing' };
+    }
     const obsidianVaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath
       || process.env.OBSIDIAN_VAULT_PATH
       || process.env.EDITH_OBSIDIAN_VAULT_PATH
@@ -94,7 +174,8 @@ export class CryptoService {
     const out = fs.createWriteStream(LOG_PATH, { flags: 'a' });
     out.write(`\n[${new Date().toISOString()}] Starting crypto agent: ${reason}\n`);
 
-    this.child = spawn(pythonPath, [SCRIPT_PATH], {
+    const internalToken = randomBytes(32).toString('base64url');
+    const child = spawn(pythonPath, [SCRIPT_PATH], {
       cwd: PROJECT_PATH,
       windowsHide: true,
       env: {
@@ -103,6 +184,9 @@ export class CryptoService {
         PYTHONUTF8: '1',
         PYTHONIOENCODING: 'utf-8',
         EDITH_CRYPTO_AUTOSTART: 'true',
+        EDITH_CRYPTO_RESOURCE_DIR: PROJECT_PATH,
+        EDITH_CRYPTO_PROJECT_PATH: PROJECT_PATH,
+        EDITH_CRYPTO_RUNTIME_DATA_DIR: RUNTIME_DATA_PATH,
         CRYPTO_MODE: 'OBSERVER_ONLY',
         TRADING_MODE: 'OBSERVER_ONLY',
         CRYPTO_TRADING_ENABLED: 'false',
@@ -111,7 +195,7 @@ export class CryptoService {
         ENABLE_LIVE_TRADING: 'false',
         BINANCE_TRADING_ENABLED: 'false',
         CRYPTO_DEMO_TRADING_ENABLED: 'true',
-        CRYPTO_STARTING_BALANCE: process.env.CRYPTO_STARTING_BALANCE || '10000',
+        CRYPTO_STARTING_BALANCE: '10000',
         CRYPTO_DECISION_MODEL: 'jev',
         CRYPTO_OBSIDIAN_ENABLED: 'false',
         CRYPTO_LEARNING_ENABLED: 'false',
@@ -121,16 +205,31 @@ export class CryptoService {
         JEV_API_URL: process.env.JEV_API_URL || 'https://api.typesafe.ai',
         JEV_MODEL: process.env.JEV_MODEL || 'jev-1.13.0',
         JEV_API_STYLE: process.env.JEV_API_STYLE || 'typesafe',
+        EDITH_CRYPTO_INTERNAL_TOKEN: internalToken,
         EDITH_OBSIDIAN_VAULT_PATH: obsidianVaultPath,
         OBSIDIAN_VAULT_PATH: obsidianVaultPath,
       },
     });
+    this.internalToken = internalToken;
+    this.child = child;
     this.startedAt = new Date().toISOString();
-    this.child.stdout.pipe(out);
-    this.child.stderr.pipe(out);
-    this.child.on('exit', (code, signal) => {
+    child.stdout.pipe(out);
+    child.stderr.pipe(out);
+    child.on('error', () => {
+      if (this.child === child) {
+        this.child = undefined;
+        this.internalToken = undefined;
+      }
+      this.lastExit = { code: null, signal: null, at: new Date().toISOString() };
+      out.write(`\n[${this.lastExit.at}] Crypto agent failed to start.\n`);
+      out.end();
+    });
+    child.on('exit', (code, signal) => {
       this.lastExit = { code, signal, at: new Date().toISOString() };
-      this.child = undefined;
+      if (this.child === child) {
+        this.child = undefined;
+        this.internalToken = undefined;
+      }
       out.write(`\n[${this.lastExit.at}] Crypto agent exited: code=${code} signal=${signal}\n`);
       out.end();
     });
@@ -180,25 +279,36 @@ export class CryptoService {
   }
 
   stop(reason = 'EDITH server shutdown'): CryptoAgentStatus {
-    if (this.child) {
-      this.child.kill();
+    const child = this.child;
+    this.child = undefined;
+    this.internalToken = undefined;
+    if (child) {
+      child.kill();
       this.audit('crypto.stop', reason, 'success');
     }
     return this.baseStatus();
   }
 
   private baseStatus(): CryptoAgentStatus {
+    let pythonPath = '';
+    let runtimeError: CryptoAgentStatus['errorCode'];
+    try {
+      pythonPath = resolvePythonPath();
+    } catch {
+      runtimeError = 'runtime_missing';
+    }
     return {
       dashboardUrl: DASHBOARD_URL,
       projectPath: PROJECT_PATH,
       healthy: false,
       managedProcessRunning: Boolean(this.child),
       autoStartEnabled: process.env.EDITH_CRYPTO_AUTOSTART === 'true',
-      pythonPath: resolvePythonPath(),
+      pythonPath,
       scriptPath: SCRIPT_PATH,
       logPath: LOG_PATH,
       startedAt: this.startedAt,
       lastExit: this.lastExit,
+      ...(runtimeError ? { errorCode: runtimeError, error: 'Packaged Crypto Python runtime is unavailable.' } : {}),
     };
   }
 
@@ -215,19 +325,13 @@ export class CryptoService {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 2500);
     try {
-      return await fetch(url, { ...init, signal: controller.signal });
+      const headers = new Headers(init?.headers);
+      if (init?.method && !['GET', 'HEAD', 'OPTIONS'].includes(init.method.toUpperCase())) {
+        for (const [name, value] of Object.entries(this.internalRequestHeaders())) headers.set(name, value);
+      }
+      return await fetch(url, { ...init, headers, signal: controller.signal });
     } finally {
       clearTimeout(timeoutId);
-    }
-  }
-
-  private async readOptionalJson(url: string): Promise<{ value?: unknown; error?: string }> {
-    try {
-      const response = await this.fetchWithTimeout(url);
-      if (!response.ok) return { error: `Optional crypto endpoint failed: ${response.status}` };
-      return { value: await response.json() };
-    } catch (error) {
-      return { error: this.readableConnectionError(error) };
     }
   }
 

@@ -49,14 +49,27 @@ import { createTasksRouter } from "./server/routes/tasks";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createWorkspaceRouter } from "./server/routes/workspace";
 import { createCloudRouter } from "./server/routes/cloud";
+import { createResearchRouter } from "./server/routes/research";
+import { createPlaybooksRouter } from "./server/routes/playbooks";
+import { createLocalSearchRouter } from "./server/routes/search";
+import { createMobilePairingRouter } from "./server/routes/mobilePairing";
+import { createMobileTasksRouter } from "./server/routes/mobileTasks";
+import { createMobileTransfersRouter } from "./server/routes/mobileTransfers";
+import { createMobileCrossDeviceRouter } from "./server/routes/mobileCrossDevice";
+import { createDesktopProducerRouter } from "./server/routes/desktopProducer";
+import { createObsidianProviderRouter } from "./server/routes/obsidianProvider";
+import { createAdvancedExperienceRouter } from "./server/routes/advancedExperience";
+import { getMobileRuntime } from "./server/mobile/runtime";
 import { voiceSessionManager } from "./server/voice/voiceSessionManager";
 import { createOwnerSessionRouter, getOwnerSession, requireOwnerSession, requireProtectedMutation } from "./server/security/ownerSession";
 import { resolveServerHost } from "./server/security/networkPolicy";
 import { appendSecurityAudit } from "./server/security/auditLog";
+import { redactSensitiveText } from "./server/security/redaction";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
 const HOST = resolveServerHost();
+const mobileRuntime = getMobileRuntime();
 
 voiceSessionManager.setCapabilityContextProvider(() => buildAssistantRuntimeContext({
   channel: 'voice',
@@ -81,18 +94,54 @@ app.use(createVoiceRouter());
 app.use(createSkillsRouter());
 app.use(createWorkspaceRouter());
 app.use(createCloudRouter());
+app.use(createResearchRouter());
+app.use(createPlaybooksRouter());
+app.use(createLocalSearchRouter());
+app.use(createMobilePairingRouter({ runtime: mobileRuntime }));
+app.use(createMobileTasksRouter({ runtime: mobileRuntime }));
+app.use(createMobileTransfersRouter({ runtime: mobileRuntime }));
+app.use(createMobileCrossDeviceRouter({ runtime: mobileRuntime }));
+app.use(createDesktopProducerRouter({ runtime: mobileRuntime }));
+app.use(createObsidianProviderRouter({ runtime: mobileRuntime }));
+app.use(createAdvancedExperienceRouter());
 
-app.post("/api/voice/tts", async (req, res) => {
-  const { text, apiKey, voiceId = "pNInz6obpgDQGcFmaJgB" } = req.body ?? {};
-  if (!text || !apiKey) {
+app.post("/api/voice/tts", ...requireProtectedMutation, async (req, res) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const { text, voiceId = "pNInz6obpgDQGcFmaJgB" } = body;
+  const actor = getOwnerSession(req)!.actor;
+  if (Object.prototype.hasOwnProperty.call(body, "apiKey")) {
+    appendSecurityAudit(req, {
+      action: "voice.client_secret_rejected",
+      actor,
+      authorization: "denied",
+      result: "denied",
+      message: "Client-supplied voice provider credentials were rejected.",
+      riskLevel: 5,
+    });
     return res.status(400).json({
       success: false,
-      error: "text and apiKey are required for Claude Voice connector.",
+      errorCode: "CLIENT_SECRET_FORBIDDEN",
+      safeMessage: "Voice provider credentials must be configured on the backend.",
+    });
+  }
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!text) {
+    return res.status(400).json({
+      success: false,
+      errorCode: "INVALID_TTS_REQUEST",
+      safeMessage: "text is required for the voice connector.",
+    });
+  }
+  if (!apiKey) {
+    return res.status(503).json({
+      success: false,
+      errorCode: "VOICE_CONFIGURATION_REQUIRED",
+      safeMessage: "Voice provider configuration is required.",
     });
   }
 
   try {
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(String(voiceId))}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -111,14 +160,18 @@ app.post("/api/voice/tts", async (req, res) => {
     });
 
     if (!response.ok) {
-      return res.status(response.status).send(await response.text());
+      return res.status(response.status).json({
+        success: false,
+        errorCode: "VOICE_PROVIDER_ERROR",
+        safeMessage: redactSensitiveText(await response.text(), 300),
+      });
     }
 
     const audioBuffer = Buffer.from(await response.arrayBuffer());
     res.setHeader("Content-Type", "audio/mpeg");
     res.send(audioBuffer);
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(500).json({ success: false, errorCode: "VOICE_PROVIDER_ERROR", safeMessage: redactSensitiveText(error?.message ?? error, 300) });
   }
 });
 
@@ -258,27 +311,27 @@ app.post("/api/edith/finance/trading/actions", (req, res) => {
   res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
 });
 
-app.get("/api/edith/proactive/settings", (_req, res) => {
+app.get("/api/edith/proactive/settings", requireOwnerSession, (_req, res) => {
   res.json({ success: true, settings: proactiveService.getSettings() });
 });
 
-app.patch("/api/edith/proactive/settings", (req, res) => {
+app.patch("/api/edith/proactive/settings", ...requireProtectedMutation, (req, res) => {
   res.json({ success: true, settings: proactiveService.updateSettings(req.body ?? {}) });
 });
 
-app.get("/api/edith/proactive/signals", (req, res) => {
+app.get("/api/edith/proactive/signals", requireOwnerSession, (req, res) => {
   res.json({
     success: true,
     signals: proactiveService.listSignals({ includeDismissed: req.query.includeDismissed === "true" }),
   });
 });
 
-app.post("/api/edith/proactive/signals/:id/dismiss", (req, res) => {
+app.post("/api/edith/proactive/signals/:id/dismiss", ...requireProtectedMutation, (req, res) => {
   const signal = proactiveService.dismissSignal(req.params.id, "edith-api");
   res.status(signal ? 200 : 404).json({ success: Boolean(signal), signal });
 });
 
-app.post("/api/edith/proactive/check", (req, res) => {
+app.post("/api/edith/proactive/check", ...requireProtectedMutation, (req, res) => {
   const signals = proactiveService.checkOnce({
     presence: req.body?.presence,
     sentiment: req.body?.sentiment,
@@ -1083,11 +1136,12 @@ app.post("/api/tools/execute", ...requireProtectedMutation, async (req, res) => 
     }
 
     case "schedule_reminder": {
-      const text = args.reminderText || "EDITH Görev Takibi";
-      const time = args.time || "10 dakika sonra";
-      return res.json({
-        success: true, toolId,
-        result: `✅ Zamanlanmış Hatırlatıcı Oluşturuldu\n\nMesaj : "${text}"\nZaman : ${time}\nDurum : Aktif`,
+      return res.status(428).json({
+        success: false,
+        toolId,
+        errorCode: "REMINDER_SCHEDULER_CONFIGURATION_REQUIRED",
+        safeMessage: "A verified reminder scheduler is not connected.",
+        capability: "configuration_required",
       });
     }
 
@@ -1561,40 +1615,17 @@ For each topic, give 1-2 new developments if any. Be concise. Respond in Turkish
 
     // ── SCREEN PROCESSOR ────────────────────────────────────────────────────
     case "screen_processor": {
-      const source   = (args.source || "screen").toLowerCase();
-      const question = args.question || "Ne görüyorsun?";
-
-      try {
-        if (source === "camera") {
-          // Webcam erişimi sunucu tarafında kısıtlı — browser'a yönlendir
-          return res.json({
-            success: true, toolId,
-            result: `📷 **Kamera Analizi**\n\nKamera erişimi için tarayıcı API'si gereklidir.\n\n💡 Sohbet ekranında kameranızı açıp görüntüyü sürükleyip bırakabilirsiniz. Gemini Vision ile analiz edilecektir.\n\nSoru: "${question}"`,
-          });
-        }
-
-        // Ekran görüntüsü alma girişimi (screenshot-desktop paketi yoksa bilgi mesajı)
-        try {
-          const screenshot = require("screenshot-desktop");
-          const imgBuffer = await screenshot({ format: "png" }) as Buffer;
-          const base64 = imgBuffer.toString("base64");
-
-          void base64;
-          return res.json({
-            success: true,
-            toolId,
-            result: `🖥️ **Ekran Görüntüsü Alındı**\n\nBoyut: ${(imgBuffer.length / 1024).toFixed(1)} KB\n\nGemini Vision doğrudan çağrısı devre dışı. Görüntü analizi, vision desteği provider sistemine eklendiğinde tekrar etkinleşir.\n\nSoru: "${question}"`,
-          });
-        } catch {
-          // screenshot-desktop yoksa
-          return res.json({
-            success: true, toolId,
-            result: `🖥️ **Ekran Analizi**\n\nEkran yakalama için 'screenshot-desktop' paketi gereklidir:\nnpm install screenshot-desktop\n\nKurulduktan sonra bu araç ekranınızı gerçek zamanlı analiz edebilir.\n\nSoru: "${question}"`,
-          });
-        }
-      } catch (e: any) {
-        return res.json({ success: false, toolId, error: `Ekran işleme hatası: ${e.message}` });
-      }
+      return res.status(409).json({
+        success: false,
+        toolId,
+        errorCode: "approved_native_session_required",
+        error: "Screen and camera capture are available only through an explicitly approved native Computer Use observation session.",
+        structuredOutput: {
+          status: "BLOCKED",
+          capturePerformed: false,
+          canonicalObservationRequired: true,
+        },
+      });
     }
 
     // ── FLIGHT FINDER ───────────────────────────────────────────────────────
@@ -1733,13 +1764,15 @@ async function startServer() {
   }
 
   obsidianVaultService.startWatcher();
-  getSkillRegistry().then(({ skills }) => {
-    const vault = obsidianVaultService.status();
-    if (!vault.obsidianEnabled || !vault.writable) return;
-    const results = obsidianVaultService.writeSkillRegistryNotes(skills, edithToolRegistry.list(), getEdithToolHealth());
-    const failures = results.filter((result) => !result.exported);
-    if (failures.length) console.warn(`[EDITH Skills] ${failures.length} vault notes were not written; existing user notes were preserved.`);
-  }).catch((error) => console.warn('[EDITH Skills] Vault note sync skipped:', error instanceof Error ? error.message : error));
+  if (process.env.EDITH_OBSIDIAN_SYNC_REGISTRY_ON_STARTUP === "true") {
+    getSkillRegistry().then(({ skills }) => {
+      const vault = obsidianVaultService.status();
+      if (!vault.obsidianEnabled || !vault.writable) return;
+      const results = obsidianVaultService.writeSkillRegistryNotes(skills, edithToolRegistry.list(), getEdithToolHealth());
+      const failures = results.filter((result) => !result.exported);
+      if (failures.length) console.warn(`[EDITH Skills] ${failures.length} vault notes were not written; existing user notes were preserved.`);
+    }).catch((error) => console.warn('[EDITH Skills] Vault note sync skipped:', error instanceof Error ? error.message : error));
+  }
   if (process.env.EDITH_CRYPTO_AUTOSTART === "true") {
     cryptoService.start("EDITH server startup").then((status) => {
       const state = status.healthy || status.managedProcessRunning ? "online/starting" : "not started";
@@ -1751,6 +1784,7 @@ async function startServer() {
 
   const server = http.createServer(app);
   voiceSessionManager.handleUpgrade(server);
+  mobileRuntime.realtime.handleUpgrade(server);
   let shuttingDown = false;
   const shutdown = (signal: string, exitCode: number) => {
     if (shuttingDown) return;
@@ -1758,6 +1792,7 @@ async function startServer() {
     console.log(`[EDITH Server] ${signal} received; shutting down.`);
     obsidianVaultService.stopWatcher();
     voiceSessionManager.shutdown();
+    mobileRuntime.realtime.shutdown();
     cryptoService.stop(`EDITH server ${signal}`);
     server.close(() => process.exit(exitCode));
     setTimeout(() => process.exit(exitCode), 5000).unref();

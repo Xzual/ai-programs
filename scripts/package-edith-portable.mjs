@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { assertCryptoResourcesSafe, assertInside, copyTreeStrict, findDeveloperPathLeaks, manifestFor, sha256 } from './portable-edith-lib.mjs';
+import { assertInside, copyTreeStrict, findDeveloperPathLeaks, isExcludedPythonRuntime, manifestFor, sha256 } from './portable-edith-lib.mjs';
+import { assertPackagedCryptoResources, stageCryptoResources } from './stage-edith-crypto-resources.mjs';
 
 const root = path.resolve(process.cwd());
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -16,20 +17,24 @@ const sidecar = path.join(release, 'edith-backend.exe');
 for (const required of [app, sidecar, path.join(root, 'dist', 'index.html')]) {
   if (!fs.existsSync(required)) throw new Error(`Required release file is missing: ${required}`);
 }
+const staged = path.join(root, '.edith-build', 'desktop', 'resources');
+const stagedCrypto = path.join(staged, 'crypto');
+const stagedPython = path.join(staged, 'python');
+if (!fs.existsSync(path.join(stagedCrypto, 'run_agent.py'))) throw new Error('EXTERNAL_BLOCKER CRYPTO_RESOURCES_REQUIRED: run desktop:sidecar first.');
+if (!fs.existsSync(path.join(stagedPython, 'python.exe')) || !fs.existsSync(path.join(stagedPython, 'EDITH_RUNTIME_VERIFIED.json'))) throw new Error('EXTERNAL_BLOCKER VETTED_PYTHON_REQUIRED: portable releases require a lock-verified staged Python bundle.');
 
 fs.rmSync(portable, { recursive: true, force: true });
 fs.mkdirSync(portable, { recursive: true });
 fs.copyFileSync(app, path.join(portable, 'edith.exe'), fs.constants.COPYFILE_EXCL);
 fs.copyFileSync(sidecar, path.join(portable, 'edith-backend.exe'), fs.constants.COPYFILE_EXCL);
 copyTreeStrict(path.join(root, 'dist'), path.join(portable, 'dist'));
-const staged = path.join(root, '.edith-build', 'desktop', 'resources');
-const stagedCrypto = path.join(staged, 'crypto');
-const stagedPython = path.join(staged, 'python');
-if (!fs.existsSync(path.join(stagedCrypto, 'run_agent.py'))) throw new Error('EXTERNAL_BLOCKER CRYPTO_RESOURCES_REQUIRED: run desktop:sidecar first.');
-if (!fs.existsSync(path.join(stagedPython, 'python.exe'))) throw new Error('EXTERNAL_BLOCKER VETTED_PYTHON_REQUIRED: portable releases cannot use a developer venv or target-machine prerequisite.');
-copyTreeStrict(stagedCrypto, path.join(portable, 'crypto'));
-copyTreeStrict(stagedPython, path.join(portable, 'python'));
-assertCryptoResourcesSafe(path.join(portable, 'crypto'));
+stageCryptoResources({
+  source: stagedCrypto,
+  destination: path.join(portable, 'crypto'),
+  allowedDestinationRoot: portable,
+});
+copyTreeStrict(stagedPython, path.join(portable, 'python'), { exclude: isExcludedPythonRuntime });
+assertPackagedCryptoResources(path.join(portable, 'crypto'));
 const leaks = findDeveloperPathLeaks(portable);
 if (leaks.length) throw new Error(`Developer-specific absolute paths found: ${leaks.join(', ')}`);
 const manifest = manifestFor(portable, { version: pkg.version, architecture: 'x86_64' });
@@ -37,8 +42,28 @@ fs.writeFileSync(path.join(portable, 'manifest.json'), `${JSON.stringify(manifes
 fs.writeFileSync(path.join(portable, 'SHA256SUMS.txt'), `${manifest.files.map((entry) => `${entry.sha256}  ${entry.path}`).join('\n')}\n`, { flag: 'wx' });
 fs.mkdirSync(path.dirname(zip), { recursive: true });
 fs.rmSync(zip, { force: true });
-execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Compress-Archive -LiteralPath $env:EDITH_PORTABLE_SOURCE -DestinationPath $env:EDITH_PORTABLE_ZIP -CompressionLevel Optimal -Force'], {
-  env: { ...process.env, EDITH_PORTABLE_SOURCE: portable, EDITH_PORTABLE_ZIP: zip }, stdio: 'inherit', windowsHide: true,
+const createZip = String.raw`
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$source = [IO.Path]::GetFullPath($env:EDITH_PORTABLE_SOURCE).TrimEnd([IO.Path]::DirectorySeparatorChar)
+$archive = [IO.Compression.ZipFile]::Open($env:EDITH_PORTABLE_ZIP, [IO.Compression.ZipArchiveMode]::Create)
+try {
+  foreach ($file in [IO.Directory]::EnumerateFiles($source, '*', [IO.SearchOption]::AllDirectories)) {
+    $relative = $file.Substring($source.Length).TrimStart([IO.Path]::DirectorySeparatorChar).Replace('\', '/')
+    $entry = "$env:EDITH_PORTABLE_NAME/$relative"
+    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file, $entry, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+  }
+} finally { $archive.Dispose() }
+`;
+execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', createZip], {
+  env: {
+    ...process.env,
+    EDITH_PORTABLE_SOURCE: portable,
+    EDITH_PORTABLE_ZIP: zip,
+    EDITH_PORTABLE_NAME: name,
+  },
+  stdio: 'inherit',
+  windowsHide: true,
 });
 const zipHash = sha256(zip);
 fs.writeFileSync(`${zip}.sha256`, `${zipHash}  ${path.basename(zip)}\n`, 'utf8');

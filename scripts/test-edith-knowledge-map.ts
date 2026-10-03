@@ -63,15 +63,18 @@ try {
   assert.equal(planned.success, true);
   assert.equal(toolResult.success, true);
   assert.equal(nodeIds.has('edith-core'), true);
-  assert.equal(nodeIds.has('agent-hub'), true);
-  assert.equal(nodeIds.has('model-router'), true);
+  assert.equal(nodeIds.has('agent-hub'), false);
+  assert.equal(nodeIds.has('model-router'), false);
   assert.equal(nodeIds.has(`task-${task.id}`), true);
   assert.equal(nodeIds.has(`memory-${memory.id}`), true);
   assert.equal(snapshot.nodes.some((node) => node.id === 'tool-system_monitor'), true);
   assert.equal(snapshot.nodes.some((node) => node.type === 'audit'), true);
   assert.equal(edgePairs.has(`memory-${memory.id}->task-${task.id}:related`), true);
   assert.equal(snapshot.edges.some((edge) => edge.from === `task-${task.id}` && edge.to === 'tool-system_monitor'), true);
-  assert.equal(snapshot.edges.some((edge) => edge.from === 'edith-core' && edge.to === 'agent-hub'), true);
+  assert.equal(snapshot.dataStatus.syntheticNodes, false);
+  assert.equal(snapshot.dataStatus.state, 'degraded');
+  assert.equal(snapshot.dataStatus.obsidian, 'configuration_required');
+  assert.equal(snapshot.dataStatus.reasons.length > 0, true);
   assert.equal(snapshot.metrics.some((metric) => metric.label === 'Agents' && metric.value >= 7), true);
 
   getEdithPersistenceStore().close?.();
@@ -87,7 +90,8 @@ try {
       'tool_registry_node',
       'audit_event_node',
       'agent_nodes',
-      'model_router_node',
+      'honest_degraded_without_obsidian',
+      'no_synthetic_map_nodes',
     ],
   }, null, 2));
 } finally {

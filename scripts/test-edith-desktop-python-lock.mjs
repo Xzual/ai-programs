@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseExactRequirements, readExactRequirementsLock, verifyPinnedVersions } from './desktop-python-lock.mjs';
 
-const broad = fs.readFileSync(path.resolve('crypto/requirements.txt'), 'utf8');
+const broad = 'alpha>=1.2.3\nbeta~=4.5\n';
 let broadRejected = false;
-try { parseExactRequirements(broad, 'crypto/requirements.txt'); } catch (error) { broadRejected = String(error).includes('INTERNAL_CONFIGURATION_ERROR UNPINNED_PYTHON_REQUIREMENT'); }
+try { parseExactRequirements(broad, 'unpinned fixture'); } catch (error) { broadRejected = String(error).includes('INTERNAL_CONFIGURATION_ERROR UNPINNED_PYTHON_REQUIREMENT'); }
 if (!broadRejected) throw new Error('Broad developer requirements must not pass release lock validation.');
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-python-lock-'));

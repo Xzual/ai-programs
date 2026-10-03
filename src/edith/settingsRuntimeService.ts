@@ -28,8 +28,6 @@ export interface SettingsWorkspaceSnapshot {
   configured: boolean;
   state: 'ready' | 'degraded' | 'configuration_required' | 'invalid';
   safeMessage: string;
-  workspaceRoot?: string;
-  obsidianVaultPath?: string;
   readable: boolean;
   writable: boolean;
   lastValidated?: string;
@@ -72,7 +70,23 @@ function skillList(payload: Record<string, unknown>): SettingsSkillSnapshot[] {
 function workspaceStatus(payload: Record<string, unknown>): SettingsWorkspaceSnapshot | undefined {
   const status = record(payload.status);
   if (!status || typeof status.configured !== 'boolean' || typeof status.state !== 'string') return undefined;
-  return status as unknown as SettingsWorkspaceSnapshot;
+  return {
+    configured: status.configured,
+    state: ['ready', 'degraded', 'configuration_required', 'invalid'].includes(status.state)
+      ? status.state as SettingsWorkspaceSnapshot['state']
+      : 'invalid',
+    safeMessage: status.configured === true
+      ? 'Workspace configuration is available.'
+      : 'Workspace configuration is required.',
+    readable: status.readable === true,
+    writable: status.writable === true,
+    lastValidated: typeof status.lastValidated === 'string' ? status.lastValidated : undefined,
+    portableMode: status.portableMode === true,
+    persistenceRestartRequired: status.persistenceRestartRequired === true,
+    limitations: Array.isArray(status.limitations)
+      ? status.limitations.filter((item): item is string => typeof item === 'string').slice(0, 20)
+      : [],
+  };
 }
 
 export async function fetchSettingsRuntimeSnapshot(): Promise<SettingsRuntimeSnapshot> {
@@ -87,11 +101,7 @@ export async function fetchSettingsRuntimeSnapshot(): Promise<SettingsRuntimeSna
       : undefined,
     skills: registryResult.status === 'fulfilled' ? skillList(registryResult.value) : [],
     workspace: workspaceResult.status === 'fulfilled' ? workspaceStatus(workspaceResult.value) : undefined,
-    registryError: registryResult.status === 'rejected'
-      ? registryResult.reason instanceof Error ? registryResult.reason.message : 'Capability registry unavailable.'
-      : undefined,
-    workspaceError: workspaceResult.status === 'rejected'
-      ? workspaceResult.reason instanceof Error ? workspaceResult.reason.message : 'Workspace status unavailable.'
-      : undefined,
+    registryError: registryResult.status === 'rejected' ? 'Capability registry unavailable.' : undefined,
+    workspaceError: workspaceResult.status === 'rejected' ? 'Workspace status unavailable.' : undefined,
   };
 }

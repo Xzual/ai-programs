@@ -51,6 +51,15 @@ try {
   const auditEvents = readRecentAuditEvents(10);
 
   assert.equal(withObservation?.observations.includes('system_monitor selected as candidate tool'), true);
+  assert.equal((created.revision ?? 0) >= 2, true);
+  assert.equal((withObservation?.revision ?? 0) > (created.revision ?? 0), true);
+  assert.equal((withCheckpoint?.revision ?? 0) > (withObservation?.revision ?? 0), true);
+  assert.equal((withArtifact?.revision ?? 0) > (withCheckpoint?.revision ?? 0), true);
+  assert.equal((completed?.revision ?? 0) > (withArtifact?.revision ?? 0), true);
+  assert.deepEqual(
+    reloaded?.timeline.map((event) => event.sequence),
+    reloaded?.timeline.map((_event, index) => index + 1),
+  );
   assert.equal(withCheckpoint?.checkpoints.includes('task created and observable'), true);
   assert.equal(withArtifact?.artifacts.includes('artifact://local/test-report.md'), true);
   assert.equal(completed?.status, 'COMPLETED');

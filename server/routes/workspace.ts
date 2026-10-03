@@ -1,4 +1,5 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type RequestHandler } from 'express';
+import { requireProtectedMutation } from '../security/ownerSession';
 import { appendAuditEvent, createAuditEvent } from '../../src/edith/audit';
 import { obsidianVaultService } from '../../src/edith/obsidianVaultService';
 import {
@@ -72,8 +73,9 @@ function payload() {
   };
 }
 
-export function createWorkspaceRouter(): Router {
+export function createWorkspaceRouter(options: { protectedMutation?: RequestHandler[] } = {}): Router {
   const router = Router();
+  const protectedMutation = options.protectedMutation ?? requireProtectedMutation;
 
   router.get('/api/workspace/status', (req, res) => {
     if (!isLoopback(req)) return res.status(403).json({ success: false, error: 'Workspace status is local-only.' });
@@ -87,7 +89,7 @@ export function createWorkspaceRouter(): Router {
     res.json({ success: true, ...payload() });
   });
 
-  router.post('/api/workspace/validate', (req, res) => {
+  router.post('/api/workspace/validate', ...protectedMutation, (req, res) => {
     try {
       requireLoopback(req);
       const input = inputFromBody(req.body ?? {}, workspaceManager.getConfig());
@@ -98,7 +100,7 @@ export function createWorkspaceRouter(): Router {
     }
   });
 
-  router.put('/api/workspace/config', async (req, res) => {
+  router.put('/api/workspace/config', ...protectedMutation, async (req, res) => {
     try {
       requireLoopback(req);
       const config = workspaceManager.configure(inputFromBody(req.body ?? {}, workspaceManager.getConfig()));
@@ -116,7 +118,7 @@ export function createWorkspaceRouter(): Router {
     }
   });
 
-  router.post('/api/workspace/create', async (req, res) => {
+  router.post('/api/workspace/create', ...protectedMutation, async (req, res) => {
     try {
       requireLoopback(req);
       const current = workspaceManager.getConfig();

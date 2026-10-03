@@ -5,6 +5,7 @@ import { killSwitchService } from "../../src/edith/killSwitch";
 import { obsidianVaultService } from "../../src/edith/obsidianVaultService";
 import { permissionService } from "../../src/edith/permissionService";
 import { providerRegistry } from "../providers/registry";
+import { toPublicKnowledgeDto } from "../../src/edith/contracts";
 
 function providerMap(providers: Awaited<ReturnType<typeof providerRegistry.health>>) {
   return Object.fromEntries(providers.map((provider) => [provider.id, provider]));
@@ -51,7 +52,7 @@ export function createStatusRouter(): Router {
     const safety = interactionSafetyService.snapshot();
     const cloudConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
 
-    res.json({
+    res.json(toPublicKnowledgeDto({
       ok: true,
       data: {
         backend: {
@@ -112,7 +113,7 @@ export function createStatusRouter(): Router {
         service: "edith-status",
         timestamp,
       },
-    });
+    }));
   });
 
   return router;

@@ -6,6 +6,7 @@ import path from 'node:path';
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-obsidian-knowledge-test-'));
 const originalCwd = process.cwd();
 const vaultPath = path.join(tempRoot, 'EDİTH', 'EDİTH');
+let stopVaultWatcher: (() => void) | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -30,6 +31,10 @@ async function removeTempRoot(): Promise<void> {
 try {
   process.chdir(tempRoot);
   process.env.EDITH_PERSISTENCE = 'json';
+  process.env.EDITH_TEST_MODE = 'true';
+  process.env.EDITH_TEST_DATA_DIR = path.join(tempRoot, 'test-data');
+  process.env.EDITH_OBSIDIAN_PROVIDER_APP_ROOT = originalCwd;
+  process.env.EDITH_TEST_OBSIDIAN_SANDBOX_ROOT = vaultPath;
   process.env.OBSIDIAN_VAULT_PATH = vaultPath;
   process.env.EDITH_OBSIDIAN_ENABLED = 'true';
   process.env.EDITH_OBSIDIAN_MODE = 'read_write_safe';
@@ -42,6 +47,7 @@ try {
 
   const { parseMarkdownDocument, parseCanvasDocument } = await import('../src/edith/obsidianParser');
   const { obsidianVaultService, ObsidianVaultService } = await import('../src/edith/obsidianVaultService');
+  stopVaultWatcher = () => { obsidianVaultService.stopWatcher(); };
   const { knowledgeGraphService } = await import('../src/edith/knowledgeGraphService');
   const { ragService } = await import('../src/edith/ragService');
   const { memoryService } = await import('../src/edith/memoryService');
@@ -141,6 +147,13 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(fs.existsSync(path.join(vaultPath, 'E.D.I.T.H. Index.md')), true, 'An explicit EDITH write may create the managed index note.');
   assert.equal(fs.readFileSync(path.join(vaultPath, memoryNote), 'utf8').includes('api_key='), false);
   assert.match(fs.readFileSync(path.join(vaultPath, memoryNote), 'utf8'), /\[\[Memory Index\]\]/);
+  assert.equal(fs.readdirSync(path.dirname(path.join(vaultPath, memoryNote))).some((name) => /\.(?:tmp|bak)$/.test(name)), false);
+  const escapedWrite = (obsidianVaultService as unknown as {
+    writeEntityNoteStatus(relativePath: string, frontmatter: Record<string, unknown>, body: string): { exported: boolean; errorMessage?: string };
+  }).writeEntityNoteStatus('../outside.md', {}, 'must not escape');
+  assert.equal(escapedWrite.exported, false);
+  assert.match(escapedWrite.errorMessage ?? '', /escapes Obsidian vault/);
+  assert.equal(fs.existsSync(path.join(tempRoot, 'EDİTH', 'outside.md')), false);
   for (const folder of ['Decisions', 'Workflows', 'Computer Use', 'Voice', 'System']) {
     assert.equal(fs.statSync(path.join(vaultPath, folder)).isDirectory(), true, folder);
   }
@@ -229,7 +242,7 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
   assert.equal(configured.status.writable, true);
   assert.equal(fs.readFileSync(path.join(chosenVault, 'existing.md'), 'utf8'), '# Existing note\n');
   assert.equal(fs.existsSync(path.join(chosenVault, 'Trading', 'Crypto Market Learning')), true);
-  assert.equal(new ObsidianVaultService().getSettings().vaultPath, chosenVault);
+  assert.equal(new ObsidianVaultService().getSettings().vaultPath, vaultPath, 'Test restart must reuse the explicit sandbox provider root, not legacy workspace state.');
   obsidianVaultService.stopWatcher();
 
   console.log(JSON.stringify({
@@ -254,19 +267,13 @@ Partners include [[Apostolos]] and [[KA210-YOU]].
       'agent_tool_writes_obsidian_note',
       'rename_move_soft_delete_index',
       'delete_soft_deletes_index',
-      'vault_folder_selection_and_persistence',
+      'sandbox_vault_selection_and_provider_restart',
+      'atomic_note_write',
+      'vault_write_containment',
     ],
   }, null, 2));
 } finally {
-  getSafeClose();
+  stopVaultWatcher?.();
   process.chdir(originalCwd);
   await removeTempRoot();
-}
-
-function getSafeClose(): void {
-  try {
-    // Imported store instances are closed in tests that use SQLite; JSON does not hold handles.
-  } catch {
-    // No-op.
-  }
 }

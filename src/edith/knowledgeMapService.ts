@@ -1,6 +1,7 @@
 import type { KnowledgeGraphNode, KnowledgeGraphRelationship } from './core';
 import { knowledgeGraphService } from './knowledgeGraphService';
 import { readRecentAuditEvents } from './audit';
+import { workspaceManager } from './workspaceManager';
 
 export type KnowledgeMapNodeType =
   | 'core'
@@ -65,6 +66,12 @@ export interface KnowledgeMapSnapshot {
   edges: KnowledgeMapEdge[];
   metrics: KnowledgeMapMetric[];
   sources: Record<string, number>;
+  dataStatus: {
+    state: 'ready' | 'degraded' | 'empty';
+    reasons: string[];
+    obsidian: 'connected' | 'configuration_required' | 'unavailable';
+    syntheticNodes: false;
+  };
 }
 
 const legacyType = (node: KnowledgeGraphNode): KnowledgeMapNodeType => {
@@ -114,12 +121,7 @@ function layout(nodes: KnowledgeGraphNode[]): KnowledgeMapNode[] {
       folder: node.folder,
     };
   });
-  const hubNodes: KnowledgeMapNode[] = [
-    { id: 'agent-hub', label: 'Agents', type: 'agent', x: 50, y: 18, size: 20, meta: 'registry' },
-    { id: 'model-router', label: 'ModelRouter', type: 'model', x: 50, y: 82, size: 18, meta: 'provider routing' },
-  ];
-  const existingIds = new Set(mapped.map((node) => node.id));
-  return [...mapped, ...hubNodes.filter((node) => !existingIds.has(node.id))];
+  return mapped;
 }
 
 function edgeFor(relationship: KnowledgeGraphRelationship): KnowledgeMapEdge {
@@ -140,11 +142,27 @@ function legacyNodeId(id: string): string {
 export class KnowledgeMapService {
   snapshot(): KnowledgeMapSnapshot {
     const graph = knowledgeGraphService.snapshot({ limit: 500 });
+    const workspace = workspaceManager.status();
+    const vault = workspace.paths.obsidianVaultPath ?? {
+      configured: false,
+      exists: false,
+      directory: false,
+      readable: false,
+      writable: false,
+    };
+    const obsidian = !vault.configured
+      ? 'configuration_required' as const
+      : vault.exists && vault.readable
+        ? 'connected' as const
+        : 'unavailable' as const;
+    const reasons = obsidian === 'connected' ? [] : [
+      obsidian === 'configuration_required'
+        ? 'Obsidian vault is not configured; map contains only verified local runtime data.'
+        : 'Configured Obsidian vault is unavailable; indexed runtime data may be incomplete.',
+    ];
     const nodes = layout(graph.nodes);
     const edges: KnowledgeMapEdge[] = [
       ...graph.relationships.map(edgeFor),
-      { from: 'edith-core', to: 'agent-hub', label: 'delegates', source: 'system' },
-      { from: 'edith-core', to: 'model-router', label: 'selects model', source: 'system' },
       ...readRecentAuditEvents(12).map((event) => ({
         from: 'edith-core',
         to: `audit-${event.id}`,
@@ -178,6 +196,12 @@ export class KnowledgeMapService {
         { label: 'Agents', value: graph.nodes.filter((node) => node.type === 'Agent').length, type: 'agent' as const },
       ],
       sources: graph.sources,
+      dataStatus: {
+        state: nodes.length + auditNodes.length === 0 ? 'empty' : reasons.length ? 'degraded' : 'ready',
+        reasons,
+        obsidian,
+        syntheticNodes: false,
+      },
     };
   }
 }

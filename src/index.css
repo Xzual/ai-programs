@@ -1,4 +1,6 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "../index.html";
+@source "./";
 
 :root {
   --assistant-primary: #38bdf8;
@@ -94,6 +96,32 @@ body {
 
 .edith-adaptive-inspector {
   min-width: 0;
+}
+
+.edith-task-capsule,
+.edith-mission-surface {
+  background-image:
+    linear-gradient(120deg, color-mix(in srgb, var(--assistant-primary) 5%, transparent), transparent 38%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(2, 6, 23, 0.9));
+}
+
+.edith-task-capsule {
+  animation: edithCapsuleEnter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.edith-task-signal {
+  box-shadow: 0 0 0 0 var(--assistant-glow);
+  animation: edithTaskSignal 2.4s ease-in-out infinite;
+}
+
+@keyframes edithCapsuleEnter {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes edithTaskSignal {
+  0%, 100% { box-shadow: 0 0 0 0 var(--assistant-glow); opacity: 0.72; }
+  50% { box-shadow: 0 0 0 0.35rem transparent; opacity: 1; }
 }
 
 .edith-crypto-cockpit {
@@ -234,6 +262,13 @@ body {
 @media (max-width: 767px) {
   .edith-responsive-pad {
     padding: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edith-task-capsule,
+  .edith-task-signal {
+    animation: none !important;
   }
 }
 

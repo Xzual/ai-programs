@@ -13,13 +13,14 @@ try {
   for (let index = 0; index < cases.length; index += 1) {
     const names = cases[index].split('|');
     const zip = path.join(temp, `malicious-${index}.zip`);
-    const script = String.raw`Add-Type -AssemblyName System.IO.Compression; $a=[IO.Compression.ZipFile]::Open($env:ZIP,[IO.Compression.ZipArchiveMode]::Create); try { foreach($n in ($env:NAMES -split '\|')) { $e=$a.CreateEntry($n); $w=[IO.StreamWriter]::new($e.Open()); $w.Write('x'); $w.Dispose() } } finally { $a.Dispose() }`;
+    const script = String.raw`Add-Type -AssemblyName System.IO.Compression; Add-Type -AssemblyName System.IO.Compression.FileSystem; $a=[System.IO.Compression.ZipFile]::Open($env:ZIP,[System.IO.Compression.ZipArchiveMode]::Create); try { foreach($n in ($env:NAMES -split '\|')) { $e=$a.CreateEntry($n); $w=[IO.StreamWriter]::new($e.Open()); $w.Write('x'); $w.Dispose() } } finally { $a.Dispose() }`;
     execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, ZIP: zip, NAMES: names.join('|') }, windowsHide: true });
     try { validateZipEntries(zip, destination); } catch { rejected += 1; }
   }
   if (rejected !== cases.length) throw new Error(`Expected ${cases.length} malicious ZIP cases to be rejected, got ${rejected}.`);
   const stagedPython = path.resolve('.edith-build/desktop/resources/python/python.exe');
-  if (!fs.existsSync(stagedPython)) {
+  const verifiedMarker = path.resolve('.edith-build/desktop/resources/python/EDITH_RUNTIME_VERIFIED.json');
+  if (!fs.existsSync(stagedPython) || !fs.existsSync(verifiedMarker)) {
     const packager = fs.readFileSync(path.resolve('scripts/package-edith-portable.mjs'), 'utf8');
     if (!packager.includes('EXTERNAL_BLOCKER VETTED_PYTHON_REQUIRED')) throw new Error('Portable packager does not fail closed when vetted Python is absent.');
   }

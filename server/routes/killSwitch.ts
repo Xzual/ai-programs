@@ -2,6 +2,8 @@ import { Router, type Request } from "express";
 import { killSwitchService } from "../../src/edith/killSwitch";
 import { ownerActor, requireOwnerSession, requireProtectedMutation } from "../security/ownerSession";
 import { appendSecurityAudit } from "../security/auditLog";
+import { revokeDesktopProducerAuthority } from "./desktopProducer";
+import { getMobileRuntime } from "../mobile/runtime";
 
 const OWNER_DEACTIVATION_CONFIRMATION = "DISABLE_KILL_SWITCH";
 
@@ -28,6 +30,8 @@ export function createKillSwitchRouter(): Router {
     const reason = String(req.body?.reason ?? "").trim();
     const actor = ownerActor(req);
     const state = killSwitchService.activate(reason || "Manual emergency stop from EDITH API.", actor);
+    revokeDesktopProducerAuthority();
+    getMobileRuntime().crossDevice.emergencyStop();
     appendSecurityAudit(req, {
       action: "kill_switch.activate",
       actor,

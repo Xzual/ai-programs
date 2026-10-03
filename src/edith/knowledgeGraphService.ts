@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type {
   EdithTask,
   KnowledgeGraphNode,
@@ -12,6 +13,9 @@ import { memoryService } from './memoryService';
 import { getEdithPersistenceStore } from './persistence';
 import { edithToolRegistry, getEdithToolHealth } from './serverRegistry';
 import { normalizeKnowledgeTitle, slugifyKnowledgeId } from './obsidianParser';
+import { workspaceManager } from './workspaceManager';
+import type { ResultCardProductionOptions, SharedResultCardProducerService } from './sharedResultCardProducer';
+import type { SharedResultCardV2 } from './contracts';
 
 function now(): string {
   return new Date().toISOString();
@@ -118,6 +122,15 @@ export class KnowledgeGraphService {
     return (getEdithPersistenceStore().listKnowledgeNodes?.() ?? []).find((node) => node.id === id && !node.deletedAt);
   }
 
+  createSharedResultCard(
+    id: string,
+    producer: SharedResultCardProducerService,
+    options: ResultCardProductionOptions,
+  ): SharedResultCardV2 | undefined {
+    const node = this.findNode(id);
+    return node ? producer.fromKnowledgeNode(node, options) : undefined;
+  }
+
   search(query: string, limit = 25): KnowledgeGraphNode[] {
     return this.snapshot({ query, limit }).nodes;
   }
@@ -137,17 +150,25 @@ export class KnowledgeGraphService {
     });
     const memoryHub = this.upsertNode({ id: 'memory:hub', title: 'Memory Engine', type: 'Memory', source: 'memory', importance: 0.9 });
     const ragHub = this.upsertNode({ id: 'note:rag-engine', title: 'RAG Engine', type: 'Note', source: 'rag', importance: 0.85 });
-    const obsidianVault = this.upsertNode({
-      id: 'vault:obsidian',
-      title: 'Obsidian Vault',
-      type: 'Vault',
-      source: 'obsidian',
-      importance: 0.92,
-      properties: { role: 'external_knowledge_vault' },
-    });
     this.upsertRelationship({ from: core.id, to: memoryHub.id, type: 'references', source: 'edith', evidence: 'EDITH uses Memory Engine.' });
     this.upsertRelationship({ from: core.id, to: ragHub.id, type: 'references', source: 'rag', evidence: 'EDITH uses RAG Engine.' });
-    this.upsertRelationship({ from: core.id, to: obsidianVault.id, type: 'synchronized_with', source: 'obsidian', evidence: 'EDITH indexes the configured Obsidian vault.' });
+    const configuredVaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath ?? '';
+    const vaultAvailable = Boolean(configuredVaultPath && fs.existsSync(configuredVaultPath));
+    if (vaultAvailable) {
+      const obsidianVault = this.upsertNode({
+        id: 'vault:obsidian',
+        title: 'Obsidian Vault',
+        type: 'Vault',
+        source: 'obsidian',
+        importance: 0.92,
+        properties: { role: 'external_knowledge_vault', configured: true },
+      });
+      this.upsertRelationship({ from: core.id, to: obsidianVault.id, type: 'synchronized_with', source: 'obsidian', evidence: 'EDITH indexes the configured Obsidian vault.' });
+      this.ingestObsidianStructure(obsidianVault.id);
+    } else {
+      const staleVault = (getEdithPersistenceStore().listKnowledgeNodes?.() ?? []).find((node) => node.id === 'vault:obsidian' && !node.deletedAt);
+      if (staleVault) getEdithPersistenceStore().upsertKnowledgeNode?.({ ...staleVault, deletedAt: now(), properties: { ...staleVault.properties, configured: false } });
+    }
 
     for (const memory of memoryService.list({ includeSensitive: false }).slice(0, 200)) {
       const node = this.upsertNode({
@@ -169,8 +190,6 @@ export class KnowledgeGraphService {
     for (const task of getEdithPersistenceStore().listTasks().slice(0, 200)) {
       this.ingestTask(task, core.id);
     }
-
-    this.ingestObsidianStructure(obsidianVault.id);
 
     const health = new Map(getEdithToolHealth().map((tool) => [tool.toolId, tool]));
     for (const tool of edithToolRegistry.list()) {

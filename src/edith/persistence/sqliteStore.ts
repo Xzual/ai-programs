@@ -13,6 +13,7 @@ import type {
 } from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 import type { EdithPersistencePaths, EdithPersistenceStore, PersistenceMigrationResult } from './types';
+import { normalizeLegacyTask, prepareTaskCreate, prepareTaskMutation } from '../contracts';
 
 const DEFAULT_DATA_DIR = path.resolve(process.cwd(), '.edith');
 const require = createRequire(path.join(process.cwd(), 'package.json'));
@@ -226,7 +227,8 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
     `);
     for (const task of readLegacyTasks(this.paths.legacyTaskFile)) {
       if (!taskExists.get(task.id)) {
-        insertTask.run(task.id, task.status, task.createdAt, new Date().toISOString(), JSON.stringify(task));
+        const prepared = prepareTaskCreate(task);
+        insertTask.run(prepared.id, prepared.status, prepared.createdAt, new Date().toISOString(), JSON.stringify(prepared));
         tasksImported += 1;
       }
     }
@@ -262,28 +264,44 @@ export class SqliteEdithPersistenceStore implements EdithPersistenceStore {
       .all()
       .flatMap((row) => {
         const task = parseJsonColumn<EdithTask>(row);
-        return task ? [task] : [];
+        return task ? [normalizeLegacyTask(task) as EdithTask] : [];
       });
   }
 
   createTask(task: EdithTask): EdithTask {
+    const existing = parseJsonColumn<EdithTask>(this.getDb().prepare('SELECT json FROM tasks WHERE id = ?').get(task.id));
+    if (existing) return this.updateTask(task);
+    const prepared = prepareTaskCreate(task) as EdithTask;
     this.getDb()
       .prepare(`
-        INSERT OR REPLACE INTO tasks (id, status, created_at, updated_at, json)
+        INSERT INTO tasks (id, status, created_at, updated_at, json)
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          json = excluded.json
       `)
-      .run(task.id, task.status, task.createdAt, new Date().toISOString(), JSON.stringify(task));
-    return task;
+      .run(prepared.id, prepared.status, prepared.createdAt, new Date().toISOString(), JSON.stringify(prepared));
+    return prepared;
   }
 
   updateTask(task: EdithTask): EdithTask {
+    const row = this.getDb().prepare('SELECT json FROM tasks WHERE id = ?').get(task.id);
+    const existing = parseJsonColumn<EdithTask>(row);
+    const prepared = existing
+      ? prepareTaskMutation(existing, task) as EdithTask
+      : prepareTaskCreate(task) as EdithTask;
     this.getDb()
       .prepare(`
-        INSERT OR REPLACE INTO tasks (id, status, created_at, updated_at, json)
+        INSERT INTO tasks (id, status, created_at, updated_at, json)
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          status = excluded.status,
+          updated_at = excluded.updated_at,
+          json = excluded.json
       `)
-      .run(task.id, task.status, task.createdAt, new Date().toISOString(), JSON.stringify(task));
-    return task;
+      .run(prepared.id, prepared.status, prepared.createdAt, new Date().toISOString(), JSON.stringify(prepared));
+    return prepared;
   }
 
   updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {

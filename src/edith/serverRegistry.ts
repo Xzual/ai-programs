@@ -42,6 +42,22 @@ export interface EdithToolHealth {
   message: string;
 }
 
+export interface EdithToolRegistrySnapshot {
+  schemaVersion: 1;
+  authority: 'edithToolRegistry';
+  checkedAt: string;
+  tools: ReturnType<EdithToolRegistry['list']>;
+  health: EdithToolHealth[];
+  counts: {
+    total: number;
+    enabled: number;
+    blocked: number;
+    approvalRequired: number;
+    byRisk: Record<EdithToolRisk, number>;
+    byState: Record<EdithToolHealthState, number>;
+  };
+}
+
 function normalizeToolRunId(toolId: string): string {
   return `toolrun-${toolId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -108,6 +124,32 @@ export function getEdithToolHealth(): EdithToolHealth[] {
       message,
     };
   });
+}
+
+export function getEdithToolRegistrySnapshot(): EdithToolRegistrySnapshot {
+  const tools = edithToolRegistry.list();
+  const health = getEdithToolHealth();
+  const byRisk: Record<EdithToolRisk, number> = { READ: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
+  const byState: Record<EdithToolHealthState, number> = { HEALTHY: 0, DEGRADED: 0, UNAVAILABLE: 0 };
+  for (const item of health) {
+    byRisk[item.risk] += 1;
+    byState[item.state] += 1;
+  }
+  return {
+    schemaVersion: 1,
+    authority: 'edithToolRegistry',
+    checkedAt: new Date().toISOString(),
+    tools,
+    health,
+    counts: {
+      total: tools.length,
+      enabled: health.filter((item) => item.enabled).length,
+      blocked: health.filter((item) => !item.enabled).length,
+      approvalRequired: health.filter((item) => item.highRisk).length,
+      byRisk,
+      byState,
+    },
+  };
 }
 
 function getStringArg(args: Record<string, unknown>, key: string): string | undefined {

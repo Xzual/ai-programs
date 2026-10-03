@@ -27,6 +27,13 @@ import { ragService } from './ragService';
 import type { EdithSkill } from './skillRegistry';
 import { workspaceManager } from './workspaceManager';
 import { EDITH_CORE_BEHAVIOR_PROTOCOL, EDITH_CORE_PROTOCOL_VERSION } from './coreBehaviorProtocol';
+import {
+  obsidianProviderConfigService,
+  validateSandboxVaultRoot,
+  type ObsidianProviderConfigService,
+  type TrustedNativeVaultSelectionVerifier,
+} from './obsidianProviderService';
+import type { ObsidianProviderPublicStatusV1, TrustedNativeVaultSelectionV1 } from './contracts';
 
 const VAULT_FOLDER_NAME = 'E.D.İ.T.H';
 const NOTE_EXTENSIONS = new Set(['.md', '.canvas']);
@@ -58,6 +65,7 @@ export type ObsidianConnectionStatus =
   | 'partial';
 
 export interface ObsidianStatus {
+  provider: ObsidianProviderPublicStatusV1;
   settings: ObsidianSettings;
   connectionStatus: ObsidianConnectionStatus;
   mode: ObsidianSettings['mode'];
@@ -131,11 +139,15 @@ function syncEvent(action: KnowledgeSyncEvent['action'], pathValue: string, sour
 }
 
 export class ObsidianVaultService {
+  private readonly providerConfig: ObsidianProviderConfigService;
+
+  constructor(providerConfig: ObsidianProviderConfigService = obsidianProviderConfigService) {
+    this.providerConfig = providerConfig;
+    this.settings = { ...this.settings, vaultPath: this.providerConfig.activeVaultPath() ?? '' };
+  }
+
   private settings: ObsidianSettings = {
-    vaultPath: workspaceManager.getResolvedPaths()?.obsidianVaultPath
-      || process.env.OBSIDIAN_VAULT_PATH
-      || process.env.EDITH_OBSIDIAN_VAULT_PATH
-      || '',
+    vaultPath: '',
     locked: true,
     enabled: process.env.EDITH_OBSIDIAN_ENABLED !== 'false',
     mode: this.normalizeMode(process.env.EDITH_OBSIDIAN_MODE),
@@ -157,6 +169,7 @@ export class ObsidianVaultService {
   }
 
   configureVaultParent(parentPath: string): { vaultPath: string; status: ObsidianStatus } {
+    if (!this.providerConfig.testMode) throw new Error('TRUSTED_NATIVE_PICKER_REQUIRED');
     if (!parentPath || !path.isAbsolute(parentPath)) throw new Error('Geçerli bir mutlak klasör yolu seçin.');
     const parent = fs.realpathSync(parentPath);
     if (!fs.statSync(parent).isDirectory()) throw new Error('Seçilen yol bir klasör olmalı.');
@@ -188,8 +201,9 @@ export class ObsidianVaultService {
   }
 
   configureExistingVault(vaultPath: string): { vaultPath: string; status: ObsidianStatus } {
+    if (!this.providerConfig.testMode) throw new Error('TRUSTED_NATIVE_PICKER_REQUIRED');
     if (!vaultPath || !path.isAbsolute(vaultPath)) throw new Error('Geçerli bir mutlak vault yolu seçin.');
-    const resolved = fs.realpathSync(vaultPath);
+    const resolved = validateSandboxVaultRoot(vaultPath, { appRoot: this.providerConfig.appRoot });
     if (!fs.statSync(resolved).isDirectory()) throw new Error('Seçilen vault yolu bir klasör olmalı.');
     fs.accessSync(resolved, fs.constants.R_OK);
     if (this.settings.mode !== 'read_only') fs.accessSync(resolved, fs.constants.W_OK);
@@ -201,13 +215,39 @@ export class ObsidianVaultService {
   }
 
   applyWorkspaceConfig(): ObsidianStatus {
-    const vaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath ?? '';
+    const vaultPath = this.providerConfig.activeVaultPath() ?? '';
+    this.stopWatcher();
     if (!vaultPath) {
-      this.stopWatcher();
       this.settings = { ...this.settings, vaultPath: '' };
       return this.status();
     }
-    return this.configureExistingVault(vaultPath).status;
+    this.settings = { ...this.settings, vaultPath };
+    if (this.settings.watchEnabled) this.startWatcher();
+    return this.status();
+  }
+
+  configureTrustedSelection(
+    selection: TrustedNativeVaultSelectionV1,
+    verifier: TrustedNativeVaultSelectionVerifier,
+    operation: 'activate' | 'change',
+  ): ObsidianStatus {
+    const provider = operation === 'change'
+      ? this.providerConfig.changeTrustedSelection(selection, verifier)
+      : this.providerConfig.activateTrustedSelection(selection, verifier);
+    if (provider.state !== 'READY') return this.status();
+    const vaultPath = this.providerConfig.activeVaultPath();
+    if (!vaultPath) return this.status();
+    this.stopWatcher();
+    this.settings = { ...this.settings, vaultPath };
+    if (this.settings.watchEnabled) this.startWatcher();
+    return this.status();
+  }
+
+  revokeVaultSelection(): ObsidianStatus {
+    this.providerConfig.revoke();
+    this.stopWatcher();
+    this.settings = { ...this.settings, vaultPath: '' };
+    return this.status();
   }
 
   updateSettings(input: Partial<Pick<ObsidianSettings, 'syncEnabled' | 'watchEnabled' | 'debounceMs'>>): ObsidianSettings {
@@ -230,6 +270,8 @@ export class ObsidianVaultService {
   }
 
   status(): ObsidianStatus {
+    this.refreshProviderPath();
+    const provider = this.providerConfig.status();
     const vaultPathConfigured = Boolean(this.settings.vaultPath.trim());
     const vaultExists = vaultPathConfigured && fs.existsSync(this.settings.vaultPath);
     const readable = vaultExists && this.canAccess(this.settings.vaultPath, fs.constants.R_OK);
@@ -248,6 +290,7 @@ export class ObsidianVaultService {
       recentEvents,
     });
     return {
+      provider,
       settings: this.getSettings(),
       connectionStatus,
       mode: this.settings.mode,
@@ -275,7 +318,9 @@ export class ObsidianVaultService {
   }
 
   startWatcher(): ObsidianStatus {
+    this.refreshProviderPath();
     if (!this.settings.enabled || !this.settings.syncEnabled || !this.settings.watchEnabled || this.watcher) return this.status();
+    if (this.providerConfig.status().state !== 'READY' || !this.settings.vaultPath) return this.status();
     if (!fs.existsSync(this.settings.vaultPath)) {
       this.recordEvent(syncEvent('reindex', this.settings.vaultPath, 'watcher', 'error', 'Vault path does not exist.'));
       return this.status();
@@ -302,6 +347,7 @@ export class ObsidianVaultService {
   }
 
   reindex(): { success: boolean; indexed: number; errors: string[]; status: ObsidianStatus } {
+    this.refreshProviderPath();
     if (!this.settings.enabled) {
       return { success: false, indexed: 0, errors: ['Obsidian integration is disabled.'], status: this.status() };
     }
@@ -945,7 +991,7 @@ export class ObsidianVaultService {
         edith_secret_warning: scan.redacted ? 'Potential secret-like content was redacted before writing.' : undefined,
       };
       const content = `${serializeFrontmatter(this.cleanFrontmatter(mergedProperties))}${existingBody.trimEnd()}\n`;
-      fs.writeFileSync(absolutePath, content, 'utf8');
+      this.atomicWriteFile(absolutePath, content);
       RECENT_EDITH_WRITES.set(safeRelative, Date.now());
       this.syncPath(safeRelative, 'edith');
       this.recordEvent(syncEvent('write', safeRelative, 'edith', 'success', scan.redacted ? 'EDITH wrote redacted Obsidian note.' : 'EDITH wrote Obsidian note.'));
@@ -1101,7 +1147,41 @@ export class ObsidianVaultService {
     const vaultRoot = path.resolve(this.settings.vaultPath);
     const relative = path.relative(vaultRoot, absolutePath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Path escapes Obsidian vault: ${relativePath}`);
+    if (fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isSymbolicLink()) {
+      throw new Error(`Symbolic-link note targets are not writable: ${relativePath}`);
+    }
+    let existingParent = path.dirname(absolutePath);
+    while (!fs.existsSync(existingParent) && existingParent !== vaultRoot) existingParent = path.dirname(existingParent);
+    const realVaultRoot = fs.realpathSync(vaultRoot);
+    const realParent = fs.realpathSync(existingParent);
+    const realRelative = path.relative(realVaultRoot, realParent);
+    if (realRelative.startsWith('..') || path.isAbsolute(realRelative)) {
+      throw new Error(`Path resolves outside Obsidian vault: ${relativePath}`);
+    }
     return absolutePath;
+  }
+
+  private atomicWriteFile(absolutePath: string, content: string): void {
+    const relativePath = path.relative(this.settings.vaultPath, absolutePath);
+    this.absolutePathFor(relativePath);
+    fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
+    this.absolutePathFor(relativePath);
+    const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempPath = `${absolutePath}.${nonce}.tmp`;
+    const backupPath = `${absolutePath}.${nonce}.bak`;
+    const existed = fs.existsSync(absolutePath);
+    fs.writeFileSync(tempPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    try {
+      if (existed) fs.renameSync(absolutePath, backupPath);
+      fs.renameSync(tempPath, absolutePath);
+      if (existed && fs.existsSync(backupPath)) fs.rmSync(backupPath);
+    } catch (error) {
+      if (fs.existsSync(tempPath)) fs.rmSync(tempPath);
+      if (existed && fs.existsSync(backupPath) && !fs.existsSync(absolutePath)) {
+        fs.renameSync(backupPath, absolutePath);
+      }
+      throw error;
+    }
   }
 
   private normalizeRelativePath(value: string): string {
@@ -1154,7 +1234,7 @@ export class ObsidianVaultService {
     const content = parsedExisting && !isGeneratedIndex
       ? `${properties}${parsedExisting.body.trimEnd()}\n`
       : `${properties}${body}`;
-    fs.writeFileSync(absolutePath, content, 'utf8');
+    this.atomicWriteFile(absolutePath, content);
     RECENT_EDITH_WRITES.set(relativePath, Date.now());
   }
 
@@ -1162,6 +1242,11 @@ export class ObsidianVaultService {
     return value === 'write_safe' || value === 'read_only' || value === 'read_write_safe'
       ? value
       : 'read_write_safe';
+  }
+
+  private refreshProviderPath(): void {
+    const active = this.providerConfig.activeVaultPath() ?? '';
+    if (this.settings.vaultPath !== active) this.settings = { ...this.settings, vaultPath: active };
   }
 
   private canAccess(targetPath: string, mode: number): boolean {

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 2,
+  "name": "Coucou Downloads — Zen",
+  "version": "1.0.0",
+  "incognito": "not_allowed",
+  "description": "Send only download names, real byte counters and states to the local Coucou bar.",
+  "browser_specific_settings": { "gecko": { "id": "downloads@coucou.local", "strict_min_version": "115.0" } },
+  "permissions": ["downloads", "nativeMessaging"],
+  "background": { "scripts": ["background.js"] },
+  "browser_action": { "default_title": "Coucou Downloads connection" }
+}

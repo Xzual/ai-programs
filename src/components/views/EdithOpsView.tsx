@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity, AlertOctagon, AlertTriangle, CheckCircle2, ClipboardList, KeyRound, LockKeyhole, Power, RefreshCw, ShieldAlert, Sparkles, Trash2, Wrench } from 'lucide-react';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 
 interface RegistryTool {
   id: string;
@@ -176,7 +177,7 @@ export const EdithOpsView: React.FC = () => {
     setSwitching(true);
     setError(null);
     try {
-      const response = await fetch(`/api/edith/kill-switch/${active ? 'activate' : 'deactivate'}`, {
+      const response = await ownerMutationFetch(`/api/edith/kill-switch/${active ? 'activate' : 'deactivate'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(active ? { reason: killReason } : { confirmation: 'DISABLE_KILL_SWITCH' }),
@@ -200,7 +201,7 @@ export const EdithOpsView: React.FC = () => {
     setGrantBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/edith/permissions/grants', {
+      const response = await ownerMutationFetch('/api/edith/permissions/grants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -227,7 +228,7 @@ export const EdithOpsView: React.FC = () => {
     setGrantBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/edith/permissions/grants', {
+      const response = await ownerMutationFetch('/api/edith/permissions/grants', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -254,7 +255,7 @@ export const EdithOpsView: React.FC = () => {
     setGrantBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/edith/permissions/grants/${grantId}`, { method: 'DELETE' });
+      const response = await ownerMutationFetch(`/api/edith/permissions/grants/${grantId}`, { method: 'DELETE' });
       const data = await response.json();
       if (!response.ok || !data.success) {
         throw new Error(data.error ?? 'Permission grant iptal edilemedi.');

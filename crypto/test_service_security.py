@@ -30,6 +30,13 @@ def main():
             '/api/crypto/jev/loop/stop',
             headers={'X-EDITH-Internal-Token': token, 'Origin': 'https://attacker.example'},
         ).status_code == 403
+        assert client.post(
+            '/api/crypto/jev/loop/stop',
+            headers={
+                'X-EDITH-Internal-Token': token,
+                'Origin': 'http://localhost:evil@attacker.example',
+            },
+        ).status_code == 403
         allowed = client.post(
             '/api/crypto/jev/loop/stop',
             headers={'X-EDITH-Internal-Token': token},
@@ -37,6 +44,21 @@ def main():
         assert allowed.status_code == 200
         allowed_body = allowed.get_json()
         assert (allowed_body.get('data') or {})['status']['running'] is False
+        assert token not in client.get('/api/crypto/status').get_data(as_text=True)
+
+        rotated = 'rotated-test-only-internal-token'
+        dashboard._INTERNAL_TOKEN = rotated
+        assert client.post(
+            '/api/crypto/jev/loop/stop', headers={'X-EDITH-Internal-Token': token}
+        ).status_code == 403
+        assert client.post(
+            '/api/crypto/jev/loop/stop', headers={'X-EDITH-Internal-Token': rotated}
+        ).status_code == 200
+        all_logs = ''.join(
+            item.read_text(encoding='utf-8', errors='replace')
+            for item in Path(temporary).rglob('*') if item.is_file() and item.suffix == '.log'
+        )
+        assert token not in all_logs and rotated not in all_logs
 
         invalid_env = {**os.environ, 'CRYPTO_STARTING_BALANCE': '123.45'}
         probe = subprocess.run(

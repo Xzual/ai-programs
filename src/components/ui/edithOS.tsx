@@ -40,7 +40,7 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react';
-import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
+import { AiProvider, AiState, AssistantProfile, AutomationTool, ChatMessage, IntegrationConfig, MemoryItem, ProviderHealthSnapshot, ProviderProfile, ToolExecutionLog, UserSettings } from '../../types';
 import { modelDisabledReason, modelsForProvider, providerDisplayName, providerStatusLabel, providerTone, selectValidModelForProvider } from '../../edith/providerService';
 import { getDesktopShellStatus, type DesktopShellStatus } from '../../edith/desktopShell';
 import {
@@ -71,6 +71,10 @@ import {
   voiceLiveSocketUrl,
 } from '../../edith/voiceLiveClient';
 import { CryptoExchangeTerminal } from '../crypto/CryptoExchangeTerminal';
+import { TaskMissionWorkspace } from '../tasks/DynamicTaskCapsule';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
+import { CrossDeviceBridgePanel } from '../cross-device/CrossDeviceBridgePanel';
+import { AdvancedExperienceWorkspace, AdvancedStatusSummary } from '../advanced/AdvancedExperiencePanels';
 
 export interface AssistantTheme {
   primary: string;
@@ -378,24 +382,21 @@ export function AgentCard({ name, role, status, tools }: { key?: React.Key; name
 
 export function TransmissionCard({
   message,
-  settings,
-  providerProfiles = [],
-  assistantName,
   onSpeak,
 }: {
   key?: React.Key;
   message: ChatMessage;
   settings: UserSettings;
   providerProfiles?: ProviderProfile[];
-  assistantName: string;
   onSpeak?: (text: string) => void;
 }) {
   const user = message.sender === 'user';
-  const providerUsed = message.providerUsed ?? message.requestedProvider ?? settings.aiProvider;
-  const modelUsed = message.modelUsed ?? message.requestedModel ?? settings.selectedModel ?? 'auto';
-  const providerStatus = message.providerStatus ?? providerProfiles.find((profile) => profile.provider === providerUsed)?.status ?? 'unknown';
+  const providerUsed = message.providerUsed ?? message.requestedProvider;
+  const modelUsed = message.modelUsed ?? message.requestedModel;
+  const providerStatus = message.providerStatus ?? 'unknown';
+  const historicalAssistantName = message.assistantName ?? message.assistantProfileId?.toUpperCase() ?? 'LEGACY ASSISTANT';
   const fallbackLabel = message.fallbackUsed
-    ? `${providerDisplayName(message.fallbackProvider ?? providerUsed)}${message.fallbackModel ? ` / ${message.fallbackModel}` : ''}`
+    ? `${message.fallbackProvider ? providerDisplayName(message.fallbackProvider) : 'UNKNOWN'}${message.fallbackModel ? ` / ${message.fallbackModel}` : ''}`
     : undefined;
   const degradedRuntime = message.fallbackUsed || providerUsed === 'mock' || providerStatus === 'degraded';
   const responseStatusLabel = message.error
@@ -417,7 +418,7 @@ export function TransmissionCard({
         <div className="flex items-center gap-2">
           <span className="edith-transmission-glyph">{user ? <Terminal className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}</span>
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
-            {user ? 'YOU // COMMAND' : `${assistantName} // RESPONSE`}
+            {user ? 'YOU // COMMAND' : `${historicalAssistantName} // RESPONSE`}
           </span>
         </div>
         <span className="font-mono text-[10px] text-slate-600">
@@ -426,8 +427,8 @@ export function TransmissionCard({
       </div>
       {!user && (
         <div className="mb-3 flex flex-wrap gap-1.5">
-          <StatusPill label="Model" value={modelUsed === 'auto' ? 'AUTO' : modelUsed} tone={modelUsed === 'auto' ? 'info' : 'muted'} />
-          <StatusPill label="Provider" value={providerDisplayName(providerUsed as AiProvider)} tone={providerTone(providerStatus)} />
+          <StatusPill label="Model" value={modelUsed ? (modelUsed === 'auto' ? 'AUTO' : modelUsed) : 'NOT RECORDED'} tone={modelUsed === 'auto' ? 'info' : 'muted'} />
+          <StatusPill label="Provider" value={providerUsed ? providerDisplayName(providerUsed) : 'NOT RECORDED'} tone={providerTone(providerStatus)} />
           {fallbackLabel && <StatusPill label="Fallback" value={fallbackLabel} tone="warning" />}
           <StatusPill label={responseStatusLabel} tone={message.error ? 'danger' : message.isStreaming ? 'warning' : degradedRuntime ? 'warning' : providerStatus === 'available' ? 'success' : providerTone(providerStatus)} />
           {message.errorCode && <StatusPill label="Error" value={message.errorCode} tone="danger" />}
@@ -643,7 +644,7 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
     return true;
   }, []);
 
-  const record = React.useCallback((state: ComputerOperatorState, detail: string, details: { x?: number; y?: number; text?: string } = {}) => {
+  const record = React.useCallback((state: ComputerOperatorState, detail: string, details: { x?: number; y?: number; text?: string; sessionId?: string; planId?: string; stepId?: string; observationId?: string; actionId?: string; verificationStatus?: 'verified' | 'partial' | 'pending_post_observation' } = {}) => {
     const event = createComputerOperatorEvent(state, detail, details);
     setTimeline((current) => [event, ...current].slice(0, 40));
     void reportComputerOperatorEvent(event).catch(() => undefined);
@@ -750,7 +751,7 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
   const deactivateKillSwitch = React.useCallback(async () => {
     setError('');
     try {
-      const response = await fetch('/api/edith/kill-switch/deactivate', {
+      const response = await ownerMutationFetch('/api/edith/kill-switch/deactivate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ confirmation: 'DISABLE_KILL_SWITCH' }),
@@ -790,25 +791,38 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
       if (request.action === 'moveMouse' || request.action === 'clickMouse') {
         setOverlayCursor({ x: request.x, y: request.y });
       }
-      if (request.action === 'clickMouse') {
+      const result = await actOnComputer(id, request);
+      if (request.action === 'clickMouse' && result.injected && result.dispatchStatus === 'dispatched') {
         setClickPulse({ id: Date.now(), x: request.x, y: request.y });
       }
-
-      const result = await actOnComputer(id, request);
       setOverlayCursor({ x: result.cursorX, y: result.cursorY });
       setPhase('verifying');
-      record('verifying', 'Capturing a fresh screen and checking the requested outcome.');
+      record('verifying', 'Capturing a fresh screen and checking the requested outcome.', {
+        sessionId: id,
+        planId: result.planId,
+        stepId: result.stepId,
+        observationId: result.preObservationId,
+        actionId: result.actionId,
+        verificationStatus: result.verificationStatus,
+      });
       await captureScreenshot(id);
 
       const check = verification
         ? await verification()
         : result.verification === 'cursor_position_confirmed'
           ? { ok: true, detail: 'Cursor position was confirmed by the native bridge.' }
-          : result.verification === 'process_started'
-            ? { ok: true, detail: 'The approved local process returned a started state.' }
-            : { ok: false, detail: 'Input was injected, but no target-level outcome verifier was supplied.' };
+          : result.verificationStatus === 'verified'
+            ? { ok: true, detail: 'A fresh post-action observation confirmed the expected effect.' }
+            : { ok: false, detail: 'Input dispatch completed, but the expected effect was not verified.' };
       setPhase(check.ok ? 'success' : 'error');
-      record(check.ok ? 'success' : 'error', check.detail);
+      record(check.ok ? 'success' : 'error', check.detail, {
+        sessionId: id,
+        planId: result.planId,
+        stepId: result.stepId,
+        observationId: result.postObservationId ?? result.preObservationId,
+        actionId: result.actionId,
+        verificationStatus: check.ok ? 'verified' : 'partial',
+      });
       if (!check.ok) setError(check.detail);
       return { result, verified: check.ok };
     } catch (caught) {
@@ -1052,10 +1066,10 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
     void executeTask(task, sessionId).catch(() => undefined);
   }, [claimTask, executeTask, sessionId, task]);
 
-  const cursorLeft = observation && overlayCursor ? `${Math.min(100, Math.max(0, overlayCursor.x / observation.width * 100))}%` : '0%';
-  const cursorTop = observation && overlayCursor ? `${Math.min(100, Math.max(0, overlayCursor.y / observation.height * 100))}%` : '0%';
-  const pulseLeft = observation && clickPulse ? `${Math.min(100, Math.max(0, clickPulse.x / observation.width * 100))}%` : '0%';
-  const pulseTop = observation && clickPulse ? `${Math.min(100, Math.max(0, clickPulse.y / observation.height * 100))}%` : '0%';
+  const cursorLeft = observation && overlayCursor ? `${Math.min(100, Math.max(0, (overlayCursor.x - observation.originX) / observation.width * 100))}%` : '0%';
+  const cursorTop = observation && overlayCursor ? `${Math.min(100, Math.max(0, (overlayCursor.y - observation.originY) / observation.height * 100))}%` : '0%';
+  const pulseLeft = observation && clickPulse ? `${Math.min(100, Math.max(0, (clickPulse.x - observation.originX) / observation.width * 100))}%` : '0%';
+  const pulseTop = observation && clickPulse ? `${Math.min(100, Math.max(0, (clickPulse.y - observation.originY) / observation.height * 100))}%` : '0%';
 
   return (
     <ScreenFrame title="Computer Use" icon={<Cpu className="h-5 w-5" />} subtitle="Supervised local desktop operation with owner approval and a persistent emergency stop" variant="cockpit">
@@ -1082,7 +1096,7 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-2">
               <button type="button" disabled={!sessionId} onClick={() => sessionId && void observe(sessionId)} className="flex items-center gap-2 rounded border border-cyan-400/40 px-3 py-2 text-xs text-cyan-100 disabled:opacity-40"><Eye className="h-4 w-4" /> Refresh view</button>
-              <label className="flex items-center gap-2 rounded border border-white/10 px-3 py-2 text-xs text-slate-300"><input type="checkbox" checked={overlayEnabled} onChange={(event) => setOverlayEnabled(event.target.checked)} /> Operator overlay</label>
+              <label className="flex items-center gap-2 rounded border border-white/10 px-3 py-2 text-xs text-slate-300"><input type="checkbox" checked={overlayEnabled} onChange={(event) => setOverlayEnabled(event.target.checked)} /> In-app diagnostic guide</label>
             </div>
             <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500">No action without an approved session</span>
           </div>
@@ -1095,7 +1109,11 @@ export function ComputerUseScreen({ tools = [], logs = [], task = null, onTaskHa
             <ActionRow label="Screen capture" value={status?.screenCapture ?? 'missing'} />
             <ActionRow label="Mouse" value={status?.mouseControl ?? 'missing'} />
             <ActionRow label="Keyboard" value={status?.keyboardControl ?? 'missing'} />
-            <ActionRow label="Overlay" value={status?.overlay ?? 'missing'} />
+            <ActionRow label="Targeting" value={status?.targeting ?? 'window_relative_fallback'} />
+            <ActionRow label="UIA" value={status?.uia ?? 'missing'} />
+            <ActionRow label="OCR" value={status?.ocr ?? 'missing'} />
+            <ActionRow label="Multi-monitor" value={status?.multiMonitor ?? 'missing'} />
+            <ActionRow label="Native overlay" value={status?.overlay ?? 'missing'} />
             <ActionRow label="Kill switch" value={status?.killSwitch ?? 'unknown'} />
           </div>
           {task && <div className="mt-3 border-l-2 border-cyan-300/70 pl-3 text-xs text-cyan-100"><span className="text-slate-400">Current task</span><p className="mt-1">{task.label}</p></div>}
@@ -1170,7 +1188,7 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
     <ScreenFrame title="Tarayıcı / Araştırma" icon={<Globe2 className="h-5 w-5" />} subtitle="Kaynaklar, iddialar, çelişkiler ve sentez için yapay zeka araştırma kokpiti" variant="cockpit">
       <CockpitGrid>
         <OSPanel title="Araştırma Oturumu" eyebrow="TARAYICI AJANI" icon={<Globe2 className="h-4 w-4" />}>
-          <EmptyState icon={<SearchIcon />} title="Browser Agent hazır" text="Araştırma görevi başladığında aktif URL, tabs, extracted facts ve source board burada görünür." />
+          <EmptyState icon={<SearchIcon />} title="Browser Agent bağlı değil" text="Canlı browser acquisition/operator bağlantısı doğrulanmadı. Gerçek araştırma kaydı veya kaynak kanıtı geldiğinde bu alan güncellenir." />
         </OSPanel>
         <OSPanel title="Source Board" eyebrow="VERIFICATION" icon={<Database className="h-4 w-4" />}>
           <div className="space-y-2">
@@ -1197,24 +1215,8 @@ export function BrowserResearchScreen({ tools = [], logs = [] }: { tools?: Autom
 export function TasksScreen({ aiState = 'idle', messages = [], logs = [], assistant }: { aiState?: AiState; messages?: ChatMessage[]; logs?: ToolExecutionLog[]; assistant?: AssistantProfile }) {
   return (
     <ScreenFrame title="Görevler" icon={<Clock3 className="h-5 w-5" />} subtitle="Kontrol noktaları, araçlar, onaylar ve sonuç durumlarıyla otonom görev zaman akışı" variant="wide">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[clamp(20rem,24vw,30rem)_minmax(0,1fr)]">
-        <OSPanel title="Görev Durum Modeli" eyebrow="KUYRUK" icon={<CircleDot className="h-4 w-4" />}>
-          {assistant && (
-            <div className="mb-3 space-y-2">
-              <ActionRow label="Report identity" value={assistant.taskReportSignature} />
-              <ActionRow label="Assistant" value={assistant.name} />
-            </div>
-          )}
-          <div className="flex flex-wrap gap-2">
-            {['QUEUED', 'PLANNING', 'RUNNING', 'WAITING_FOR_APPROVAL', 'BLOCKED', 'RECOVERING', 'COMPLETED', 'FAILED', 'CANCELLED'].map((state) => (
-              <StatusPill key={state} label={state} tone={state.includes('FAILED') || state === 'BLOCKED' ? 'danger' : state.includes('WAITING') ? 'warning' : state === 'COMPLETED' ? 'success' : 'muted'} />
-            ))}
-          </div>
-        </OSPanel>
-        <OSPanel title="Etkin Görev Zaman Akışı" eyebrow="GÖREV GÜNLÜĞÜ" icon={<Route className="h-4 w-4" />}>
-          <TaskTimeline aiState={aiState} hasObjective={messages.length > 1} logs={logs} />
-        </OSPanel>
-      </div>
+      <TaskMissionWorkspace assistantName={assistant?.name} reportIdentity={assistant?.taskReportSignature} />
+      <AdvancedExperienceWorkspace />
     </ScreenFrame>
   );
 }
@@ -1275,11 +1277,18 @@ export function KnowledgeGraphScreen({
     settings?: { vaultPath?: string };
     recentEvents?: Array<{ id: string; action: string; path: string; status: string; createdAt: string }>;
   };
+  type GraphDataStatus = {
+    state?: 'ready' | 'degraded' | 'empty';
+    reasons?: string[];
+    obsidian?: 'connected' | 'configuration_required' | 'unavailable';
+    syntheticNodes?: boolean | number;
+  };
 
   const [graphNodes, setGraphNodes] = React.useState<GraphNode[]>([]);
   const [graphEdges, setGraphEdges] = React.useState<GraphEdge[]>([]);
   const [status, setStatus] = React.useState<GraphStatus | null>(null);
   const [activity, setActivity] = React.useState<{ auditEvents?: any[]; syncEvents?: any[]; toolRuns?: any[]; realtime?: string } | null>(null);
+  const [dataStatus, setDataStatus] = React.useState<GraphDataStatus | null>(null);
   const [selectedId, setSelectedId] = React.useState('core:edith');
   const [filter, setFilter] = React.useState('All');
   const [mode, setMode] = React.useState<'Graph' | 'Timeline' | 'Clusters' | 'Insights'>('Graph');
@@ -1309,20 +1318,23 @@ export function KnowledgeGraphScreen({
     let alive = true;
     const load = async () => {
       try {
-        const [graphJson, statusJson, activityJson] = await Promise.all([
+        const [graphJson, statusJson, activityJson, mapJson] = await Promise.all([
           requestJson('/api/knowledge/graph?limit=900'),
           requestJson('/api/knowledge/status'),
           requestJson('/api/knowledge-graph/activity'),
+          requestJson('/api/edith/knowledge-map'),
         ]);
         if (!alive) return;
         setGraphNodes(graphJson.graph?.nodes ?? []);
         setGraphEdges(graphJson.graph?.relationships ?? []);
+        setDataStatus(mapJson.map?.dataStatus ?? null);
         setStatus(statusJson.status ?? null);
         setActivity(activityJson.activity ?? null);
       } catch {
         if (!alive) return;
         setGraphNodes([]);
         setGraphEdges([]);
+        setDataStatus({ state: 'degraded', reasons: ['knowledge_api_unavailable'], syntheticNodes: 0 });
       }
     };
     load();
@@ -1368,7 +1380,7 @@ export function KnowledgeGraphScreen({
   const selected = displayNodes.find((node) => node.id === selectedId) ?? displayNodes[0] ?? graphNodes[0];
   const selectedRelations = selected ? graphEdges.filter((edge) => edge.from === selected.id || edge.to === selected.id).slice(0, 8) : [];
   const nodeTypes = ['All', ...Array.from(new Set(graphNodes.map((node) => node.type))).sort()];
-  const statusOnline = status?.connectionStatus === 'synced' || status?.connectionStatus === 'connected';
+  const statusOnline = dataStatus?.state === 'ready' && (status?.connectionStatus === 'synced' || status?.connectionStatus === 'connected');
   const typeColor: Record<string, string> = {
     Agent: '#22d3ee',
     Memory: '#a78bfa',
@@ -1460,7 +1472,15 @@ export function KnowledgeGraphScreen({
         <header className="flex flex-col gap-3 rounded-2xl border border-cyan-300/20 bg-[#041421]/86 px-4 py-3 shadow-[0_0_38px_rgba(14,165,233,0.14)] sm:flex-row sm:items-center sm:justify-between xl:col-span-2 xl:px-5">
           <div>
             <h1 className="text-xl font-semibold text-cyan-50">KNOWLEDGE MAP</h1>
-            <p className="text-xs text-slate-400">Everything connected. Greater together.</p>
+            <p className="text-xs text-slate-400">Persisted knowledge relationships from backend sources.</p>
+            {dataStatus && (
+              <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                <StatusPill label="DATA" value={(dataStatus.state ?? 'degraded').toUpperCase()} tone={dataStatus.state === 'ready' ? 'success' : 'warning'} />
+                <StatusPill label="OBSIDIAN" value={(dataStatus.obsidian ?? 'configuration_required').toUpperCase()} tone={dataStatus.obsidian === 'connected' ? 'success' : 'warning'} />
+                <StatusPill label="SYNTHETIC NODES" value={dataStatus.syntheticNodes === false || dataStatus.syntheticNodes === 0 ? 'NONE' : String(dataStatus.syntheticNodes ?? 'UNVERIFIED')} tone="muted" />
+                {(dataStatus.reasons ?? []).slice(0, 3).map((reason) => <span key={reason} className="rounded border border-amber-300/15 bg-amber-400/5 px-2 py-1 text-amber-200/80">{reason.replaceAll('_', ' ')}</span>)}
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className={`flex items-center gap-2 rounded-full border px-4 py-2 text-[11px] font-mono ${statusOnline ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-200' : 'border-red-300/30 bg-red-400/10 text-red-200'}`}>
@@ -1618,35 +1638,77 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
   }>; checkedAt: string } | null>(null);
   const [registryError, setRegistryError] = React.useState('');
   const [registeredTools, setRegisteredTools] = React.useState<Array<{
-    id: string; name: string; description: string; skillId: string; riskLevel: string;
-    requiresApproval: boolean; enabled: boolean; enabledReason: string; endpoint?: string; adapter?: string;
-    limitations: string[]; lastChecked: string;
+    id: string; name: string; description: string; category: string; riskLevel: string;
+    requiresApproval: boolean; enabled: boolean; enabledReason: string;
+    limitations: string[];
   }> | null>(null);
+  const [toolCounts, setToolCounts] = React.useState<{ total: number; enabled: number; blocked: number; approvalRequired: number } | null>(null);
+  const [planningCapabilityCount, setPlanningCapabilityCount] = React.useState(0);
+  const [toolAuthority, setToolAuthority] = React.useState('unverified');
   const [toolsError, setToolsError] = React.useState('');
   const [refreshing, setRefreshing] = React.useState(false);
+  const [registryState, setRegistryState] = React.useState<'loading' | 'loaded' | 'empty' | 'error'>('loading');
+  const [toolsState, setToolsState] = React.useState<'loading' | 'loaded' | 'empty' | 'error'>('loading');
 
   const refreshRegistry = React.useCallback(async (signal?: AbortSignal) => {
     setRefreshing(true);
     setRegistryError('');
     setToolsError('');
+    setRegistryState('loading');
+    setToolsState('loading');
     const suffix = '?refresh=true';
+    const timeoutSignal = AbortSignal.timeout(12_000);
+    const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
     const [skillsResult, toolsResult] = await Promise.allSettled([
-      fetch(`/api/edith/skills${suffix}`, { signal }).then(async (response) => {
+      fetch(`/api/edith/skills${suffix}`, { signal: requestSignal, cache: 'no-store' }).then(async (response) => {
         if (!response.ok) throw new Error(`Registry HTTP ${response.status}`);
         return response.json();
       }),
-      fetch(`/api/edith/tools${suffix}`, { signal }).then(async (response) => {
+      fetch(`/api/edith/tools${suffix}`, { signal: requestSignal, cache: 'no-store' }).then(async (response) => {
         if (!response.ok) throw new Error(`Tool registry HTTP ${response.status}`);
         return response.json();
       }),
     ]);
     if (signal?.aborted) return;
-    if (skillsResult.status === 'fulfilled') setRegistry(skillsResult.value);
-    else setRegistryError(skillsResult.reason instanceof Error ? skillsResult.reason.message : String(skillsResult.reason));
-    if (toolsResult.status === 'fulfilled') {
-      setRegisteredTools(Array.isArray(toolsResult.value.registryTools) ? toolsResult.value.registryTools : []);
+    if (skillsResult.status === 'fulfilled' && Array.isArray(skillsResult.value.skills)) {
+      setRegistry(skillsResult.value);
+      setRegistryState(skillsResult.value.skills.length ? 'loaded' : 'empty');
     } else {
-      setToolsError(toolsResult.reason instanceof Error ? toolsResult.reason.message : String(toolsResult.reason));
+      setRegistry(null);
+      setRegistryState('error');
+      setRegistryError(skillsResult.status === 'rejected' && skillsResult.reason instanceof Error ? skillsResult.reason.message : 'Registry response is invalid.');
+    }
+    if (toolsResult.status === 'fulfilled' && Array.isArray(toolsResult.value.tools) && Array.isArray(toolsResult.value.health) && typeof toolsResult.value.counts?.total === 'number') {
+      const healthById = new Map(toolsResult.value.health.map((item: any) => [item.toolId, item]));
+      const nextTools = toolsResult.value.tools.map((item: any) => {
+        const health = healthById.get(item.id) as any;
+        return {
+          id: item.id,
+          name: item.metadata?.name ?? item.id,
+          description: item.metadata?.description ?? 'No backend description.',
+          category: item.metadata?.category ?? 'uncategorized',
+          riskLevel: health?.risk ?? 'READ',
+          requiresApproval: health?.highRisk === true,
+          enabled: health?.enabled === true,
+          enabledReason: health?.message ?? 'Health state not reported.',
+          limitations: [
+            ...(Array.isArray(health?.missingPermissions) && health.missingPermissions.length ? [`Missing permissions: ${health.missingPermissions.join(', ')}`] : []),
+            ...(Array.isArray(health?.dependencies) && health.dependencies.length ? [`Dependencies: ${health.dependencies.join(', ')}`] : []),
+          ],
+        };
+      });
+      setRegisteredTools(nextTools);
+      setToolCounts(toolsResult.value.counts);
+      setPlanningCapabilityCount(Array.isArray(toolsResult.value.planningCapabilities) ? toolsResult.value.planningCapabilities.length : 0);
+      setToolAuthority(typeof toolsResult.value.authority === 'string' ? toolsResult.value.authority : 'unverified');
+      setToolsState(nextTools.length ? 'loaded' : 'empty');
+    } else {
+      setRegisteredTools(null);
+      setToolCounts(null);
+      setPlanningCapabilityCount(0);
+      setToolAuthority('unverified');
+      setToolsState('error');
+      setToolsError(toolsResult.status === 'rejected' && toolsResult.reason instanceof Error ? toolsResult.reason.message : 'Tool registry response is invalid.');
     }
     setRefreshing(false);
   }, []);
@@ -1677,7 +1739,8 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
           </div>
         </div>
         {registryError && <p role="alert" className="text-xs text-rose-300">Yetenek registry erişilemiyor: {registryError}</p>}
-        {!registry && !registryError && <p className="text-xs text-slate-400">Yetenek durumları yükleniyor...</p>}
+        {registryState === 'loading' && <p className="text-xs text-slate-400">Yetenek durumları yükleniyor...</p>}
+        {registryState === 'empty' && <EmptyState icon={<Wrench className="h-4 w-4" />} title="Yetenek registry boş" text="Backend erişilebilir, ancak kayıtlı yetenek bildirmedi." />}
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {registry?.skills.map((skill) => (
             <div key={skill.id} className="rounded-md border border-white/10 bg-white/[0.03] p-3">
@@ -1704,22 +1767,33 @@ export function ToolsRegistryScreen({ tools, logs }: { tools: AutomationTool[]; 
         </div>
       </div>
       <h2 className="mb-3 text-sm font-semibold text-slate-100">Kayıtlı araçlar</h2>
+      {toolCounts && (
+        <div className="mb-3 flex flex-wrap gap-2">
+          <StatusPill label="CANONICAL" value={String(toolCounts.total)} tone="info" />
+          <StatusPill label="ENABLED" value={String(toolCounts.enabled)} tone="success" />
+          <StatusPill label="BLOCKED" value={String(toolCounts.blocked)} tone={toolCounts.blocked ? 'warning' : 'muted'} />
+          <StatusPill label="APPROVAL" value={String(toolCounts.approvalRequired)} tone="warning" />
+          <StatusPill label="PLANNING ONLY" value={String(planningCapabilityCount)} tone="muted" />
+          <StatusPill label="AUTHORITY" value={toolAuthority} tone={toolAuthority === 'edithToolRegistry' ? 'success' : 'warning'} />
+        </div>
+      )}
       {toolsError && <p role="alert" className="mb-3 text-xs text-rose-300">Araç registry erişilemiyor: {toolsError}</p>}
+      {toolsState === 'loading' && <p className="mb-3 text-xs text-slate-400">Araç kayıtları yükleniyor...</p>}
       <WorkspaceGrid>
         {(registeredTools ?? []).map((tool) => (
-          <OSPanel key={tool.id} title={tool.name} eyebrow={tool.skillId.replaceAll('_', ' ').toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
+          <OSPanel key={tool.id} title={tool.name} eyebrow={tool.category.replaceAll('_', ' ').toUpperCase()} icon={<Wrench className="h-4 w-4" />}>
             <p className="text-xs leading-relaxed text-slate-400">{tool.description}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <RiskBadge level={tool.riskLevel.toUpperCase() as 'READ' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'} />
               <StatusPill label={tool.enabled ? 'çalışabilir' : 'kapalı'} tone={tool.enabled ? 'success' : 'warning'} />
               {tool.requiresApproval && <StatusPill label="onay gerekli" tone="warning" />}
             </div>
-            <div className="mt-3 text-[10px] text-slate-500">{tool.endpoint ?? tool.adapter ?? 'çalıştırma adaptörü yok'}</div>
+            <div className="mt-3 text-[10px] text-slate-500">Canonical executable tool · {tool.id}</div>
             <div className="mt-1 text-[10px] text-slate-500">{tool.enabledReason}</div>
             {tool.limitations.length > 0 && <div className="mt-1 text-[10px] text-amber-300/70">{tool.limitations.join(' ')}</div>}
           </OSPanel>
         ))}
-        {registeredTools?.length === 0 && <div className="xl:col-span-3"><EmptyState icon={<Wrench className="h-4 w-4" />} title="Tool registry boş" text="Backend araç kaydı bulunamadı." /></div>}
+        {toolsState === 'empty' && <div className="xl:col-span-3"><EmptyState icon={<Wrench className="h-4 w-4" />} title="Tool registry boş" text="Backend erişilebilir, ancak kayıtlı araç bildirmedi." /></div>}
       </WorkspaceGrid>
       <div className="mt-4">
         <OSPanel title="Recent Tool Logs" eyebrow="AUDIT" icon={<Terminal className="h-4 w-4" />}>
@@ -1779,6 +1853,8 @@ export function VoiceScreen({
   const [partialTranscript, setPartialTranscript] = React.useState('');
   const [finalTranscript, setFinalTranscript] = React.useState('');
   const [jarvisReply, setJarvisReply] = React.useState(() => getVoiceRoomCapabilitySnapshot().statusMessage);
+  const [cryptoVoiceIntent, setCryptoVoiceIntent] = React.useState<string>('none');
+  const [cryptoVoiceBusy, setCryptoVoiceBusy] = React.useState(false);
   const [voiceError, setVoiceError] = React.useState<string | null>(null);
   const [voiceErrorCode, setVoiceErrorCode] = React.useState<string | null>(null);
   const [lastSocketUrl, setLastSocketUrl] = React.useState('');
@@ -1984,6 +2060,45 @@ export function VoiceScreen({
     setRoomState('connecting');
   };
 
+  const runCryptoVoiceCommand = React.useCallback(async (transcript: string) => {
+    if (!/(?:binance|kripto|crypto|coin|bitcoin|btc|ethereum|ether|eth|bnb|xrp|ripple|solana|tron|trx|zcash|zec|hyperliquid|hype|dogecoin|doge|cardano|ada|usdt|jev|portföy|portfoy|emir|bakiye)/i.test(transcript)) return;
+    setCryptoVoiceBusy(true);
+    setVoiceError(null);
+    stopPlayback();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'interrupt' }));
+    }
+    try {
+      const response = await ownerMutationFetch('/api/voice/crypto/command', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transcript }),
+      });
+      const payload = await readJsonResponse(response);
+      if (!response.ok || payload.success !== true) throw new Error(payload.safeMessage || 'Crypto voice command failed.');
+      if (payload.matched !== true) return;
+      const reply = String(payload.reply || 'Crypto komutu tamamlandı.');
+      setCryptoVoiceIntent(String(payload.intent || 'crypto'));
+      setJarvisReply(reply);
+      setRoomState('speaking');
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(reply);
+        utterance.lang = 'tr-TR';
+        utterance.rate = 0.96;
+        utterance.onend = () => setRoomState(socketRef.current?.readyState === WebSocket.OPEN ? 'listening' : 'idle');
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setRoomState(socketRef.current?.readyState === WebSocket.OPEN ? 'listening' : 'idle');
+      }
+      if (payload.intent === 'show_proposal') onNavigate?.('crypto');
+    } catch (error: any) {
+      setVoiceError(error?.message || 'Crypto voice command could not be completed.');
+      setVoiceErrorCode('voice_crypto_failed');
+      setRoomState('error');
+    } finally {
+      setCryptoVoiceBusy(false);
+    }
+  }, [onNavigate, stopPlayback]);
+
   const handleServerEvent = React.useCallback((raw: MessageEvent<string>) => {
     const event = parseVoiceLiveServerEvent(String(raw.data));
     if (!event) return;
@@ -2028,6 +2143,7 @@ export function VoiceScreen({
       } else {
         setFinalTranscript((current) => `${current} ${event.text}`.trim());
         setPartialTranscript('');
+        void runCryptoVoiceCommand(event.text);
       }
       setRoomState('thinking');
       return;
@@ -2062,7 +2178,7 @@ export function VoiceScreen({
       setVoiceCapabilities((current) => ({ ...current, runtimeStatus: 'offline' }));
       setRoomState('idle');
     }
-  }, [playPcmAudio, startCapture, stopCapture]);
+  }, [playPcmAudio, runCryptoVoiceCommand, startCapture, stopCapture]);
 
   const startListening = async () => {
     if (muted) {
@@ -2152,6 +2268,7 @@ export function VoiceScreen({
     setLastAudioMimeType('none');
     setVoiceError(null);
     setVoiceErrorCode(null);
+    setCryptoVoiceIntent('none');
   };
 
   const sessionActive = voiceCapabilities.runtimeStatus === 'connecting' || voiceCapabilities.runtimeStatus === 'connected';
@@ -2314,7 +2431,7 @@ export function VoiceScreen({
               )}
             </div>
             <footer>
-              <span>{partialTranscript ? 'Receiving partial transcript' : sessionActive ? 'Voice session active' : 'Start a session to speak'}</span>
+              <span>{cryptoVoiceBusy ? 'Crypto skill executing' : partialTranscript ? 'Receiving partial transcript' : sessionActive ? 'Voice session active' : 'Start a session to speak'}</span>
               <Activity className="h-4 w-4" />
             </footer>
           </section>
@@ -2326,8 +2443,11 @@ export function VoiceScreen({
               <div><dt>Model</dt><dd>{EDITH_VOICE_ROOM_MODEL}</dd></div>
               <div title={lastSocketUrl || undefined}><dt>WebSocket</dt><dd>{voiceCapabilities.runtimeStatus === 'connected' ? 'Connected' : lastSocketUrl ? 'Attempted' : 'Not started'}</dd></div>
               <div><dt>Audio</dt><dd>{audioChunkCount > 0 ? `${audioChunkCount} chunks` : 'Waiting'}</dd></div>
+              <div><dt>Crypto router</dt><dd>{cryptoVoiceBusy ? 'Executing' : cryptoVoiceIntent}</dd></div>
               <div><dt>API key</dt><dd>{voiceCapabilities.frontendCanReadApiKey ? 'Unsafe exposure' : 'Backend protected'}</dd></div>
             </dl>
+            <p>Crypto voice: bağlantı · top 10 · fiyat · yükselen/düşen · karşılaştırma · bakiye · açık emir · portföy · geçmiş · Jev analiz/döngü · emir taslağı · taslak göster/ret · kill switch.</p>
+            <p>Gerçek emir sesle onaylanmaz; Crypto ekranındaki tek kullanımlık onay zorunludur.</p>
             {lastAudioMimeType !== 'none' && <p>{lastAudioMimeType}</p>}
           </section>
         </aside>
@@ -2613,7 +2733,7 @@ function LegacyTradingScreen({ integrations = [], tools = [], logs = [] }: { int
     setCryptoAction('analyze');
     setCryptoError(null);
     try {
-      const response = await fetch('/api/crypto/analyze', {
+      const response = await ownerMutationFetch('/api/crypto/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: [analysisSymbol] }),
@@ -2635,7 +2755,7 @@ function LegacyTradingScreen({ integrations = [], tools = [], logs = [] }: { int
     setCryptoAction('model');
     setCryptoError(null);
     try {
-      const response = await fetch('/api/crypto/model/select', {
+      const response = await ownerMutationFetch('/api/crypto/model/select', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'primary', model: selectedCryptoModel }),
@@ -2656,7 +2776,7 @@ function LegacyTradingScreen({ integrations = [], tools = [], logs = [] }: { int
     setCryptoAction('model');
     setCryptoError(null);
     try {
-      const response = await fetch('/api/crypto/demo-loop', {
+      const response = await ownerMutationFetch('/api/crypto/demo-loop', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ intervalMinutes: Number(demoLoopMinutes || 0), autoExecuteDemoTrades: false }),
@@ -2677,7 +2797,7 @@ function LegacyTradingScreen({ integrations = [], tools = [], logs = [] }: { int
     setObserverAction(action);
     setActionError(null);
     try {
-      const response = await fetch(`/api/edith/crypto/${action}`, { method: 'POST' });
+      const response = await ownerMutationFetch(`/api/edith/crypto/${action}`, { method: 'POST' });
       const data = await readJsonResponse(response);
       if (!response.ok || !data?.success) {
         throw new Error(String(data?.error ?? `Observer ${action} failed with ${response.status}`));
@@ -3873,7 +3993,7 @@ export function FilesScreen() {
   return <ScreenFrame title="Files / Documents" icon={<Archive className="h-5 w-5" />} subtitle="File context, document references and generated artifacts"><EmptyState icon={<FileText className="h-4 w-4" />} title="Dosya oturumu bekleniyor" text="E.D.I.T.H. dosya araçları çalıştığında kaynaklar, çıktılar ve doküman referansları burada görünür." /></ScreenFrame>;
 }
 
-export function SystemHealthScreen({ ollamaConnected = false, settings, tools = [], logs = [] }: { ollamaConnected?: boolean; settings?: UserSettings; tools?: AutomationTool[]; logs?: ToolExecutionLog[] }) {
+export function SystemHealthScreen({ ollamaConnected = false, settings, tools = [], logs = [], providerHealth, providerProfiles = [] }: { ollamaConnected?: boolean; settings?: UserSettings; tools?: AutomationTool[]; logs?: ToolExecutionLog[]; providerHealth?: ProviderHealthSnapshot; providerProfiles?: ProviderProfile[] }) {
   const runningTools = tools.filter((tool) => tool.status === 'running').length;
   const safety = useInteractionSafetySnapshot();
   const [shellStatus, setShellStatus] = React.useState<DesktopShellStatus | null>(null);
@@ -3920,6 +4040,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
       }
       try {
         const response = await fetch('/api/edith/kill-switch');
+        if (!response.ok) throw new Error('Kill switch status unavailable.');
         const payload = await readJsonResponse(response);
         if (!cancelled) setKillSwitchActive(Boolean(payload?.state?.active));
       } catch {
@@ -3949,20 +4070,31 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
     };
   }, [settings?.ollamaUrl]);
 
-  const diagnosticRows: Array<[string, string, 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'CONFIGURATION REQUIRED' | 'BLOCKED']> = [
+  const providerTruthAvailable = providerHealth?.source === 'backend';
+  const ollamaProfile = providerProfiles.find((profile) => profile.provider === 'ollama');
+  const geminiProfile = providerProfiles.find((profile) => profile.provider === 'gemini');
+  const browserMode = safety?.browser?.mode ?? 'READ_ONLY';
+  const providerDiagnostic = (profile: ProviderProfile | undefined): 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'CONFIGURATION REQUIRED' | 'UNVERIFIED' => {
+    if (!providerTruthAvailable || !profile) return 'UNVERIFIED';
+    if (profile.status === 'available') return 'ONLINE';
+    if (profile.status === 'configuration_required') return 'CONFIGURATION REQUIRED';
+    if (profile.status === 'offline' || profile.status === 'unavailable') return 'OFFLINE';
+    return 'DEGRADED';
+  };
+  const diagnosticRows: Array<[string, string, 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'CONFIGURATION REQUIRED' | 'BLOCKED' | 'UNVERIFIED']> = [
     ['Frontend', 'React/Vite UI mounted', 'ONLINE'],
     ['Backend', backendOnline === null ? 'pending health check' : backendOnline ? 'Express API responded' : 'local API unavailable', backendOnline === null ? 'DEGRADED' : backendOnline ? 'ONLINE' : 'OFFLINE'],
-    ['Database', 'local persistence layer configured by backend', backendOnline ? 'ONLINE' : 'DEGRADED'],
+    ['Database', 'persistence health is not reported by this endpoint', 'UNVERIFIED'],
     ['Memory', settings?.memoryEnabled ? 'memory UI enabled' : 'disabled in settings', settings?.memoryEnabled ? 'DEGRADED' : 'OFFLINE'],
-    ['Ollama', ollamaConnected ? 'local provider reachable' : 'not reachable; local UI still usable', ollamaConnected ? 'ONLINE' : 'OFFLINE'],
-    ['Gemini', settings?.aiProvider === 'gemini' ? 'selected provider; key verified by backend health' : 'not selected or key not verified here', settings?.aiProvider === 'gemini' ? 'DEGRADED' : 'CONFIGURATION REQUIRED'],
+    ['Ollama', providerTruthAvailable ? (ollamaProfile?.notes || (ollamaConnected ? 'local provider reachable' : 'local provider unavailable')) : 'provider health not verified by backend', providerDiagnostic(ollamaProfile)],
+    ['Gemini', providerTruthAvailable ? (geminiProfile?.notes || 'backend provider health response') : 'provider health not verified by backend', providerDiagnostic(geminiProfile)],
     ['Voice', safety?.voice?.stt ?? 'browser STT only after permission', 'CONFIGURATION REQUIRED'],
     ['Tauri shell', shellStatus?.tauri ? `desktop shell v${shellStatus.version ?? 'unknown'}` : 'browser/dev mode', shellStatus?.tauri ? 'ONLINE' : 'DEGRADED'],
     ['Tauri package build', safety?.desktopPackaging?.warning ?? 'Cargo detected or check pending', safety?.desktopPackaging?.tauriPackageBuildAvailable ? 'ONLINE' : 'CONFIGURATION REQUIRED'],
-    ['Tool registry', `${toolsHealth.length || tools.length} tools visible`, toolsHealth.length || tools.length ? 'ONLINE' : 'DEGRADED'],
-    ['Permissions', permissionMode, permissionMode === 'FULL_ACCESS' ? 'DEGRADED' : 'ONLINE'],
-    ['Kill switch', killSwitchActive === null ? 'pending' : killSwitchActive ? 'active' : 'inactive', killSwitchActive ? 'BLOCKED' : 'ONLINE'],
-    ['Browser Use mode', safety?.browser?.mode ?? 'READ_ONLY', safety?.browser?.mode === 'READ_ONLY' ? 'BLOCKED' : 'DEGRADED'],
+    ['Tool registry', `${toolsHealth.length || tools.length} tools visible; backend health ${toolsHealth.length ? 'reported' : 'unverified'}`, toolsHealth.length ? 'ONLINE' : 'DEGRADED'],
+    ['Permissions', permissionMode, permissionMode === 'PENDING' ? 'UNVERIFIED' : permissionMode === 'FULL_ACCESS' ? 'DEGRADED' : 'ONLINE'],
+    ['Kill switch', killSwitchActive === null ? 'pending' : killSwitchActive ? 'active' : 'inactive', killSwitchActive === null ? 'UNVERIFIED' : killSwitchActive ? 'BLOCKED' : 'ONLINE'],
+    ['Browser Use mode', browserMode, browserMode === 'READ_ONLY' ? 'BLOCKED' : 'DEGRADED'],
     ['Computer Use mode', computerDesktopStatus?.mode ?? safety?.computer?.mode ?? 'READ_ONLY', computerDesktopStatus?.ownerCommandMode ? 'ONLINE' : computerDesktopStatus?.runtime === 'tauri' && computerDesktopStatus.mode === 'read_only' ? 'CONFIGURATION REQUIRED' : 'BLOCKED'],
     ['Trading mode', 'live execution locked', 'BLOCKED'],
   ];
@@ -4016,6 +4148,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
             </div>
           )}
         </OSPanel>
+        <AdvancedStatusSummary />
       </CockpitGrid>
       <div className="mt-4">
         <OSPanel title="Capability Review" eyebrow="SAFE BOUNDARY" icon={<ShieldAlert className="h-4 w-4" />}>
@@ -4047,6 +4180,7 @@ export function SystemHealthScreen({ ollamaConnected = false, settings, tools = 
           </div>
         </OSPanel>
       </div>
+      <CrossDeviceBridgePanel />
     </ScreenFrame>
   );
 }

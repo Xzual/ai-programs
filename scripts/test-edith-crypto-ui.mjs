@@ -129,6 +129,10 @@ let browser;
 let page;
 let currentViewport = 'startup';
 const browserErrors = [];
+const consoleErrors = [];
+const httpResponses = [];
+const expectedOwnerProbes = [];
+const expectedAdvancedOwnerProbes = [];
 const blockedWrites = [];
 const viewportResults = [];
 try {
@@ -136,7 +140,23 @@ try {
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   page.on('pageerror', (error) => browserErrors.push({ viewport: currentViewport, type: 'pageerror', message: error.message }));
   page.on('console', (message) => {
-    if (message.type() === 'error') browserErrors.push({ viewport: currentViewport, type: 'console.error', message: message.text() });
+    if (message.type() === 'error') consoleErrors.push({ viewport: currentViewport, type: 'console.error', message: message.text(), url: message.location().url || '' });
+  });
+  page.on('response', (response) => {
+    if (response.status() < 400) return;
+    const request = response.request();
+    const url = new URL(response.url());
+    const entry = { viewport: currentViewport, type: 'http', method: request.method(), status: response.status(), pathname: url.pathname, url: response.url() };
+    httpResponses.push(entry);
+    if (entry.method === 'GET' && entry.status === 401 && entry.pathname === '/api/security/session') {
+      expectedOwnerProbes.push(entry);
+      return;
+    }
+    if (entry.method === 'GET' && entry.status === 401 && entry.pathname === '/api/edith/advanced/state') {
+      expectedAdvancedOwnerProbes.push(entry);
+      return;
+    }
+    browserErrors.push(entry);
   });
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -152,7 +172,7 @@ try {
     { name: '390', width: 390, height: 844 },
     { name: '768', width: 768, height: 1024 },
     { name: '1366', width: 1366, height: 768 },
-    { name: '1440', width: 1440, height: 1000 },
+    { name: '1440', width: 1440, height: 900 },
     { name: '1920', width: 1920, height: 1080 },
     { name: '2560', width: 2560, height: 1440 },
   ]) {
@@ -161,7 +181,7 @@ try {
     viewportResults.push(result);
     try {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+    await page.goto(baseUrl, { waitUntil: 'commit', timeout: 30000 });
     await page.waitForTimeout(3500);
     let tradingButton = page.getByRole('button', { name: /^(Crypto Demo|Alım Satım|Crypto)$/ });
     if (!(await tradingButton.isVisible())) {
@@ -182,10 +202,10 @@ try {
     });
     await page.screenshot({ path: path.join(outputDir, `crypto-${viewport.name}.png`), fullPage: true });
     await terminal.getByText('E.D.I.T.H. CRYPTO', { exact: true }).waitFor({ state: 'visible' });
-    for (const label of ['DEMO ONLY', 'NO REAL MONEY', 'NO REAL ORDERS', 'SIMULATION ONLY', 'LIVE TRADING DISABLED', 'GERÇEK PARA YOK', 'SİMÜLASYON', 'Gerçek emir yolu yok']) {
+    for (const label of ['İKİ AYRI HAT', 'DEMO: 10,000 CR', 'CANLI: LIMIT SPOT', 'HER EMİRDE TEK KULLANIMLIK ONAY', 'ÇEKİM / FUTURES / MARGIN YOK', 'DEMO HESABI AYRI']) {
       await terminal.getByText(label, { exact: true }).first().waitFor({ state: 'visible' });
     }
-    const loopPanel = terminal.getByRole('heading', { name: 'Jev Kararı', exact: true }).locator('xpath=ancestor::section[1]');
+    const loopPanel = terminal.getByRole('heading', { name: 'Jev Sağlığı ve Karar Kaydı', exact: true }).locator('xpath=ancestor::section[1]');
     await loopPanel.getByRole('button', { name: "Jev'i Çalıştır" }).waitFor({ state: 'visible' });
     await loopPanel.getByRole('button', { name: 'Durdur', exact: true }).waitFor({ state: 'visible' });
     await loopPanel.getByLabel('Karar aralığı').waitFor({ state: 'visible' });
@@ -296,10 +316,31 @@ try {
     }
   }
   if (blockedWrites.length) throw new Error(`QA attempted crypto writes: ${JSON.stringify(blockedWrites)}`);
+  const missingOwnerProbeViewports = viewportResults
+    .map((result) => result.viewport)
+    .filter((viewport) => !expectedOwnerProbes.some((probe) => probe.viewport === viewport));
+  if (missingOwnerProbeViewports.length) {
+    throw new Error(`Expected unauthenticated owner-session GET probe was not observed for: ${missingOwnerProbeViewports.join(', ')}`);
+  }
+  const expectedProbeConsoleErrors = [];
+  for (const error of consoleErrors) {
+    let errorPathname = '';
+    try {
+      errorPathname = error.url ? new URL(error.url).pathname : '';
+    } catch { /* Invalid console location remains an ordinary error. */ }
+    const matchingProbe = [...expectedOwnerProbes, ...expectedAdvancedOwnerProbes]
+      .find((probe) => probe.viewport === error.viewport && probe.pathname === errorPathname);
+    const expected401 = /Failed to load resource.*(?:status of )?401|server responded with a status of 401/i.test(error.message);
+    if (matchingProbe && expected401 && !expectedProbeConsoleErrors.some((item) => item.viewport === error.viewport && item.pathname === errorPathname)) {
+      expectedProbeConsoleErrors.push({ ...error, pathname: errorPathname, matchedProbe: matchingProbe.url });
+    } else {
+      browserErrors.push(error);
+    }
+  }
   if (browserErrors.length) throw new Error(`Browser errors: ${JSON.stringify(browserErrors)}`);
   const failedViewports = viewportResults.filter((result) => !result.passed);
   if (failedViewports.length) throw new Error(`Failed viewports: ${failedViewports.map((result) => result.viewport).join(', ')}. See viewport-results.json for details.`);
-  console.log('All six viewports passed without browser errors or crypto write requests.');
+  console.log(`All six viewports passed; ${expectedOwnerProbes.length} session probes and ${expectedAdvancedOwnerProbes.length} advanced owner-auth negatives were observed without crypto write requests.`);
   await page.close();
 } catch (error) {
   if (page && !page.isClosed()) {
@@ -308,6 +349,6 @@ try {
   throw error;
 } finally {
   await browser?.close();
-  fs.writeFileSync(path.join(outputDir, 'browser-errors.json'), JSON.stringify({ browserErrors, blockedWrites }, null, 2));
+  fs.writeFileSync(path.join(outputDir, 'browser-errors.json'), JSON.stringify({ browserErrors, consoleErrors, httpResponses, expectedOwnerProbes, expectedAdvancedOwnerProbes, blockedWrites }, null, 2));
   fs.writeFileSync(path.join(outputDir, 'viewport-results.json'), JSON.stringify(viewportResults, null, 2));
 }

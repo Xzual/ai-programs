@@ -31,6 +31,7 @@ import {
   type SettingsSkillSnapshot,
   type SettingsSkillStatus,
 } from '../../edith/settingsRuntimeService';
+import { ObsidianProviderPanel } from './ObsidianProviderPanel';
 
 type SettingsSection = 'voice' | 'computer' | 'crypto' | 'workspace' | 'account' | 'privacy';
 
@@ -264,14 +265,14 @@ function SectionContent({
       <SettingsPanel title="Local workspace" icon={<BriefcaseBusiness className="h-4 w-4" />}>
         <InfoGrid items={[
           ['State', workspace?.state?.replaceAll('_', ' ') ?? 'unavailable'],
-          ['Workspace', workspace?.workspaceRoot ?? 'Not configured'],
-          ['Obsidian vault', workspace?.obsidianVaultPath ?? 'Not configured'],
+          ['Workspace configuration', workspace?.configured ? 'configured' : 'not configured'],
           ['Access', workspace ? `${workspace.readable ? 'readable' : 'not readable'} / ${workspace.writable ? 'writable' : 'read-only'}` : 'unknown'],
           ['Portable mode', workspace ? workspace.portableMode ? 'enabled' : 'disabled' : 'unknown'],
           ['Last validated', workspace?.lastValidated ? new Date(workspace.lastValidated).toLocaleString() : 'not available'],
         ]} />
         <p className={`text-xs leading-5 ${runtime.workspaceError ? 'text-red-300' : 'text-slate-500'}`}>{runtime.workspaceError ?? workspace?.safeMessage ?? 'Workspace status endpoint did not return a configured workspace.'}</p>
         {workspace?.persistenceRestartRequired && <p className="text-xs text-amber-200">Persistence path changed. Restart is required before the new location is active.</p>}
+        <ObsidianProviderPanel />
         <RouteButton label="Open Files" onClick={() => onNavigate?.('files')} />
       </SettingsPanel>
     );

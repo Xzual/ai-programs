@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Maximize2, Minus, Monitor, Power, Square, X } from 'lucide-react';
 import { getDesktopShellStatus, invokeDesktopCommand, type DesktopShellStatus } from '../../edith/desktopShell';
+import { primeOwnerSession } from '../../edith/ownerMutationClient';
 import { getComputerDesktopStatus, type ComputerDesktopStatus } from '../../edith/computerDesktopClient';
 import { AssistantProfile } from '../../types';
 
@@ -15,6 +16,9 @@ export const DesktopTitleBar: React.FC<DesktopTitleBarProps> = ({ activeAssistan
 
   useEffect(() => {
     let cancelled = false;
+    void primeOwnerSession().catch((error) => {
+      console.warn('Desktop owner session bootstrap failed:', error);
+    });
     const refresh = async () => {
       const [nextStatus, nextComputerStatus] = await Promise.all([
         getDesktopShellStatus(),

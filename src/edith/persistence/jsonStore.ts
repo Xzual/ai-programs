@@ -12,6 +12,7 @@ import type {
 } from '../core';
 import type { MemoryItem, ToolExecutionLog } from '../../types';
 import type { EdithPersistencePaths, EdithPersistenceStore, PersistenceMigrationResult } from './types';
+import { normalizeLegacyTask, prepareTaskCreate, prepareTaskMutation } from '../contracts';
 
 const DEFAULT_DATA_DIR = path.resolve(process.cwd(), '.edith');
 
@@ -83,22 +84,29 @@ export class JsonEdithPersistenceStore implements EdithPersistenceStore {
 
   listTasks(): EdithTask[] {
     return readJsonArray<EdithTask>(this.paths.legacyTaskFile)
+      .map((task) => normalizeLegacyTask(task) as EdithTask)
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   }
 
   createTask(task: EdithTask): EdithTask {
-    writeJsonArray(this.paths.legacyTaskFile, [task, ...this.listTasks()]);
-    return task;
+    const existing = this.listTasks().find((candidate) => candidate.id === task.id);
+    if (existing) return this.updateTask(task);
+    const prepared = prepareTaskCreate(task) as EdithTask;
+    writeJsonArray(this.paths.legacyTaskFile, [prepared, ...this.listTasks()]);
+    return prepared;
   }
 
   updateTask(task: EdithTask): EdithTask {
     const tasks = this.listTasks();
-    const exists = tasks.some((existing) => existing.id === task.id);
-    const updated = exists
-      ? tasks.map((existing) => existing.id === task.id ? task : existing)
-      : [task, ...tasks];
+    const existing = tasks.find((candidate) => candidate.id === task.id);
+    const prepared = existing
+      ? prepareTaskMutation(existing, task) as EdithTask
+      : prepareTaskCreate(task) as EdithTask;
+    const updated = existing
+      ? tasks.map((candidate) => candidate.id === task.id ? prepared : candidate)
+      : [prepared, ...tasks];
     writeJsonArray(this.paths.legacyTaskFile, updated);
-    return task;
+    return prepared;
   }
 
   updateTaskStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {

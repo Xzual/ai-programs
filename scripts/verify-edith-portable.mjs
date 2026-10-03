@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { assertInside, assertSafeRelative, findDeveloperPathLeaks, listFilesStrict, PORTABLE_FORMAT, sha256, validateZipEntries } from './portable-edith-lib.mjs';
+import { assertPackagedCryptoResources } from './stage-edith-crypto-resources.mjs';
 
 const root = path.resolve(process.cwd());
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -25,6 +26,7 @@ function verify(directory) {
   const actual = listFilesStrict(directory).map(({ relative }) => relative).filter((value) => !['manifest.json', 'SHA256SUMS.txt'].includes(value));
   if (actual.length !== declared.size || actual.some((value) => !declared.has(value))) throw new Error('Portable payload contains undeclared or missing files.');
   for (const required of ['edith.exe', 'edith-backend.exe', 'dist/index.html', 'crypto/run_agent.py', 'python/python.exe']) if (!fs.existsSync(path.join(directory, required))) throw new Error(`Required portable file missing: ${required}`);
+  assertPackagedCryptoResources(path.join(directory, 'crypto'));
   const leaks = findDeveloperPathLeaks(directory);
   if (leaks.length) throw new Error(`Developer-specific absolute paths found: ${leaks.join(', ')}`);
   return manifest.files.length;
@@ -37,7 +39,15 @@ if (!expected || sha256(zip) !== expected) throw new Error('Portable ZIP hash mi
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-portable-'));
 try {
   validateZipEntries(zip, temp);
-  execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Expand-Archive -LiteralPath $env:EDITH_PORTABLE_ZIP -DestinationPath $env:EDITH_PORTABLE_DEST -Force'], { env: { ...process.env, EDITH_PORTABLE_ZIP: zip, EDITH_PORTABLE_DEST: temp }, windowsHide: true });
+  const extractZip = String.raw`
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($env:EDITH_PORTABLE_ZIP, $env:EDITH_PORTABLE_DEST)
+`;
+  execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', extractZip], {
+    env: { ...process.env, EDITH_PORTABLE_ZIP: zip, EDITH_PORTABLE_DEST: temp },
+    windowsHide: true,
+  });
   verify(path.join(temp, name));
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

@@ -1,5 +1,5 @@
 import { Router, type Response } from 'express';
-import { edithToolRegistry } from '../../src/edith/serverRegistry';
+import { getEdithToolRegistrySnapshot } from '../../src/edith/serverRegistry';
 import {
   buildCapabilitySummary,
   getSkillRegistry,
@@ -9,7 +9,7 @@ import { buildCapabilityToolRegistry } from '../../src/edith/toolRegistry';
 
 export interface SkillsRouterDependencies {
   readRegistry?: (options?: { forceRefresh?: boolean }) => Promise<SkillRegistrySnapshot>;
-  readExecutionTools?: () => unknown[];
+  readToolSnapshot?: () => ReturnType<typeof getEdithToolRegistrySnapshot>;
 }
 
 function wantsRefresh(value: unknown): boolean {
@@ -19,7 +19,7 @@ function wantsRefresh(value: unknown): boolean {
 export function createSkillsRouter(dependencies: SkillsRouterDependencies = {}): Router {
   const router = Router();
   const readRegistry = dependencies.readRegistry ?? getSkillRegistry;
-  const readExecutionTools = dependencies.readExecutionTools ?? (() => edithToolRegistry.list());
+  const readToolSnapshot = dependencies.readToolSnapshot ?? getEdithToolRegistrySnapshot;
 
   async function snapshotFor(query: Record<string, unknown>): Promise<SkillRegistrySnapshot> {
     return readRegistry({ forceRefresh: wantsRefresh(query.refresh) });
@@ -62,12 +62,13 @@ export function createSkillsRouter(dependencies: SkillsRouterDependencies = {}):
   router.get('/api/edith/tools', async (req, res) => {
     try {
       const snapshot = await snapshotFor(req.query);
+      const registry = readToolSnapshot();
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
-        checkedAt: snapshot.checkedAt,
-        tools: readExecutionTools(),
-        registryTools: buildCapabilityToolRegistry(snapshot),
+        ...registry,
+        skillRegistryCheckedAt: snapshot.checkedAt,
+        planningCapabilities: buildCapabilityToolRegistry(snapshot),
       });
     } catch (error) {
       registryError(res, error);
@@ -77,12 +78,14 @@ export function createSkillsRouter(dependencies: SkillsRouterDependencies = {}):
   router.get('/api/edith/capabilities', async (req, res) => {
     try {
       const snapshot = await snapshotFor(req.query);
+      const registry = readToolSnapshot();
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
         ...snapshot,
         summary: buildCapabilitySummary(snapshot),
-        tools: buildCapabilityToolRegistry(snapshot),
+        toolRegistry: registry,
+        planningCapabilities: buildCapabilityToolRegistry(snapshot),
       });
     } catch (error) {
       registryError(res, error);
@@ -92,17 +95,14 @@ export function createSkillsRouter(dependencies: SkillsRouterDependencies = {}):
   router.get('/api/edith/capabilities/summary', async (req, res) => {
     try {
       const snapshot = await snapshotFor(req.query);
-      const tools = buildCapabilityToolRegistry(snapshot);
+      const registry = readToolSnapshot();
       const summary = buildCapabilitySummary(snapshot);
       res.setHeader('Cache-Control', 'no-store');
       res.json({
         success: true,
         ...summary,
-        toolCounts: {
-          total: tools.length,
-          enabled: tools.filter((tool) => tool.enabled).length,
-          approvalRequired: tools.filter((tool) => tool.enabled && tool.requiresApproval).length,
-        },
+        toolRegistryAuthority: registry.authority,
+        toolCounts: registry.counts,
       });
     } catch (error) {
       registryError(res, error);

@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-recovery-test-'));
 const originalCwd = process.cwd();
+let closePersistence: (() => void) | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,6 +38,7 @@ try {
   const { recoveryService } = await import('../src/edith/recovery');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
   const { readRecentAuditEvents } = await import('../src/edith/audit');
+  closePersistence = () => { getEdithPersistenceStore().close?.(); };
 
   const task = taskService.createTask({
     title: 'Recovery regression',
@@ -46,12 +48,22 @@ try {
   });
   const planned = plannerService.planTask(task.id);
   assert.equal(planned.success, true);
-  taskService.updateStatus(task.id, 'VERIFYING', 'Forced verifier boundary without execution evidence.');
+  assert.ok(planned.plan);
+  for (const step of planned.plan.steps) {
+    taskService.updatePlanStepStatus(task.id, step.id, 'COMPLETED', `Recorded terminal step ${step.id} without execution evidence.`);
+  }
+  taskService.updateStatus(task.id, 'RUNNING', 'Reached a valid verifier boundary without tool execution evidence.');
 
   const verified = verificationService.verifyTask(task.id);
+  const blockedAfterVerification = taskService.getTask(task.id);
+  const verificationAudits = readRecentAuditEvents(1000).filter((event) => event.taskId === task.id && event.action === 'task.verify');
   assert.equal(verified.success, false);
   assert.equal(verified.status, 'RETRYABLE');
-  assert.equal(taskService.getTask(task.id)?.status, 'RETRYING');
+  assert.equal(blockedAfterVerification?.status, 'BLOCKED');
+  assert.equal(blockedAfterVerification?.verification?.status, 'RETRYABLE');
+  assert.equal(blockedAfterVerification?.plan?.steps.every((step) => step.status === 'COMPLETED'), true);
+  assert.equal(blockedAfterVerification?.verification?.checks.some((check) => check.required && check.id.startsWith('tool-') && check.status === 'RETRYABLE'), true);
+  assert.equal(verificationAudits.length, 1);
 
   const recovered = recoveryService.recoverTask(task.id);
   const reloaded = taskService.getTask(task.id);
@@ -78,14 +90,14 @@ try {
     toolsRequired: ['computer_control_agent'],
     riskLevel: 5,
   });
-  taskService.updateStatus(permissionTask.id, 'WAITING_PERMISSION', 'Permission denied.');
+  taskService.updateStatus(permissionTask.id, 'WAITING_FOR_APPROVAL', 'Permission denied.');
   const permissionRecovery = recoveryService.recoverTask(permissionTask.id);
   const permissionReloaded = taskService.getTask(permissionTask.id);
 
   assert.equal(permissionRecovery.success, false);
   assert.equal(permissionRecovery.action, 'WAIT_PERMISSION');
   assert.equal(permissionRecovery.classification, 'PERMISSION_DENIED');
-  assert.equal(permissionReloaded?.status, 'WAITING_PERMISSION');
+  assert.equal(permissionReloaded?.status, 'WAITING_FOR_APPROVAL');
   assert.equal(permissionReloaded?.recoveryEvents?.length, 1);
   assert.equal(Boolean(permissionReloaded?.recoveryEvents?.[0]?.capabilityAssessmentId), true);
   assert.equal(permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.actor, 'edith-executor');
@@ -101,7 +113,7 @@ try {
     toolsRequired: ['iot_feedback_stub', 'finance_trading_guard'],
     riskLevel: 5,
   });
-  taskService.updateStatus(sensitivePermissionTask.id, 'WAITING_PERMISSION', 'Sensitive permission denied.');
+  taskService.updateStatus(sensitivePermissionTask.id, 'WAITING_FOR_APPROVAL', 'Sensitive permission denied.');
   const sensitiveRecovery = recoveryService.recoverTask(sensitivePermissionTask.id);
   const sensitiveReloaded = taskService.getTask(sensitivePermissionTask.id);
 
@@ -111,8 +123,6 @@ try {
   assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('iot:control'), true);
   assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions.includes('trading:execute'), true);
   assert.equal(sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.highRiskToolIds.includes('finance_trading_guard'), true);
-
-  getEdithPersistenceStore().close?.();
 
   console.log(JSON.stringify({
     success: true,
@@ -124,9 +134,10 @@ try {
     permissionAction: permissionRecovery.action,
     permissionRequest: permissionReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions,
     sensitivePermissionRequest: sensitiveReloaded?.recoveryEvents?.[0]?.permissionRequest?.permissions,
-    scenarios: ['retryable_verification', 'replan', 'persist_recovery', 'audit', 'permission_wait', 'permission_request_details', 'sensitive_permission_request_details'],
+    scenarios: ['valid_verifier_boundary', 'retryable_verification_blocks', 'replan', 'persist_recovery', 'verification_and_recovery_audit', 'permission_wait', 'permission_request_details', 'sensitive_permission_request_details'],
   }, null, 2));
 } finally {
+  closePersistence?.();
   process.chdir(originalCwd);
   await removeTempRoot();
 }

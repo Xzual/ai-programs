@@ -8,23 +8,25 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List
 
-from config import CONFIG, CRYPTO_ROOT
+from config import CONFIG, CRYPTO_ROOT, RUNTIME_ROOT
 
 logger = logging.getLogger("asset_modes")
 
 ASSET_MODES = {"WATCH_ONLY", "ANALYZE_ONLY", "DEMO_TRADE_ALLOWED", "DISABLED"}
 DEFAULT_MODE_PATH = CRYPTO_ROOT / "config" / "demo_asset_modes.json"
+RUNTIME_MODE_PATH = RUNTIME_ROOT / "config" / "demo_asset_modes.json"
 
 
 class AssetModeManager:
     def __init__(self, config_path: str = None):
-        self.config_path = Path(config_path or DEFAULT_MODE_PATH)
+        self.config_path = Path(config_path or RUNTIME_MODE_PATH)
         self._config = self._load()
 
     def _load(self) -> Dict[str, Any]:
         try:
-            if self.config_path.exists():
-                data = json.loads(self.config_path.read_text(encoding="utf-8"))
+            source_path = self.config_path if self.config_path.exists() else DEFAULT_MODE_PATH
+            if source_path.exists():
+                data = json.loads(source_path.read_text(encoding="utf-8"))
             else:
                 data = {}
         except Exception as exc:

@@ -8,6 +8,7 @@ import {
   Terminal,
   TrendingUp,
 } from 'lucide-react';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 
 interface CryptoStatus {
   dashboardUrl: string;
@@ -118,7 +119,7 @@ export const CryptoView: React.FC = () => {
   const runAction = async (action: 'start' | 'stop') => {
     setActionLoading(action);
     try {
-      const response = await fetch(`/api/edith/crypto/${action}`, { method: 'POST' });
+      const response = await ownerMutationFetch(`/api/edith/crypto/${action}`, { method: 'POST' });
       const data = await response.json();
       if (data.success) setStatus(data.status);
       setTimeout(loadStatus, 1400);

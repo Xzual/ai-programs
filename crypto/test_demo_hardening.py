@@ -232,17 +232,17 @@ class ReliabilityTests(unittest.TestCase):
             c.execute('CREATE TABLE demo_trades(id INTEGER PRIMARY KEY, timestamp TEXT, source TEXT, symbol TEXT, side TEXT, decision_id INTEGER, pnl REAL)')
             c.execute('INSERT INTO demo_trades VALUES(1,?,?,?,?,1,0)', (utc_now(), 'manual', 'BTCUSDT', 'BUY'))
         c.close()
-        engine = DemoPortfolioEngine(path)
+        engine = DemoPortfolioEngine(path, test_only_import_legacy_fixture=True)
         self.assertEqual(engine.summary()['currentCash'], 9996.2777)
         self.assertIsNone(engine.trades()[0]['decisionId'])
         self.assertTrue(Path(path + '.pre-reliability-v2.bak').exists())
-        self.assertEqual(len(DemoPortfolioEngine(path).trades()), 1)
+        self.assertEqual(len(DemoPortfolioEngine(path, test_only_import_legacy_fixture=True).trades()), 1)
         with sqlite3.connect(path) as c:
             self.assertEqual(c.execute('SELECT COUNT(*) FROM demo_trades').fetchone()[0], 1)
         c.close()
         self.assertEqual(len(engine.sessions()), 1)
 
-    def test_old_balance_and_cost_position_are_preserved_without_reset(self):
+    def test_old_balance_and_cost_position_are_archived_outside_production_ledger(self):
         path = str(Path(self.temp.name) / 'legacy-position.db')
         c = sqlite3.connect(path)
         c.execute('CREATE TABLE demo_portfolio_state(id INTEGER PRIMARY KEY, timestamp TEXT, initial_balance REAL, cash REAL, equity REAL, positions_json TEXT, realized_pnl REAL, max_drawdown REAL)')
@@ -251,13 +251,16 @@ class ReliabilityTests(unittest.TestCase):
         c.commit()
         c.close()
         engine = DemoPortfolioEngine(path)
-        self.assertEqual(engine.summary()['initialBalance'], 5000)
-        self.assertEqual(engine.summary()['currentCash'], 4900)
-        self.assertEqual(engine.positions()[0]['costBasis'], 100)
-        self.assertEqual(engine.positions()[0]['symbol'], 'BTCUSDT')
-        self.assertEqual(engine.positions()[0]['marketDataStatus'], 'unavailable')
-        self.assertTrue(engine.reset('RESET_DEMO_ACCOUNT')['ok'])
         self.assertEqual(engine.summary()['initialBalance'], 10000)
+        self.assertEqual(engine.summary()['currentCash'], 10000)
+        self.assertEqual(engine.positions(), [])
+        self.assertTrue(Path(path + '.pre-reliability-v2.bak').exists())
+        with sqlite3.connect(path) as c:
+            legacy = c.execute('SELECT initial_balance, cash, positions_json FROM demo_portfolio_state').fetchone()
+            self.assertEqual(legacy[0], 5000)
+            self.assertEqual(legacy[1], 4900)
+            self.assertEqual(json.loads(legacy[2])[0]['cost'], 100)
+        c.close()
 
     def test_finish_cannot_change_reserved_payload(self):
         key = uuid4().hex

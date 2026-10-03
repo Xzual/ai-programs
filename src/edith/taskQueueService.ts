@@ -3,6 +3,7 @@ import type { EdithTask } from './core';
 import { interruptService } from './interruptService';
 import { killSwitchService } from './killSwitch';
 import { getEdithPersistenceStore } from './persistence';
+import { getAdvancedPriorityPolicy } from '../../server/advanced/priorityRegistry';
 
 export interface TaskQueueSnapshot {
   queued: EdithTask[];
@@ -132,7 +133,37 @@ export class TaskQueueService {
 
   next(): EdithTask | undefined {
     const queued = this.snapshot().queued;
-    return queued.sort((a, b) => Date.parse(a.queue?.queuedAt ?? a.createdAt) - Date.parse(b.queue?.queuedAt ?? b.createdAt))[0];
+    const tasks = getEdithPersistenceStore().listTasks();
+    const taskById = new Map(tasks.map((task) => [task.id, task]));
+    const protectedRunActive = this.snapshot().running.some((task) => {
+      const policy = getAdvancedPriorityPolicy(task.id);
+      return policy?.atomicOperation || policy?.securityCritical;
+    });
+    if (protectedRunActive) return undefined;
+
+    const priorityRank = (task: EdithTask): number => {
+      const configured = getAdvancedPriorityPolicy(task.id)?.priority;
+      if (configured === 'HIGH') return 3;
+      if (configured === 'NORMAL') return 2;
+      if (configured === 'LOW') return 1;
+      return task.priority === 'urgent' || task.priority === 'high' ? 3 : task.priority === 'normal' ? 2 : 1;
+    };
+    const eligible = queued.filter((task) => {
+      const policy = getAdvancedPriorityPolicy(task.id);
+      const dependencies = policy?.dependencyTaskIds ?? task.dependencies;
+      return dependencies.every((id) => taskById.get(id)?.status === 'COMPLETED');
+    });
+    return eligible.sort((a, b) => {
+      const aPolicy = getAdvancedPriorityPolicy(a.id);
+      const bPolicy = getAdvancedPriorityPolicy(b.id);
+      if (Boolean(aPolicy?.securityCritical) !== Boolean(bPolicy?.securityCritical)) return aPolicy?.securityCritical ? -1 : 1;
+      const rank = priorityRank(b) - priorityRank(a);
+      if (rank) return rank;
+      const aDeadline = a.deadline ? Date.parse(a.deadline) : Number.POSITIVE_INFINITY;
+      const bDeadline = b.deadline ? Date.parse(b.deadline) : Number.POSITIVE_INFINITY;
+      if (aDeadline !== bDeadline) return aDeadline - bDeadline;
+      return Date.parse(a.queue?.queuedAt ?? a.createdAt) - Date.parse(b.queue?.queuedAt ?? b.createdAt);
+    })[0];
   }
 
   private nextPendingStepId(task: EdithTask): string | undefined {

@@ -3,36 +3,8 @@
     "viewport": "390",
     "width": 390,
     "height": 844,
-    "layout": {
-      "terminalWidth": 318,
-      "contentWidth": 294,
-      "workspaceWidth": 294
-    },
-    "pixels": [
-      {
-        "width": 218,
-        "height": 302,
-        "colors": 16,
-        "opaque": 65836,
-        "colored": 3000,
-        "samples": 65836,
-        "nonblank": true
-      },
-      {
-        "width": 218,
-        "height": 302,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 65836,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "390: Crypto Demo navigation missing. Visible page: E.D.I.T.H.\n\nKİŞİSEL YAPAY ZEKA SİSTEMİ\n\nSESLİ DOĞRULAMA\nYAZILI ETKİNLEŞTİRME\nYÖNETİCİ MODU\nİSİM DOĞRULAMA"
   },
   {
     "viewport": "768",
@@ -43,31 +15,8 @@
       "contentWidth": 512,
       "workspaceWidth": 512
     },
-    "pixels": [
-      {
-        "width": 436,
-        "height": 302,
-        "colors": 15,
-        "opaque": 131672,
-        "colored": 3110,
-        "samples": 131672,
-        "nonblank": true
-      },
-      {
-        "width": 436,
-        "height": 302,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 131672,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('crypto-terminal').getByText('DEMO ONLY', { exact: true }).first() to be visible\u001b[22m\n"
   },
   {
     "viewport": "1366",
@@ -78,66 +27,20 @@
       "contentWidth": 1110,
       "workspaceWidth": 1110
     },
-    "pixels": [
-      {
-        "width": 358,
-        "height": 362,
-        "colors": 13,
-        "opaque": 129596,
-        "colored": 3559,
-        "samples": 129596,
-        "nonblank": true
-      },
-      {
-        "width": 358,
-        "height": 362,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 129596,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('crypto-terminal').getByText('DEMO ONLY', { exact: true }).first() to be visible\u001b[22m\n"
   },
   {
     "viewport": "1440",
     "width": 1440,
-    "height": 1000,
+    "height": 900,
     "layout": {
       "terminalWidth": 1208,
       "contentWidth": 1184,
       "workspaceWidth": 1184
     },
-    "pixels": [
-      {
-        "width": 432,
-        "height": 542,
-        "colors": 14,
-        "opaque": 234144,
-        "colored": 5182,
-        "samples": 234144,
-        "nonblank": true
-      },
-      {
-        "width": 432,
-        "height": 542,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 234144,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('crypto-terminal').getByText('DEMO ONLY', { exact: true }).first() to be visible\u001b[22m\n"
   },
   {
     "viewport": "1920",
@@ -148,31 +51,8 @@
       "contentWidth": 1624,
       "workspaceWidth": 1624
     },
-    "pixels": [
-      {
-        "width": 644,
-        "height": 622,
-        "colors": 12,
-        "opaque": 100142,
-        "colored": 3446,
-        "samples": 100142,
-        "nonblank": true
-      },
-      {
-        "width": 644,
-        "height": 622,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 100142,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('crypto-terminal').getByText('DEMO ONLY', { exact: true }).first() to be visible\u001b[22m\n"
   },
   {
     "viewport": "2560",
@@ -183,30 +63,7 @@
       "contentWidth": 2264,
       "workspaceWidth": 2264
     },
-    "pixels": [
-      {
-        "width": 1102,
-        "height": 732,
-        "colors": 10,
-        "opaque": 201666,
-        "colored": 5996,
-        "samples": 201666,
-        "nonblank": true
-      },
-      {
-        "width": 1102,
-        "height": 732,
-        "colors": 0,
-        "opaque": 0,
-        "colored": 0,
-        "samples": 201666,
-        "nonblank": false
-      }
-    ],
-    "controls": {
-      "checked": 29,
-      "failures": []
-    },
-    "passed": true
+    "passed": false,
+    "error": "locator.waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('crypto-terminal').getByText('DEMO ONLY', { exact: true }).first() to be visible\u001b[22m\n"
   }
 ]

@@ -14,6 +14,8 @@ import {
 } from './core';
 import { killSwitchService } from './killSwitch';
 import { getEdithPersistenceStore } from './persistence';
+import type { ResultCardProductionOptions, SharedResultCardProducerService } from './sharedResultCardProducer';
+import type { SharedResultCardV2 } from './contracts';
 
 export interface CreateTaskInput {
   title: string;
@@ -55,8 +57,7 @@ export class TaskService {
       agentActivity: this.existingAgentActivity(task),
     };
     const stored = getEdithPersistenceStore().createTask(enriched);
-    this.auditTaskMutation(stored, 'task.create', `Task created: ${stored.title}`);
-    return stored;
+    return this.auditTaskMutation(stored, 'task.create', `Task created: ${stored.title}`);
   }
 
   updateStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
@@ -73,8 +74,7 @@ export class TaskService {
           ],
         }, 'status', 'edith-task-service', `Task status changed to ${status}`, { status, riskLevel: existing.riskLevel }))
       : undefined;
-    if (task) this.auditTaskMutation(task, 'task.status', `Task status changed to ${status}`);
-    return task;
+    return task ? this.auditTaskMutation(task, 'task.status', `Task status changed to ${status}`) : undefined;
   }
 
   addObservation(id: string, observation: string): EdithTask | undefined {
@@ -96,6 +96,15 @@ export class TaskService {
       ...task,
       artifacts: [...task.artifacts, artifact],
     }));
+  }
+
+  createSharedResultCard(
+    id: string,
+    producer: SharedResultCardProducerService,
+    options: ResultCardProductionOptions,
+  ): SharedResultCardV2 | undefined {
+    const task = this.getTask(id);
+    return task ? producer.fromTask(task, options) : undefined;
   }
 
   attachPlan(id: string, plan: EdithPlan): EdithTask | undefined {
@@ -279,11 +288,10 @@ export class TaskService {
         timelineMetadata
       )
     );
-    this.auditTaskMutation(updated, action, auditMessage);
-    return updated;
+    return this.auditTaskMutation(updated, action, auditMessage);
   }
 
-  private auditTaskMutation(task: EdithTask, action: string, message: string): void {
+  private auditTaskMutation(task: EdithTask, action: string, message: string): EdithTask {
     const event = createAuditEvent({
       actor: 'edith-task-service',
       taskId: task.id,
@@ -296,8 +304,8 @@ export class TaskService {
     });
     appendAuditEvent(event);
     const current = this.getTask(task.id);
-    if (!current) return;
-    getEdithPersistenceStore().updateTask(this.withTimeline({
+    if (!current) return task;
+    return getEdithPersistenceStore().updateTask(this.withTimeline({
       ...this.normalizeTask(current),
       auditEvents: Array.from(new Set([...current.auditEvents, event.id])),
     }, 'audit', 'edith-task-service', message, { auditEventId: event.id, riskLevel: task.riskLevel }));

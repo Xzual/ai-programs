@@ -11,6 +11,8 @@ const previousCwd = process.cwd();
 try {
   process.chdir(root);
   process.env.EDITH_PERSISTENCE = 'json';
+  process.env.EDITH_TEST_DATA_DIR = path.join(root, 'test-data');
+  process.env.EDITH_OBSIDIAN_PROVIDER_APP_ROOT = previousCwd;
   delete process.env.EDITH_WORKSPACE_ROOT;
   delete process.env.EDITH_WORKSPACE_CONFIG_PATH;
   delete process.env.EDITH_OBSIDIAN_VAULT_PATH;
@@ -30,6 +32,7 @@ try {
     portableMode: false,
   });
   assert.equal(created.workspaceRoot, unicodeWorkspace);
+  assert.equal(fs.readdirSync(path.dirname(workspaceManager.configFile)).some((name) => /workspace\.json\..*\.(?:tmp|bak)$/.test(name)), false);
   assert.equal(workspaceManager.status().state, 'ready');
   const resolved = workspaceManager.getResolvedPaths();
   assert.ok(resolved);
@@ -122,6 +125,9 @@ try {
   assert.equal(metadata.vaultPath, existingVault);
   assert.equal(/note|content|secret|token/i.test(Object.keys(metadata).join(',')), false);
 
+  process.env.EDITH_TEST_MODE = 'true';
+  process.env.EDITH_TEST_OBSIDIAN_SANDBOX_ROOT = existingVault;
+
   const { obsidianVaultService } = await import('../src/edith/obsidianVaultService');
   const reindex = obsidianVaultService.reindex();
   assert.equal(reindex.success, true);
@@ -132,7 +138,7 @@ try {
   const { createWorkspaceRouter } = await import('../server/routes/workspace');
   const app = express();
   app.use(express.json());
-  app.use(createWorkspaceRouter());
+  app.use(createWorkspaceRouter({ protectedMutation: [] }));
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   try {
@@ -193,6 +199,56 @@ try {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   }
 
+  const { createKnowledgeRouter } = await import('../server/routes/knowledge');
+  const auditApp = express();
+  auditApp.use(express.json());
+  auditApp.use(createKnowledgeRouter({ protectedMutation: [] }));
+  const auditServer = auditApp.listen(0, '127.0.0.1');
+  await once(auditServer, 'listening');
+  try {
+    const address = auditServer.address();
+    assert.ok(address && typeof address !== 'string');
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/edith/obsidian/settings`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ watchEnabled: false }),
+    });
+    assert.equal(response.ok, true);
+    const { readRecentAuditEvents } = await import('../src/edith/audit');
+    const event = readRecentAuditEvents(20).find((entry) => entry.action === 'obsidian.settings_update');
+    assert.equal(event?.actor, 'owner');
+    assert.equal(event?.target, 'configured_obsidian_vault');
+    assert.equal(JSON.stringify(event).includes(existingVault), false, 'Owner audit must not expose the local vault path.');
+  } finally {
+    await new Promise<void>((resolve, reject) => auditServer.close((error) => error ? reject(error) : resolve()));
+  }
+
+  const securedApp = express();
+  securedApp.use(express.json());
+  securedApp.use(createWorkspaceRouter());
+  securedApp.use(createKnowledgeRouter());
+  const securedServer = securedApp.listen(0, '127.0.0.1');
+  await once(securedServer, 'listening');
+  try {
+    const address = securedServer.address();
+    assert.ok(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    for (const request of [
+      { path: '/api/workspace/config', method: 'PUT' },
+      { path: '/api/edith/obsidian/settings', method: 'PATCH' },
+      { path: '/api/knowledge/write-note', method: 'POST' },
+    ]) {
+      const response = await fetch(`${base}${request.path}`, {
+        method: request.method,
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      assert.equal(response.status, 401, `${request.method} ${request.path} must require owner session`);
+    }
+  } finally {
+    await new Promise<void>((resolve, reject) => securedServer.close((error) => error ? reject(error) : resolve()));
+  }
+
   const runtimeFiles = [
     'src/edith/workspaceManager.ts',
     'src/edith/obsidianVaultService.ts',
@@ -221,6 +277,9 @@ try {
       'windows_temp_path', 'unicode_path', 'missing_path', 'read_only_path', 'portable_relative_path',
       'directory_structure', 'legacy_migration_without_move', 'invalid_legacy_config_required',
       'existing_vault_preserved', 'metadata_only_contract', 'workspace_api', 'no_fixed_drive_runtime',
+      'atomic_workspace_config',
+      'owner_session_required_for_workspace_and_obsidian_mutations',
+      'owner_audit_without_vault_path_leakage',
     ],
   }));
 } finally {

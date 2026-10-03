@@ -3,11 +3,19 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolveEdithCryptoPython } from './edith-crypto-python.mjs';
 
-const root = process.cwd();
-const cryptoDir = path.join(root, 'crypto');
-const pythonPath = process.env.EDITH_CRYPTO_PYTHON_PATH || path.join(cryptoDir, '.venv', 'Scripts', 'python.exe');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const packaged = process.env.EDITH_PACKAGED === 'true';
+const configuredResource = process.env.EDITH_CRYPTO_RESOURCE_DIR?.trim();
+if (packaged && !configuredResource) {
+  throw new Error('EDITH_CRYPTO_RESOURCE_DIR is required in packaged mode.');
+}
+const cryptoDir = configuredResource ? path.resolve(configuredResource) : path.join(root, 'crypto');
+const pythonPath = resolveEdithCryptoPython(root);
 const scriptPath = path.join(cryptoDir, 'run_agent.py');
+if (!fs.statSync(scriptPath).isFile()) throw new Error(`Crypto entrypoint is missing: ${scriptPath}`);
 function configuredVaultPath() {
   const environmentPath = process.env.EDITH_OBSIDIAN_VAULT_PATH || process.env.OBSIDIAN_VAULT_PATH;
   if (environmentPath) return environmentPath;
@@ -63,4 +71,9 @@ child.on('exit', (code, signal) => {
     return;
   }
   process.exit(code ?? 0);
+});
+
+child.on('error', (error) => {
+  console.error(`Crypto observer failed to start: ${error.message}`);
+  process.exit(1);
 });

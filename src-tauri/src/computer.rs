@@ -1,20 +1,107 @@
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 const SESSION_TTL: Duration = Duration::from_secs(300);
+const OBSERVATION_TTL: Duration = Duration::from_secs(15);
 
-#[derive(Default)]
+#[derive(Clone)]
+struct SafetyBridge {
+    token: String,
+    port: u16,
+}
+
 pub struct ComputerState {
     session: Mutex<Option<ComputerSession>>,
     stopped: Arc<AtomicBool>,
+    bridge: Mutex<Option<SafetyBridge>>,
+    observation_generation: AtomicU64,
+    last_observation: Mutex<Option<ObservationContext>>,
+}
+
+impl Default for ComputerState {
+    fn default() -> Self {
+        let bridge = std::env::var("EDITH_DESKTOP_BRIDGE_TOKEN")
+            .ok()
+            .filter(|value| value.len() >= 32)
+            .map(|token| SafetyBridge { token, port: 3000 });
+        Self {
+            session: Mutex::new(None),
+            stopped: Arc::new(AtomicBool::new(false)),
+            bridge: Mutex::new(bridge),
+            observation_generation: AtomicU64::new(0),
+            last_observation: Mutex::new(None),
+        }
+    }
+}
+
+impl ComputerState {
+    #[cfg(not(debug_assertions))]
+    pub fn configure_bridge(&self, token: String, port: u16) {
+        if token.len() >= 32 && port > 0 {
+            if let Ok(mut bridge) = self.bridge.lock() {
+                *bridge = Some(SafetyBridge { token, port });
+            }
+        }
+    }
+
+    pub fn clear_bridge(&self) {
+        if let Ok(mut bridge) = self.bridge.lock() {
+            bridge.take();
+        }
+        self.stopped.store(true, Ordering::SeqCst);
+        if let Ok(mut session) = self.session.lock() {
+            session.take();
+        }
+        if let Ok(mut observation) = self.last_observation.lock() {
+            observation.take();
+        }
+    }
+
+    pub(crate) fn ensure_kill_switch_inactive(&self) -> Result<(), String> {
+        check_kill_switch(self)
+    }
+
+    pub(crate) fn session_active(&self) -> bool {
+        !self.stopped.load(Ordering::SeqCst)
+            && self
+                .session
+                .lock()
+                .ok()
+                .and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .map(|session| SystemTime::now() < session.expires_at)
+                })
+                .unwrap_or(false)
+    }
 }
 
 struct ComputerSession {
     id: String,
     expires_at: SystemTime,
+}
+
+#[derive(Clone, Debug)]
+struct ObservationContext {
+    observation_id: String,
+    generation: u64,
+    expires_at: u64,
+    window_id: String,
+    monitor_id: String,
+    window_bounds: PhysicalBounds,
+    virtual_bounds: PhysicalBounds,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhysicalBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Serialize)]
@@ -29,6 +116,11 @@ pub struct ComputerStatus {
     pub owner_command_mode: bool,
     pub kill_switch: &'static str,
     pub overlay: &'static str,
+    pub targeting: &'static str,
+    pub uia: &'static str,
+    pub ocr: &'static str,
+    pub multi_monitor: &'static str,
+    pub verification: &'static str,
     pub session_expires_at: Option<u64>,
     pub safe_message: String,
 }
@@ -36,18 +128,40 @@ pub struct ComputerStatus {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Observation {
+    pub observation_id: String,
+    pub generation: u64,
     pub image_data_url: String,
+    pub origin_x: i32,
+    pub origin_y: i32,
     pub width: i32,
     pub height: i32,
     pub cursor_x: i32,
     pub cursor_y: i32,
     pub captured_at: u64,
+    pub expires_at: u64,
     pub source: &'static str,
+    pub confidence: f64,
+    pub window_id: String,
+    pub window_process_id: u32,
+    pub window_bounds: PhysicalBounds,
+    pub monitor_id: String,
+    pub monitor_bounds: PhysicalBounds,
+    pub scale_factor: f64,
+    pub coordinate_space: &'static str,
+    pub uia_available: bool,
+    pub ocr_available: bool,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionRequest {
+    pub action_id: String,
+    pub plan_id: String,
+    pub step_id: String,
+    pub observation_id: String,
+    pub observation_generation: u64,
+    pub expected_effect: String,
+    pub max_attempts: u8,
     pub action: String,
     pub x: Option<i32>,
     pub y: Option<i32>,
@@ -62,11 +176,18 @@ pub struct ActionRequest {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActionResult {
+    pub action_id: String,
+    pub plan_id: String,
+    pub step_id: String,
     pub action: String,
     pub injected: bool,
+    pub dispatch_status: &'static str,
     pub cursor_x: i32,
     pub cursor_y: i32,
     pub verification: &'static str,
+    pub verification_status: &'static str,
+    pub pre_observation_id: String,
+    pub attempts: u8,
 }
 
 fn now_ms() -> u64 {
@@ -76,13 +197,30 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn check_kill_switch() -> Result<(), String> {
+fn safety_bridge(state: &ComputerState) -> Result<SafetyBridge, String> {
+    state
+        .bridge
+        .lock()
+        .map_err(|_| "Native safety bridge state unavailable.")?
+        .clone()
+        .ok_or("Native safety bridge is not configured; Computer Use is blocked.".into())
+}
+
+fn check_kill_switch(state: &ComputerState) -> Result<(), String> {
+    check_kill_switch_bridge(&safety_bridge(state)?)
+}
+
+fn check_kill_switch_bridge(bridge: &SafetyBridge) -> Result<(), String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
         .map_err(|_| "Could not initialize the local safety check.")?;
     let response = client
-        .get("http://127.0.0.1:3000/api/edith/kill-switch")
+        .get(format!(
+            "http://127.0.0.1:{}/api/computer-use/native-safety",
+            bridge.port
+        ))
+        .bearer_auth(&bridge.token)
         .send()
         .map_err(|_| "Local backend unavailable; Computer Use is blocked.")?;
     if !response.status().is_success() {
@@ -92,7 +230,7 @@ fn check_kill_switch() -> Result<(), String> {
         .json()
         .map_err(|_| "Invalid emergency stop response.")?;
     match payload
-        .pointer("/state/active")
+        .get("killSwitchActive")
         .and_then(|active| active.as_bool())
     {
         Some(false) => Ok(()),
@@ -118,8 +256,14 @@ fn require_session(state: &ComputerState, session_id: &str) -> Result<(), String
 }
 
 #[tauri::command]
-pub fn computer_status(state: State<'_, ComputerState>) -> ComputerStatus {
-    let safety = check_kill_switch();
+pub fn computer_status(
+    state: State<'_, ComputerState>,
+    obsidian_picker: State<'_, crate::obsidian_picker::ObsidianVaultPickerState>,
+) -> ComputerStatus {
+    let safety = check_kill_switch(&state);
+    if safety.is_err() {
+        obsidian_picker.revoke_all("KILL_SWITCH_OR_SAFETY_UNAVAILABLE");
+    }
     let expires = state.session.lock().ok().and_then(|guard| {
         guard.as_ref().and_then(|session| {
             session
@@ -179,7 +323,16 @@ pub fn computer_status(state: State<'_, ComputerState>) -> ComputerStatus {
         },
         owner_command_mode: active,
         kill_switch,
-        overlay: "in_app",
+        overlay: "missing",
+        targeting: "window_relative_fallback",
+        uia: "missing",
+        ocr: "missing",
+        multi_monitor: if cfg!(windows) {
+            "virtual_desktop"
+        } else {
+            "missing"
+        },
+        verification: "post_observation_required",
         session_expires_at: if active { expires } else { None },
         safe_message: match safety {
             Err(message) => message,
@@ -199,7 +352,7 @@ pub fn computer_begin(
 
     #[cfg(windows)]
     {
-        check_kill_switch()?;
+        check_kill_switch(&state)?;
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             MessageBoxW, IDYES, MB_DEFBUTTON2, MB_ICONWARNING, MB_SETFOREGROUND, MB_TOPMOST,
             MB_YESNO,
@@ -223,7 +376,7 @@ pub fn computer_begin(
         if !approved {
             return Err("Owner did not approve Computer Use.".into());
         }
-        check_kill_switch()?;
+        check_kill_switch(&state)?;
         let id = format!("computer-{}", now_ms());
         let session = ComputerSession {
             id: id.clone(),
@@ -254,8 +407,8 @@ pub fn computer_observe(
     session_id: String,
 ) -> Result<Observation, String> {
     require_session(&state, &session_id)?;
-    check_kill_switch()?;
-    platform::observe()
+    check_kill_switch(&state)?;
+    observe_and_remember(&state)
 }
 
 #[tauri::command]
@@ -264,8 +417,8 @@ pub fn computer_screenshot(
     session_id: String,
 ) -> Result<Observation, String> {
     require_session(&state, &session_id)?;
-    check_kill_switch()?;
-    platform::observe()
+    check_kill_switch(&state)?;
+    observe_and_remember(&state)
 }
 
 #[tauri::command]
@@ -275,22 +428,110 @@ pub async fn computer_action(
     request: ActionRequest,
 ) -> Result<ActionResult, String> {
     require_session(&state, &session_id)?;
+    check_kill_switch(&state)?;
+    let observation = validate_action_context(&state, &request)?;
+    let bridge = safety_bridge(&state)?;
     let stopped = Arc::clone(&state.stopped);
     tauri::async_runtime::spawn_blocking(move || {
-        check_kill_switch()?;
-        platform::act(stopped.as_ref(), request)
+        check_kill_switch_bridge(&bridge)?;
+        platform::validate_foreground(&observation)?;
+        platform::act(stopped.as_ref(), request, observation)
     })
     .await
     .map_err(|_| "Computer Use action worker failed.".to_string())?
 }
 
+fn observe_and_remember(state: &ComputerState) -> Result<Observation, String> {
+    let generation = state.observation_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let observation = platform::observe(generation)?;
+    let context = ObservationContext {
+        observation_id: observation.observation_id.clone(),
+        generation: observation.generation,
+        expires_at: observation.expires_at,
+        window_id: observation.window_id.clone(),
+        monitor_id: observation.monitor_id.clone(),
+        window_bounds: observation.window_bounds.clone(),
+        virtual_bounds: PhysicalBounds {
+            x: observation.origin_x,
+            y: observation.origin_y,
+            width: observation.width,
+            height: observation.height,
+        },
+    };
+    *state
+        .last_observation
+        .lock()
+        .map_err(|_| "Observation state unavailable.")? = Some(context);
+    Ok(observation)
+}
+
+fn validate_action_context(
+    state: &ComputerState,
+    request: &ActionRequest,
+) -> Result<ObservationContext, String> {
+    if request.action_id.trim().is_empty()
+        || request.plan_id.trim().is_empty()
+        || request.step_id.trim().is_empty()
+        || request.expected_effect.trim().is_empty()
+    {
+        return Err(
+            "action_context_missing: action, plan, step and expected effect are required.".into(),
+        );
+    }
+    if request.max_attempts == 0 || request.max_attempts > 2 {
+        return Err("retry_budget_invalid: maxAttempts must be 1 or 2.".into());
+    }
+    let observation = state
+        .last_observation
+        .lock()
+        .map_err(|_| "Observation state unavailable.")?
+        .clone()
+        .ok_or("observation_required: observe immediately before acting.")?;
+    if observation.observation_id != request.observation_id
+        || observation.generation != request.observation_generation
+    {
+        return Err(
+            "stale_observation: action is not tied to the latest observation generation.".into(),
+        );
+    }
+    if observation.expires_at <= now_ms() {
+        return Err("stale_observation: approved observation expired.".into());
+    }
+    if matches!(request.action.as_str(), "moveMouse" | "clickMouse") {
+        let x = request.x.ok_or("coordinate_mismatch: x is required.")?;
+        let y = request.y.ok_or("coordinate_mismatch: y is required.")?;
+        if !contains(&observation.virtual_bounds, x, y)
+            || !contains(&observation.window_bounds, x, y)
+        {
+            return Err(
+                "coordinate_mismatch: target is outside the observed foreground window.".into(),
+            );
+        }
+    }
+    Ok(observation)
+}
+
+fn contains(bounds: &PhysicalBounds, x: i32, y: i32) -> bool {
+    x >= bounds.x
+        && y >= bounds.y
+        && x < bounds.x.saturating_add(bounds.width)
+        && y < bounds.y.saturating_add(bounds.height)
+}
+
 #[cfg(not(windows))]
 mod platform {
     use super::*;
-    pub fn observe() -> Result<Observation, String> {
+    pub fn observe(_: u64) -> Result<Observation, String> {
         Err("Windows native bridge unavailable.".into())
     }
-    pub fn act(_: &AtomicBool, _: ActionRequest) -> Result<ActionResult, String> {
+    pub fn validate_foreground(_: &ObservationContext) -> Result<(), String> {
+        Err("Windows native bridge unavailable.".into())
+    }
+    pub fn act(
+        _: &AtomicBool,
+        _: ActionRequest,
+        _: ObservationContext,
+    ) -> Result<ActionResult, String> {
         Err("Windows native bridge unavailable.".into())
     }
 }
@@ -300,27 +541,83 @@ mod platform {
     use super::*;
     use base64::Engine;
     use std::process::Command;
-    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Foundation::{POINT, RECT};
     use windows_sys::Win32::Graphics::Gdi::{
         BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+        GetDIBits, GetMonitorInfoW, MonitorFromWindow, ReleaseDC, SelectObject, BITMAPINFO, BI_RGB,
+        DIB_RGB_COLORS, MONITORINFO, MONITOR_DEFAULTTONEAREST, SRCCOPY,
     };
+    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
         SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
         KEYEVENTF_UNICODE, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN,
         MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, MOUSEINPUT,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetCursorPos, GetSystemMetrics, SetCursorPos, SM_CXSCREEN, SM_CYSCREEN,
+        GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
+        GetWindowThreadProcessId, SetCursorPos, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
     };
 
-    fn dimensions() -> Result<(i32, i32), String> {
-        let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        if width <= 0 || height <= 0 || width > 10000 || height > 10000 {
-            return Err("Primary display dimensions are unavailable.".into());
+    fn virtual_bounds() -> Result<PhysicalBounds, String> {
+        let bounds = PhysicalBounds {
+            x: unsafe { GetSystemMetrics(SM_XVIRTUALSCREEN) },
+            y: unsafe { GetSystemMetrics(SM_YVIRTUALSCREEN) },
+            width: unsafe { GetSystemMetrics(SM_CXVIRTUALSCREEN) },
+            height: unsafe { GetSystemMetrics(SM_CYVIRTUALSCREEN) },
+        };
+        if bounds.width <= 0 || bounds.height <= 0 || bounds.width > 32768 || bounds.height > 32768
+        {
+            return Err("Virtual desktop dimensions are unavailable.".into());
         }
-        Ok((width, height))
+        Ok(bounds)
+    }
+
+    fn rect_bounds(rect: RECT) -> PhysicalBounds {
+        PhysicalBounds {
+            x: rect.left,
+            y: rect.top,
+            width: rect.right.saturating_sub(rect.left),
+            height: rect.bottom.saturating_sub(rect.top),
+        }
+    }
+
+    fn foreground_context(
+    ) -> Result<(String, u32, PhysicalBounds, String, PhysicalBounds, f64), String> {
+        let window = unsafe { GetForegroundWindow() };
+        if window.is_null() {
+            return Err("foreground_mismatch: no foreground window is available.".into());
+        }
+        let mut process_id = 0_u32;
+        unsafe { GetWindowThreadProcessId(window, &mut process_id) };
+        let mut window_rect = RECT::default();
+        if unsafe { GetWindowRect(window, &mut window_rect) } == 0 {
+            return Err("foreground_mismatch: foreground window bounds are unavailable.".into());
+        }
+        let monitor = unsafe { MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) };
+        if monitor.is_null() {
+            return Err("monitor_unavailable: foreground monitor is unavailable.".into());
+        }
+        let mut monitor_info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(monitor, &mut monitor_info) } == 0 {
+            return Err("monitor_unavailable: monitor geometry is unavailable.".into());
+        }
+        let dpi = unsafe { GetDpiForWindow(window) };
+        let monitor_bounds = rect_bounds(monitor_info.rcMonitor);
+        Ok((
+            format!("hwnd:{:x}", window as usize),
+            process_id,
+            rect_bounds(window_rect),
+            format!(
+                "monitor:{}:{}:{}:{}",
+                monitor_bounds.x, monitor_bounds.y, monitor_bounds.width, monitor_bounds.height
+            ),
+            monitor_bounds,
+            if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 },
+        ))
     }
 
     fn cursor() -> Result<(i32, i32), String> {
@@ -331,8 +628,12 @@ mod platform {
         Ok((point.x, point.y))
     }
 
-    pub fn observe() -> Result<Observation, String> {
-        let (width, height) = dimensions()?;
+    pub fn observe(generation: u64) -> Result<Observation, String> {
+        let bounds = virtual_bounds()?;
+        let width = bounds.width;
+        let height = bounds.height;
+        let (window_id, window_process_id, window_bounds, monitor_id, monitor_bounds, scale_factor) =
+            foreground_context()?;
         let screen = unsafe { GetDC(std::ptr::null_mut()) };
         if screen.is_null() {
             return Err("Screen capture device context unavailable.".into());
@@ -353,7 +654,11 @@ mod platform {
         }
 
         let old = unsafe { SelectObject(memory, bitmap) };
-        let copied = unsafe { BitBlt(memory, 0, 0, width, height, screen, 0, 0, SRCCOPY) };
+        let copied = unsafe {
+            BitBlt(
+                memory, 0, 0, width, height, screen, bounds.x, bounds.y, SRCCOPY,
+            )
+        };
         unsafe {
             SelectObject(memory, old);
         }
@@ -390,7 +695,7 @@ mod platform {
         }
 
         let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
-        for pixel in bgra.chunks_exact(4) {
+        for pixel in bgra.as_chunks::<4>().0 {
             rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
         }
         let mut png_bytes = Vec::new();
@@ -404,18 +709,52 @@ mod platform {
                 .map_err(|_| "PNG image encoding failed.")?;
         }
         let (cursor_x, cursor_y) = cursor()?;
+        let captured_at = now_ms();
         Ok(Observation {
+            observation_id: format!("observation-{captured_at}-{generation}"),
+            generation,
             image_data_url: format!(
                 "data:image/png;base64,{}",
                 base64::engine::general_purpose::STANDARD.encode(png_bytes)
             ),
+            origin_x: bounds.x,
+            origin_y: bounds.y,
             width,
             height,
             cursor_x,
             cursor_y,
-            captured_at: now_ms(),
-            source: "windows_gdi_primary_display",
+            captured_at,
+            expires_at: captured_at + OBSERVATION_TTL.as_millis() as u64,
+            source: "windows_gdi_virtual_desktop",
+            confidence: 1.0,
+            window_id,
+            window_process_id,
+            window_bounds,
+            monitor_id,
+            monitor_bounds,
+            scale_factor,
+            coordinate_space: "physical_virtual_desktop",
+            uia_available: false,
+            ocr_available: false,
         })
+    }
+
+    pub fn validate_foreground(observation: &ObservationContext) -> Result<(), String> {
+        let (window_id, _, window_bounds, monitor_id, _, _) = foreground_context()?;
+        if window_id != observation.window_id {
+            return Err("foreground_mismatch: foreground window changed after observation.".into());
+        }
+        if monitor_id != observation.monitor_id {
+            return Err("coordinate_mismatch: foreground window moved to another monitor.".into());
+        }
+        if window_bounds.x != observation.window_bounds.x
+            || window_bounds.y != observation.window_bounds.y
+            || window_bounds.width != observation.window_bounds.width
+            || window_bounds.height != observation.window_bounds.height
+        {
+            return Err("target_moved: foreground window bounds changed after observation.".into());
+        }
+        Ok(())
     }
 
     fn send(inputs: &[INPUT]) -> Result<(), String> {
@@ -504,21 +843,36 @@ mod platform {
         normalized.iter().map(|key| virtual_key(key)).collect()
     }
 
-    pub fn act(stopped: &AtomicBool, request: ActionRequest) -> Result<ActionResult, String> {
-        let (width, height) = dimensions()?;
+    pub fn act(
+        stopped: &AtomicBool,
+        request: ActionRequest,
+        observation: ObservationContext,
+    ) -> Result<ActionResult, String> {
+        if stopped.load(Ordering::SeqCst) {
+            return Err("action_blocked: Computer Use was interrupted before dispatch.".into());
+        }
+        let bounds = virtual_bounds()?;
         match request.action.as_str() {
             "moveMouse" | "clickMouse" => {
                 let (x, y) = (
                     request.x.ok_or("x is required.")?,
                     request.y.ok_or("y is required.")?,
                 );
-                if x < 0 || y < 0 || x >= width || y >= height {
-                    return Err("Target is outside the primary display.".into());
+                if !contains(&bounds, x, y) {
+                    return Err(
+                        "coordinate_mismatch: target is outside the virtual desktop.".into(),
+                    );
                 }
                 if unsafe { SetCursorPos(x, y) } == 0 {
                     return Err("Could not move cursor.".into());
                 }
                 if request.action == "clickMouse" {
+                    if stopped.load(Ordering::SeqCst) {
+                        return Err(
+                            "action_blocked: Computer Use was interrupted before click dispatch."
+                                .into(),
+                        );
+                    }
                     let flags = match request.button.as_deref().unwrap_or("left") {
                         "left" => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
                         "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
@@ -596,11 +950,18 @@ mod platform {
             "input_injected_outcome_unverified"
         };
         Ok(ActionResult {
+            action_id: request.action_id,
+            plan_id: request.plan_id,
+            step_id: request.step_id,
             action: request.action,
             injected: true,
+            dispatch_status: "dispatched",
             cursor_x,
             cursor_y,
             verification,
+            verification_status: "pending_post_observation",
+            pre_observation_id: observation.observation_id,
+            attempts: 1,
         })
     }
 
@@ -637,6 +998,49 @@ mod platform {
 mod tests {
     use super::*;
 
+    fn observation(id: &str, generation: u64, expires_at: u64) -> ObservationContext {
+        ObservationContext {
+            observation_id: id.into(),
+            generation,
+            expires_at,
+            window_id: "hwnd:test".into(),
+            monitor_id: "monitor:-1920:0:1920:1080".into(),
+            window_bounds: PhysicalBounds {
+                x: -1800,
+                y: 100,
+                width: 800,
+                height: 600,
+            },
+            virtual_bounds: PhysicalBounds {
+                x: -1920,
+                y: 0,
+                width: 3840,
+                height: 1080,
+            },
+        }
+    }
+
+    fn action(observation_id: &str, generation: u64, x: i32, y: i32) -> ActionRequest {
+        ActionRequest {
+            action_id: "action-test".into(),
+            plan_id: "plan-test".into(),
+            step_id: "step-test".into(),
+            observation_id: observation_id.into(),
+            observation_generation: generation,
+            expected_effect: "cursor_moved".into(),
+            max_attempts: 1,
+            action: "moveMouse".into(),
+            x: Some(x),
+            y: Some(y),
+            button: None,
+            text: None,
+            key: None,
+            keys: None,
+            delta: None,
+            app: None,
+        }
+    }
+
     #[test]
     fn native_actions_require_a_live_session_and_stop_revokes_it() {
         let state = ComputerState::default();
@@ -650,5 +1054,41 @@ mod tests {
         assert!(require_session(&state, "other").is_err());
         state.stopped.store(true, Ordering::SeqCst);
         assert!(require_session(&state, &id).is_err());
+    }
+
+    #[test]
+    fn action_context_rejects_stale_generation_and_outside_window_coordinates() {
+        let state = ComputerState::default();
+        *state.last_observation.lock().unwrap() = Some(observation("obs-2", 2, now_ms() + 5_000));
+        assert!(
+            validate_action_context(&state, &action("obs-1", 1, -1500, 300))
+                .unwrap_err()
+                .contains("stale_observation")
+        );
+        assert!(
+            validate_action_context(&state, &action("obs-2", 2, 200, 300))
+                .unwrap_err()
+                .contains("coordinate_mismatch")
+        );
+        assert!(validate_action_context(&state, &action("obs-2", 2, -1500, 300)).is_ok());
+    }
+
+    #[test]
+    fn expired_observation_and_unbounded_retry_fail_closed() {
+        let state = ComputerState::default();
+        *state.last_observation.lock().unwrap() =
+            Some(observation("obs-expired", 4, now_ms().saturating_sub(1)));
+        assert!(
+            validate_action_context(&state, &action("obs-expired", 4, -1500, 300))
+                .unwrap_err()
+                .contains("stale_observation")
+        );
+        *state.last_observation.lock().unwrap() =
+            Some(observation("obs-live", 5, now_ms() + 5_000));
+        let mut request = action("obs-live", 5, -1500, 300);
+        request.max_attempts = 3;
+        assert!(validate_action_context(&state, &request)
+            .unwrap_err()
+            .contains("retry_budget_invalid"));
     }
 }

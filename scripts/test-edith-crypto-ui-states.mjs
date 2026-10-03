@@ -7,8 +7,8 @@ import { chromium } from 'playwright';
 // No fixture is installed in the app/server and no write request reaches the network.
 const baseUrl = process.env.EDITH_UI_URL || 'http://127.0.0.1:3000';
 const outputDir = path.resolve('artifacts', 'crypto-terminal', 'fixture-states');
-const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT'];
-const safetyLabels = ['DEMO ONLY', 'NO REAL MONEY', 'NO REAL ORDERS', 'SIMULATION ONLY', 'LIVE TRADING DISABLED'];
+const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT', 'TRXUSDT', 'ZECUSDT', 'HYPEUSDT', 'DOGEUSDT', 'ADAUSDT'];
+const safetyLabels = ['İKİ AYRI HAT', 'DEMO: 10,000 CR', 'CANLI: LIMIT SPOT', 'HER EMİRDE TEK KULLANIMLIK ONAY', 'ÇEKİM / FUTURES / MARGIN YOK'];
 const btcPrice = 98123.45;
 const ethPrice = 2042.75;
 fs.mkdirSync(outputDir, { recursive: true });
@@ -63,7 +63,9 @@ function fixtures(url, state) {
     '/api/crypto/trades': { trades: [] },
     '/api/crypto/decision/latest': { decision: state.decision },
     '/api/crypto/jev/status': { configured: true, available: true, status: 'ready', model: 'TEST_ONLY_FIXTURE_MODEL', secretExposed: false },
-    '/api/crypto/jev/loop': state.malformedLoop ? {} : { state: 'STOPPED', running: false, symbolCount: 8, minimumIntervalSeconds: 10, cycles: 0, decisionCount: 0, elapsedSeconds: 0 },
+    '/api/crypto/jev/loop': state.malformedLoop ? {} : { state: 'STOPPED', running: false, symbolCount: 10, minimumIntervalSeconds: 10, cycles: 0, decisionCount: 0, elapsedSeconds: 0 },
+    '/api/crypto/binance/status': { status: { configured: false, enabled: false, liveEnabled: false, killSwitch: false, watchlist: symbols } },
+    '/api/crypto/binance/markets': { markets: symbols.map((symbol, index) => ({ rank: index + 1, symbol, price: symbol === 'BTCUSDT' ? btcPrice : symbol === 'ETHUSDT' ? ethPrice : 123.45, change24h: 1.25 })) },
     '/api/edith/crypto/status': { success: true, status: { healthy: !state.offline, managedProcessRunning: !state.offline } },
   };
   if (state.offline || (state.marketFailure && url.pathname === '/api/crypto/market') || (state.decisionFailure && url.pathname === '/api/crypto/decision/latest')) {
@@ -77,7 +79,7 @@ const button = (terminal, name) => terminal.getByRole('button', { name, exact: t
 const panel = (terminal, name) => terminal.locator('section').filter({ has: terminal.page().getByRole('heading', { name, exact: true }) });
 const metric = (scope, label) => scope.getByText(label, { exact: true }).locator('..').locator(':scope > div').last();
 const header = (terminal) => terminal.locator('header').first();
-const badge = (terminal) => panel(terminal, 'Jev Kararı').locator('.crypto-terminal-decision-badge');
+const badge = (terminal) => panel(terminal, 'Jev Sağlığı ve Karar Kaydı').locator('.crypto-terminal-decision-badge');
 
 async function disabled(terminal, names, expected = true) {
   for (const name of names) {
@@ -141,14 +143,14 @@ const cases = [
     await refresh(terminal);
     await eventually(async () => {
       assert.match(await terminal.locator('[role="status"]').innerText(), /Jev döngüsü/);
-      assert.equal(await panel(terminal, 'Jev Kararı').getByText('UNKNOWN', { exact: true }).isVisible(), true);
+      assert.equal(await panel(terminal, 'Jev Sağlığı ve Karar Kaydı').getByText('UNKNOWN', { exact: true }).isVisible(), true);
       await disabled(terminal, ['Demo Hesabı Sıfırla', 'Run Jev Decision', "Jev'i Çalıştır"]);
       await disabled(terminal, ['Durdur'], false);
     }, 'unknown loop fails closed while Stop remains available');
-    return panel(terminal, 'Jev Kararı');
+    return panel(terminal, 'Jev Sağlığı ve Karar Kaydı');
   } },
   { name: 'reversed-market-responses', run: async ({ state, terminal, page, pending, audit }) => {
-    await eventually(async () => assert.equal(new Set(audit.fixtures.filter((entry) => entry.pathname === '/api/crypto/market').map((entry) => entry.symbol)).size, 8), 'watchlist fixtures settled');
+    await eventually(async () => assert.equal(new Set(audit.fixtures.filter((entry) => entry.pathname === '/api/crypto/market').map((entry) => entry.symbol)).size, symbols.length), 'watchlist fixtures settled');
     state.holdBtc = true;
     await button(terminal, 'Verileri yenile').click();
     await eventually(async () => assert.ok(pending.length > 0), 'BTC response is held');
@@ -213,14 +215,14 @@ const cases = [
     await eventually(async () => {
       assert.equal(await badge(terminal).innerText(), action === 'ERROR' ? '-' : action);
       assert.equal(await badge(terminal).getAttribute('data-decision'), action === 'ERROR' ? null : action);
-      const text = await panel(terminal, 'Jev Kararı').innerText();
+      const text = await panel(terminal, 'Jev Sağlığı ve Karar Kaydı').innerText();
       assert.match(text, /TEST_ONLY_FIXTURE/);
       if (action === 'HOLD') assert.match(text, /Geçerli bekleme kararı/);
       if (action === 'ERROR') assert.match(text, /INVALID OUTPUT/);
       assert.doesNotMatch(text, /Karar demo portföyde uygulandı/);
       assert.equal(await panel(terminal, 'Demo İşlem Geçmişi').locator('tbody tr').count(), 0);
     }, `${action} fixture badge and execution status`);
-    return panel(terminal, 'Jev Kararı');
+    return panel(terminal, 'Jev Sağlığı ve Karar Kaydı');
   } })),
   { name: 'decision-feed-error', run: async ({ state, terminal }) => {
     state.decision = { id: 'TEST_ONLY_PREVIOUS_BUY', decision: 'BUY', symbol: 'BTCUSDT' };
@@ -233,7 +235,7 @@ const cases = [
       assert.equal(await badge(terminal).getAttribute('data-decision'), null);
       assert.match(await terminal.locator('[role="status"]').innerText(), /Karar/);
     }, 'decision feed failure clears stale BUY');
-    return panel(terminal, 'Jev Kararı');
+    return panel(terminal, 'Jev Sağlığı ve Karar Kaydı');
   } },
 ];
 
@@ -301,6 +303,9 @@ try {
       }, test.name);
       await healthy(terminal);
       await safety(terminal);
+      if (test.name === 'reversed-market-responses') {
+        await panel(terminal, 'Binance Global Spot').screenshot({ path: path.join(outputDir, 'binance-global-spot-panel.png') });
+      }
       const focus = await test.run({ state, terminal, page, pending, audit });
       result.reducedMotion = await terminal.evaluate((element) => ({
         requested: matchMedia('(prefers-reduced-motion: reduce)').matches,

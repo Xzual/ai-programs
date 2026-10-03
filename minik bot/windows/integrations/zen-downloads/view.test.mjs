@@ -1,0 +1,10 @@
+import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
+import ts from "typescript";
+const source = readFileSync(new URL("../../src/views/downloads.ts", import.meta.url), "utf8").replace(/^import .*$/gm, "");
+const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const { downloadBytes, downloadEta, downloadPercent } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+assert.equal(downloadBytes(null), "—"); assert.equal(downloadBytes(-1), "—"); assert.equal(downloadBytes(0), "0 B"); assert.equal(downloadBytes(1500000), "1,5 MB");
+assert.equal(downloadEta(null), "Süre bilinmiyor"); assert.equal(downloadEta(NaN), "Süre bilinmiyor"); assert.equal(downloadEta(61), "~2 dk");
+assert.equal(downloadPercent({ received_bytes: 50, total_bytes: 100 }), 50); assert.equal(downloadPercent({ received_bytes: 50, total_bytes: null }), null); assert.equal(downloadPercent({ received_bytes: 101, total_bytes: 100 }), null);
+console.log("Download view tests passed: unknown byte/speed/ETA boundaries, localized values, real percentage only.");

@@ -1,15 +1,47 @@
-import { Router } from "express";
+import { Router, type Request, type RequestHandler } from "express";
+import { requireProtectedMutation, ownerActor } from "../security/ownerSession";
+import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from "../../src/edith/audit";
 import { knowledgeGraphService } from "../../src/edith/knowledgeGraphService";
 import { knowledgeMapService } from "../../src/edith/knowledgeMapService";
 import { obsidianVaultService } from "../../src/edith/obsidianVaultService";
 import { ragService } from "../../src/edith/ragService";
-import { readRecentAuditEvents } from "../../src/edith/audit";
 import { getEdithPersistenceStore } from "../../src/edith/persistence";
 import { taskService } from "../../src/edith/taskService";
 import { parseMemoryLimit } from "../utils/memoryParsing";
+import { toPublicKnowledgeDto } from "../../src/edith/contracts";
 
-export function createKnowledgeRouter(): Router {
+function auditKnowledgeMutation(
+  req: Request,
+  action: string,
+  result: "success" | "error",
+  message: string,
+  riskLevel: 2 | 3 = 2,
+): void {
+  try {
+    appendAuditEvent(createAuditEvent({
+      actor: ownerActor(req),
+      action,
+      toolId: "obsidian_vault_service",
+      target: "configured_obsidian_vault",
+      authorization: "allowed",
+      riskLevel,
+      result,
+      message,
+    }));
+  } catch {
+    console.warn("[Knowledge API] Audit write failed.");
+  }
+}
+
+export function createKnowledgeRouter(options: { protectedMutation?: RequestHandler[] } = {}): Router {
   const router = Router();
+  const protectedMutation = options.protectedMutation ?? requireProtectedMutation;
+
+  router.use((_req, res, next) => {
+    const sendJson = res.json.bind(res);
+    res.json = ((body: unknown) => sendJson(toPublicKnowledgeDto(body))) as typeof res.json;
+    next();
+  });
 
   router.get("/api/edith/knowledge-map", (_req, res) => {
     res.json({
@@ -96,8 +128,9 @@ export function createKnowledgeRouter(): Router {
     });
   });
 
-  router.post("/api/knowledge/sync", (_req, res) => {
+  router.post("/api/knowledge/sync", ...protectedMutation, (req, res) => {
     const reindex = obsidianVaultService.reindex();
+    auditKnowledgeMutation(req, "obsidian.reindex", reindex.success ? "success" : "error", `Indexed ${reindex.indexed} item(s); ${reindex.errors.length} error(s).`);
     res.status(reindex.success ? 200 : 409).json({ success: reindex.success, reindex });
   });
 
@@ -161,8 +194,10 @@ export function createKnowledgeRouter(): Router {
     });
   });
 
-  router.post("/api/edith/knowledge/reindex", (_req, res) => {
-    res.json({ success: true, reindex: obsidianVaultService.reindex() });
+  router.post("/api/edith/knowledge/reindex", ...protectedMutation, (req, res) => {
+    const reindex = obsidianVaultService.reindex();
+    auditKnowledgeMutation(req, "obsidian.reindex", reindex.success ? "success" : "error", `Indexed ${reindex.indexed} item(s); ${reindex.errors.length} error(s).`);
+    res.status(reindex.success ? 200 : 409).json({ success: reindex.success, reindex });
   });
 
   router.get("/api/edith/knowledge/rag/status", (_req, res) => {
@@ -183,19 +218,17 @@ export function createKnowledgeRouter(): Router {
     res.json({ success: true, status: obsidianVaultService.status() });
   });
 
-  router.post("/api/edith/obsidian/vault", (req, res) => {
+  router.post("/api/edith/obsidian/vault", ...protectedMutation, (req, res) => {
     const address = req.socket.remoteAddress ?? "";
     if (address !== "127.0.0.1" && address !== "::1" && address !== "::ffff:127.0.0.1") {
       return res.status(403).json({ success: false, error: "Vault konumu yalnızca yerel bilgisayardan değiştirilebilir." });
     }
-    if (typeof req.body?.parentPath !== "string" || !req.body.parentPath.trim()) {
-      return res.status(400).json({ success: false, error: "Klasör yolu gerekli." });
-    }
-    try {
-      res.json({ success: true, ...obsidianVaultService.configureVaultParent(req.body.parentPath) });
-    } catch (error) {
-      res.status(400).json({ success: false, error: error instanceof Error ? error.message : "Vault oluşturulamadı." });
-    }
+    auditKnowledgeMutation(req, "obsidian.legacy_direct_path_denied", "error", "Direct-path Obsidian configuration was rejected.", 3);
+    return res.status(410).json({
+      success: false,
+      errorCode: "TRUSTED_NATIVE_PICKER_REQUIRED",
+      safeMessage: "Vault selection is accepted only through the trusted native folder picker.",
+    });
   });
 
   router.get("/api/obsidian/recent", (_req, res) => {
@@ -213,15 +246,19 @@ export function createKnowledgeRouter(): Router {
     });
   });
 
-  router.patch("/api/edith/obsidian/settings", (req, res) => {
-    res.json({ success: true, settings: obsidianVaultService.updateSettings(req.body ?? {}), status: obsidianVaultService.status() });
+  router.patch("/api/edith/obsidian/settings", ...protectedMutation, (req, res) => {
+    const settings = obsidianVaultService.updateSettings(req.body ?? {});
+    auditKnowledgeMutation(req, "obsidian.settings_update", "success", "Updated Obsidian integration settings.");
+    res.json({ success: true, settings, status: obsidianVaultService.status() });
   });
 
-  router.post("/api/edith/obsidian/sync-now", (_req, res) => {
-    res.json({ success: true, reindex: obsidianVaultService.reindex() });
+  router.post("/api/edith/obsidian/sync-now", ...protectedMutation, (req, res) => {
+    const reindex = obsidianVaultService.reindex();
+    auditKnowledgeMutation(req, "obsidian.sync_now", reindex.success ? "success" : "error", `Indexed ${reindex.indexed} item(s); ${reindex.errors.length} error(s).`);
+    res.status(reindex.success ? 200 : 409).json({ success: reindex.success, reindex });
   });
 
-  router.post("/api/edith/obsidian/agent-notes", (req, res) => {
+  router.post("/api/edith/obsidian/agent-notes", ...protectedMutation, (req, res) => {
     const kind = String(req.body?.kind ?? "");
     if (kind !== "research" && kind !== "coding" && kind !== "meeting" && kind !== "trading") {
       return res.status(400).json({ success: false, error: "kind must be research, coding, meeting, or trading." });
@@ -238,7 +275,7 @@ export function createKnowledgeRouter(): Router {
     res.status(exportStatus.exported ? 200 : 409).json({ success: exportStatus.exported, export: exportStatus, path: exportStatus.notePath });
   });
 
-  router.post("/api/knowledge/write-note", (req, res) => {
+  router.post("/api/knowledge/write-note", ...protectedMutation, (req, res) => {
     const type = String(req.body?.type ?? "").trim();
     let exportStatus;
     if (type === "conversation") {

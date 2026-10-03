@@ -13,8 +13,8 @@ import {
 const rows = (value: unknown): value is Json[] => Array.isArray(value) && value.every(record);
 
 const SYMBOL_FALLBACK = [
-  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT',
-  'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT',
+  'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'SOLUSDT',
+  'TRXUSDT', 'ZECUSDT', 'HYPEUSDT', 'DOGEUSDT', 'ADAUSDT',
 ];
 const TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h'];
 
@@ -168,6 +168,14 @@ export function CryptoExchangeTerminal() {
   const [failedFeeds, setFailedFeeds] = React.useState<string[]>([]);
   const [checkedAt, setCheckedAt] = React.useState<string | null>(null);
   const [watchQuotes, setWatchQuotes] = React.useState<Record<string, Json>>({});
+  const [binanceStatus, setBinanceStatus] = React.useState<Json>({ watchlist: SYMBOL_FALLBACK });
+  const [binanceMarkets, setBinanceMarkets] = React.useState<Json[]>([]);
+  const [binanceAccount, setBinanceAccount] = React.useState<Json | null>(null);
+  const [liveSide, setLiveSide] = React.useState<'BUY' | 'SELL'>('BUY');
+  const [livePrice, setLivePrice] = React.useState('');
+  const [liveQuantity, setLiveQuantity] = React.useState('');
+  const [liveProposal, setLiveProposal] = React.useState<Json | null>(null);
+  const [approvalPhrase, setApprovalPhrase] = React.useState('');
   const requestVersion = React.useRef(0);
   const refreshInFlight = React.useRef(false);
   const selection = React.useRef({ symbol, timeframe });
@@ -230,12 +238,36 @@ export function CryptoExchangeTerminal() {
   });
   const mutationsLocked = Boolean(busy) || operation.locked;
 
+  const refreshBinance = React.useCallback(async () => {
+    const [statusResult, marketsResult] = await Promise.allSettled([
+      api('/api/crypto/binance/status'), api('/api/crypto/binance/markets'),
+    ]);
+    if (statusResult.status === 'fulfilled' && record(statusResult.value.status)) {
+      setBinanceStatus(statusResult.value.status);
+      if (statusResult.value.status.configured) {
+        try { const accountResult = await api('/api/crypto/binance/account'); setBinanceAccount(accountResult.account || null); }
+        catch { setBinanceAccount(null); }
+      } else setBinanceAccount(null);
+      try {
+        const latest = await api('/api/crypto/binance/proposals/latest');
+        if (record(latest.proposal)) setLiveProposal(latest.proposal);
+      } catch { /* Owner session may not be ready yet. */ }
+    }
+    if (marketsResult.status === 'fulfilled' && rows(marketsResult.value.markets)) setBinanceMarkets(marketsResult.value.markets);
+  }, []);
+
   React.useEffect(() => {
     setMarket({ candles: [], orderBook: { bids: [], asks: [] } });
     void refresh();
     const timer = window.setInterval(() => void refresh(true), jevLoop.running ? 5000 : 10000);
     return () => { window.clearInterval(timer); requestVersion.current += 1; refreshInFlight.current = false; };
   }, [refresh, symbol, timeframe, jevLoop.running]);
+
+  React.useEffect(() => {
+    void refreshBinance();
+    const timer = window.setInterval(() => void refreshBinance(), 30000);
+    return () => window.clearInterval(timer);
+  }, [refreshBinance]);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => setClock(Date.now()), 1000);
@@ -335,6 +367,35 @@ export function CryptoExchangeTerminal() {
     await operation.submit('reset', { confirmation: 'RESET_DEMO_ACCOUNT' });
   };
 
+  const createLiveProposal = async () => {
+    if (mutationsLocked || !livePrice || !liveQuantity) return;
+    setBusy('live-proposal'); setMessage(null); setApprovalPhrase('');
+    try {
+      const result = await api('/api/crypto/binance/proposals', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, side: liveSide, type: 'LIMIT', price: livePrice, quantity: liveQuantity, source: decision?.source === 'jev' ? 'jev' : 'manual', rationale: decision?.reason }),
+      });
+      setLiveProposal(result.proposal);
+      setMessage({ text: 'Canlı emir gönderilmedi. Binance filtrelerine göre tek kullanımlık onay taslağı oluşturuldu.' });
+    } catch (error: any) { setMessage({ text: error?.message || 'Canlı emir taslağı oluşturulamadı.', error: true }); }
+    finally { setBusy(null); }
+  };
+
+  const resolveLiveProposal = async (action: 'approve' | 'reject') => {
+    if (!liveProposal?.id || mutationsLocked) return;
+    setBusy(`live-${action}`); setMessage(null);
+    try {
+      const result = await api(`/api/crypto/binance/proposals/${encodeURIComponent(liveProposal.id)}/${action}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(action === 'approve' ? { approvalPhrase } : {}),
+      });
+      setLiveProposal(result.proposal);
+      setMessage({ text: action === 'reject' ? 'Emir taslağı reddedildi; emir gönderilmedi.' : result.proposal?.state === 'UNKNOWN' ? 'Binance sonucu belirsiz. Sistem yeniden emir göndermedi; emir kimliğiyle durum kontrolü gerekli.' : 'Onaylı LIMIT Spot emri Binance tarafından alındı.' , error: result.proposal?.state === 'UNKNOWN' });
+      void refreshBinance();
+    } catch (error: any) { setMessage({ text: error?.message || 'Canlı emir sonucu doğrulanamadı.', error: true }); }
+    finally { setBusy(null); }
+  };
+
   const ticker = market.symbol === symbol && market.timeframe === timeframe ? market.ticker || {} : {};
   const change = finiteNumber(ticker.change24h);
   const selectedMode = symbols.find((item) => item.symbol === symbol)?.mode || 'UNKNOWN';
@@ -351,11 +412,16 @@ export function CryptoExchangeTerminal() {
     : Number(jevLoop.elapsedSeconds || 0);
   const loopStopped = jevLoop.state === 'STOPPED' && jevLoop.running === false;
   const loopUnknown = failedFeeds.includes('Jev döngüsü') || jevLoop.state === 'UNKNOWN';
+  const jevHealthStale = jev.stale === true || jev.fresh === false || jev.status === 'stale';
+  const jevReady = !serviceOffline && jev.configured === true && jev.available === true && !jevHealthStale;
   const decisionExecuted = decision?.executed ?? decision?.execution?.executed ?? decision?.trade_executed ?? decision?.tradeExecuted;
   const blockedReason = decision?.blockedReason ?? decision?.execution?.reason ?? decision?.execution_error ?? decision?.risk_reason;
   const decisionBlocked = decision?.execution?.blocked || decision?.execution_error || decision?.blockedReason || decision?.risk_status === 'VETOED';
   const outcome = operation.outcome;
   const outcomeRejected = outcome && (outcome.operationStatus !== 'completed' || outcome.execution?.blocked === true);
+  const liveMarket = binanceMarkets.find((item) => item.symbol === symbol);
+  const liveReady = binanceStatus.configured === true && binanceStatus.enabled === true && binanceStatus.liveEnabled === true && binanceStatus.killSwitch !== true && binanceAccount?.canTrade === true;
+  const displaySymbols: Json[] = (Array.isArray(binanceStatus.watchlist) && binanceStatus.watchlist.length ? binanceStatus.watchlist : SYMBOL_FALLBACK).map((asset: string) => symbols.find((item) => item.symbol === asset) || ({ symbol: asset, mode: 'SPOT_WATCHLIST' }));
 
   return (
     <div className="crypto-terminal min-h-full w-full min-w-0 flex-1 overflow-auto font-sans text-zinc-200" data-testid="crypto-terminal">
@@ -366,15 +432,15 @@ export function CryptoExchangeTerminal() {
               <div className="crypto-terminal-brand flex h-9 w-9 items-center justify-center"><BarChart3 className="h-5 w-5" /></div>
               <div>
                 <div className="text-sm font-black tracking-wide text-white">E.D.I.T.H. CRYPTO</div>
-                <div className="text-[9px] font-semibold uppercase text-zinc-600">Jev Demo Exchange Terminali</div>
+                <div className="text-[9px] font-semibold uppercase text-zinc-600">Jev + Binance Global Spot Terminali</div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className="crypto-terminal-demo">DEMO MODE</span>
-              <span className="border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[10px] font-bold text-rose-300">GERÇEK PARA YOK</span>
-              <span className="border border-white/10 px-2 py-1 text-[10px] font-bold text-zinc-400">SİMÜLASYON</span>
+              <span className={`border px-2 py-1 text-[10px] font-bold ${liveReady ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-amber-400/30 bg-amber-400/10 text-amber-300'}`}>SPOT {liveReady ? 'ONAYLI CANLI' : 'KİLİTLİ'}</span>
+              <span className="border border-white/10 px-2 py-1 text-[10px] font-bold text-zinc-400">DEMO HESABI AYRI</span>
               <StatusDot active={market.status === 'online' && marketFresh} label={`BINANCE ${marketFresh ? String(market.status) : 'VERİ YOK / ESKİ'}`} />
-              <StatusDot active={!serviceOffline && jev.available === true} label={`JEV ${jev.status === 'checking' ? 'kontrol ediliyor' : serviceOffline || jev.status === 'offline' ? 'offline' : !jev.configured ? 'yapılandırılmalı' : jev.available === true ? 'hazır' : jev.available === false ? 'hata' : 'doğrulanmadı'}`} />
+              <StatusDot active={jevReady} label={`JEV ${jev.status === 'checking' ? 'kontrol ediliyor' : serviceOffline || jev.status === 'offline' ? 'offline' : !jev.configured ? 'yapılandırılmalı' : jevHealthStale ? 'stale' : jev.available === true ? 'hazır' : jev.available === false ? 'hata' : 'doğrulanmadı'}`} />
               <button onClick={() => void refresh()} disabled={loading || Boolean(busy)} aria-label="Verileri yenile" title="Verileri yenile" className="flex h-8 w-8 items-center justify-center border border-white/10 text-zinc-400 hover:bg-white/5 disabled:opacity-40">
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
@@ -393,7 +459,7 @@ export function CryptoExchangeTerminal() {
         </header>
 
         <div className="crypto-terminal-safety" role="note">
-          <ShieldCheck size={15} /><strong>DEMO ONLY</strong><span>NO REAL MONEY</span><span>NO REAL ORDERS</span><span>SIMULATION ONLY</span><span>LIVE TRADING DISABLED</span><span>Başlangıç: 10,000 CR</span>
+          <ShieldCheck size={15} /><strong>İKİ AYRI HAT</strong><span>DEMO: 10,000 CR</span><span>CANLI: LIMIT SPOT</span><span>HER EMİRDE TEK KULLANIMLIK ONAY</span><span>ÇEKİM / FUTURES / MARGIN YOK</span>
         </div>
         {serviceOffline && <div className="crypto-terminal-notice" role="status"><WifiOff size={18} /><div><strong>Crypto servisi çevrimdışı</strong><p>Demo kontrolleri beklemede. Son kontrol: {time(checkedAt)}</p></div><button onClick={startService} disabled={mutationsLocked}> <Play size={14} /> Servisi Başlat</button><button onClick={() => void refresh()} disabled={loading}><RefreshCw size={14} /> Tekrar dene</button></div>}
         {!!failedFeeds.length && !serviceOffline && <div className="crypto-terminal-notice" role="status">Veri alınamadı: {failedFeeds.join(', ')}. Bu panellerde güncel değer gösterilemiyor.</div>}
@@ -421,14 +487,15 @@ export function CryptoExchangeTerminal() {
         <div className="crypto-terminal-primary">
           <Panel title="Piyasalar" meta="USDT Spot" className="border-l-0 border-t-0 xl:border-b-0">
             <div className="divide-y divide-white/5">
-              {(symbols.length ? symbols : SYMBOL_FALLBACK.map((item) => ({ symbol: item }))).map((item) => {
+              {displaySymbols.map((item) => {
                 const quote = item.symbol === market.symbol ? market : watchQuotes[item.symbol];
+                const publicQuote = binanceMarkets.find((row) => row.symbol === item.symbol);
                 const quoteFresh = !serviceOffline && quote?.fresh === true && freshness(quote, clock, maxMarketDataAgeMs).status === 'fresh';
-                const quoteChange = quote?.ticker?.change24h;
+                const quoteChange = publicQuote?.change24h ?? quote?.ticker?.change24h;
                 return (
                 <button key={item.symbol} aria-pressed={symbol === item.symbol} onClick={() => setSymbol(item.symbol)} className={`crypto-terminal-market-row flex w-full items-center justify-between px-3 py-3 text-left transition ${symbol === item.symbol ? 'is-selected' : 'text-zinc-400 hover:bg-white/[0.03]'}`}>
                   <span className="font-mono text-xs font-bold">{String(item.symbol).replace('USDT', '')}<span className="text-zinc-600">/USDT</span></span>
-                  <span className="crypto-terminal-market-detail"><TickPrice value={quoteFresh ? quote?.ticker?.last : null} format={price} /><small>{quoteFresh && quoteChange != null ? `${Number(quoteChange) > 0 ? '+' : ''}${Number(quoteChange).toFixed(2)}%` : 'Veri yok / eski'}</small><small>{item.mode === 'DEMO_TRADE_ALLOWED' ? 'DEMO' : item.mode || 'UNKNOWN'}{jevLoop.lastDecisions?.find((row: Json) => row.symbol === item.symbol)?.action ? ` / ${jevLoop.lastDecisions.find((row: Json) => row.symbol === item.symbol).action}` : ''}</small></span>
+                  <span className="crypto-terminal-market-detail"><TickPrice value={publicQuote?.price ?? (quoteFresh ? quote?.ticker?.last : null)} format={price} /><small>{quoteChange != null ? `${Number(quoteChange) > 0 ? '+' : ''}${Number(quoteChange).toFixed(2)}%` : 'Veri yok / eski'}</small><small>TOP {publicQuote?.rank ?? '-'} · SPOT{jevLoop.lastDecisions?.find((row: Json) => row.symbol === item.symbol)?.action ? ` / ${jevLoop.lastDecisions.find((row: Json) => row.symbol === item.symbol).action}` : ''}</small></span>
                 </button>
               ); })}
             </div>
@@ -440,7 +507,7 @@ export function CryptoExchangeTerminal() {
           <main className="crypto-terminal-chart-panel min-w-0 border-x border-white/8">
             <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-white/8 px-4 py-2">
               <div className="flex items-baseline gap-3">
-                <select aria-label="Aktif parite" value={symbol} onChange={(event) => setSymbol(event.target.value)} className="crypto-terminal-symbol-select font-mono text-sm font-bold text-white">{(symbols.length ? symbols : SYMBOL_FALLBACK.map((item) => ({ symbol: item }))).map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol}</option>)}</select>
+                <select aria-label="Aktif parite" value={symbol} onChange={(event) => setSymbol(event.target.value)} className="crypto-terminal-symbol-select font-mono text-sm font-bold text-white">{displaySymbols.map((item) => <option key={item.symbol} value={item.symbol}>{item.symbol}</option>)}</select>
                 <span className="font-mono text-xl font-semibold tabular-nums"><TickPrice key={symbol} value={ticker.last} format={price} /></span>
               </div>
               <div className="flex items-center border border-white/10 bg-black/20">
@@ -537,17 +604,23 @@ export function CryptoExchangeTerminal() {
           </Panel>
 
           <div className="crypto-terminal-inspector">
-            <Panel title="Jev Kararı" meta="Decision-only" className="border-0 border-b border-white/8">
+            <Panel title="Jev Sağlığı ve Karar Kaydı" meta="Current + historical" className="border-0 border-b border-white/8">
               <div className="p-3">
-                <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Bot className="h-4 w-4 text-amber-300" /><span className="text-sm font-bold">Jev</span></div><span className="bg-amber-400/10 px-2 py-1 text-[9px] font-bold text-amber-300">{String(jev.status || 'config_required').toUpperCase()}</span></div>
+                <div className="flex items-center justify-between"><div className="flex items-center gap-2"><Bot className="h-4 w-4 text-amber-300" /><span className="text-sm font-bold">Current Jev Health</span></div><span className={`${jevReady ? 'bg-emerald-400/10 text-emerald-300' : jevHealthStale ? 'bg-amber-400/10 text-amber-300' : 'bg-rose-400/10 text-rose-300'} px-2 py-1 text-[9px] font-bold`}>{jevHealthStale ? 'STALE' : jevReady ? 'READY' : String(jev.status || 'config_required').toUpperCase()}</span></div>
+                <div className="mt-2 grid grid-cols-2 gap-px border border-white/8 bg-white/8 text-[10px]">
+                  <div className="bg-[#101210] p-2 text-zinc-500">Current availability<div className="mt-1 font-mono text-zinc-100">{jev.available === true ? (jevHealthStale ? 'STALE / NOT READY' : 'AVAILABLE') : jev.available === false ? 'UNAVAILABLE' : 'UNVERIFIED'}</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Health checked<div className="mt-1 font-mono text-zinc-100">{time(jev.checkedAt ?? jev.lastCheckedAt)}</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Health age<div className="mt-1 font-mono text-zinc-100">{finiteNumber(jev.ageMs ?? jev.healthAgeMs) === null ? '-' : `${Number(jev.ageMs ?? jev.healthAgeMs)} ms`}</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Provider contact<div className="mt-1 font-mono text-zinc-100">{time(jev.lastProviderContact ?? jev.lastContactAt)}</div></div>
+                </div>
                 <div className="crypto-terminal-jev-controls">
-                  <button className="crypto-terminal-primary-button" onClick={runDecision} disabled={!safeDemo || !marketFresh || !jev.configured || mutationsLocked || !loopStopped}><Bot size={16} />Run Jev Decision</button>
+                  <button className="crypto-terminal-primary-button" title={!jevReady ? 'Current Jev health must be fresh and available.' : 'Run a demo-only decision'} onClick={runDecision} disabled={!safeDemo || !marketFresh || !jevReady || mutationsLocked || !loopStopped}><Bot size={16} />Run Jev Decision</button>
                   <div className="crypto-terminal-ticket-safety"><ShieldCheck size={14} /> DEMO ONLY / {symbol}</div>
                   <span className="text-xs text-zinc-400">Girdi: {marketFresh ? 'Son alınan Binance verisi' : 'Veri yok / eski'} · {time(market.updatedAt)}</span>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
                   <div className="bg-black/20 p-2 text-zinc-500">Jev modeli<div className="mt-1 truncate font-mono text-xs text-zinc-100">{jev.model || '-'}</div></div>
-                  <div className="bg-black/20 p-2 text-zinc-500">Son karar / {decision?.symbol || '-'}<div className="mt-1 font-mono text-sm text-zinc-100"><DecisionBadge decision={decision?.action || decision?.decision} decisionId={decision?.decisionId ?? decision?.id} timestamp={decision?.timestamp} /></div></div>
+                  <div className="bg-black/20 p-2 text-zinc-500">Historical latest decision / {decision?.symbol || '-'}<div className="mt-1 font-mono text-sm text-zinc-100"><DecisionBadge decision={decision?.action || decision?.decision} decisionId={decision?.decisionId ?? decision?.id} timestamp={decision?.timestamp} /></div></div>
                   <div className="bg-black/20 p-2 text-zinc-500">Güven<div className="mt-1 font-mono text-xs text-zinc-100">{decision?.confidence == null ? '-' : `${(Number(decision.confidence) * 100).toFixed(1)}%`}</div></div>
                   <div className="bg-black/20 p-2 text-zinc-500">Karar gecikmesi<div className="mt-1 font-mono text-xs text-zinc-100">{decision?.latency_ms ?? decision?.latencyMs ?? '-'}{(decision?.latency_ms ?? decision?.latencyMs) != null ? ' ms' : ''}</div></div>
                   <div className="bg-black/20 p-2 text-zinc-500">Kaynak<div className="mt-1 font-mono text-xs text-zinc-100">{decision?.source || '-'}</div></div>
@@ -599,7 +672,7 @@ export function CryptoExchangeTerminal() {
                   </select>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button onClick={startJevLoop} disabled={!safeDemo || mutationsLocked || jevLoop.running || !jev.configured || failedFeeds.includes('Jev döngüsü')} className="flex h-9 items-center justify-center gap-2 bg-amber-400 text-xs font-black text-black disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600"><Play className="h-4 w-4" /> Jev'i Çalıştır</button>
+                  <button onClick={startJevLoop} title={!jevReady ? 'Current Jev health must be fresh and available.' : 'Start the demo-only decision loop'} disabled={!safeDemo || mutationsLocked || jevLoop.running || !jevReady || failedFeeds.includes('Jev döngüsü')} className="flex h-9 items-center justify-center gap-2 bg-amber-400 text-xs font-black text-black disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600"><Play className="h-4 w-4" /> Jev'i Çalıştır</button>
                   <button onClick={stopJevLoop} disabled={Boolean(busy) || serviceOffline || (!jevLoop.running && !loopUnknown)} className="flex h-9 items-center justify-center gap-2 border border-rose-400/30 text-xs font-black text-rose-300 hover:bg-rose-400/10 disabled:cursor-not-allowed disabled:border-white/8 disabled:text-zinc-700"><Square className="h-3.5 w-3.5" /> Durdur</button>
                 </div>
                 <div className="mt-2 flex items-center justify-between font-mono text-[9px] text-zinc-600"><span>AL {jevLoop.actions?.BUY || 0}</span><span>BEKLE {jevLoop.actions?.HOLD || 0}</span><span>SAT {jevLoop.actions?.SELL || 0}</span></div>
@@ -610,22 +683,39 @@ export function CryptoExchangeTerminal() {
               </div>
             </Panel>
 
-            <Panel title="Güvenlik / Faz" meta="Kilitli" className="border-0">
+            <Panel title="Binance Global Spot" meta={liveReady ? 'Canlı / Onaylı' : 'Kilitli'} className="border-0">
               <div className="space-y-2 p-3 text-[10px]">
-                <div className="flex items-center gap-2 text-emerald-400"><ShieldCheck className="h-4 w-4" /> Gerçek emir yolu yok</div>
-                <div className="flex items-center justify-between text-zinc-500"><span>Obsidian logging</span><span>KAPALI</span></div>
-                <div className="flex items-center justify-between text-zinc-500"><span>Öğrenme sistemi</span><span>KAPALI</span></div>
-                <div className="flex items-center justify-between text-zinc-500"><span>Haber analizi</span><span>KAPALI</span></div>
-                <div className="flex items-center justify-between text-zinc-500"><span>Ollama crypto</span><span>KAPALI</span></div>
-                <div className="flex items-center justify-between text-zinc-500"><span>Canlı Binance işlem</span><span className="text-rose-400">KİLİTLİ</span></div>
-                <button onClick={resetDemo} title={!loopStopped ? 'Sıfırlamadan önce Jev döngüsünün durduğunu doğrulayın.' : 'Geçmişi arşivle ve yeni demo oturumu başlat'} disabled={!safeDemo || mutationsLocked || !loopStopped} className="mt-2 flex h-8 w-full items-center justify-center gap-2 border border-rose-400/20 text-rose-300 hover:bg-rose-400/10 disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Demo Hesabı Sıfırla</button>
+                <div className={`flex items-center gap-2 ${liveReady ? 'text-emerald-400' : 'text-amber-300'}`}><ShieldCheck className="h-4 w-4" /> {liveReady ? 'Hesap ve trade izni doğrulandı' : 'Canlı emir için backend yapılandırması gerekli'}</div>
+                <div className="grid grid-cols-2 gap-px bg-white/8">
+                  <div className="bg-[#101210] p-2 text-zinc-500">API anahtarı<div className="mt-1 text-zinc-100">{binanceStatus.configured ? 'BACKEND / VAR' : 'YOK'}</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Spot trade<div className="mt-1 text-zinc-100">{binanceAccount?.canTrade ? 'İZİNLİ' : 'DOĞRULANMADI'}</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Çekim · Futures · Margin<div className="mt-1 text-emerald-300">KAPALI</div></div>
+                  <div className="bg-[#101210] p-2 text-zinc-500">Kill switch<div className={`mt-1 ${binanceStatus.killSwitch ? 'text-rose-300' : 'text-emerald-300'}`}>{binanceStatus.killSwitch ? 'AKTİF' : 'PASİF'}</div></div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <select aria-label="Canlı emir yönü" value={liveSide} onChange={(event) => setLiveSide(event.target.value as 'BUY' | 'SELL')} className="h-9 border border-white/10 bg-black/30 px-2 text-zinc-100"><option value="BUY">BUY / AL</option><option value="SELL">SELL / SAT</option></select>
+                  <input aria-label="Canlı limit fiyatı" value={livePrice} onChange={(event) => setLivePrice(event.target.value)} placeholder={String(liveMarket?.price || ticker.last || 'Limit fiyat')} inputMode="decimal" className="h-9 border border-white/10 bg-black/30 px-2 text-zinc-100 outline-none" />
+                  <input aria-label="Canlı miktar" value={liveQuantity} onChange={(event) => setLiveQuantity(event.target.value)} placeholder="Coin miktarı" inputMode="decimal" className="h-9 border border-white/10 bg-black/30 px-2 text-zinc-100 outline-none" />
+                  <button onClick={createLiveProposal} disabled={mutationsLocked || !livePrice || !liveQuantity} className="h-9 bg-sky-400 font-black text-black disabled:bg-zinc-800 disabled:text-zinc-600">Taslak Oluştur</button>
+                </div>
+                <p className="text-zinc-500">Jev yalnız sinyal/taslak üretir. Taslak oluşturmak emir göndermez; Binance lot, tick ve notional filtreleri backend'de uygulanır.</p>
+                {liveProposal && <div className="space-y-2 border border-amber-400/20 bg-amber-400/5 p-2">
+                  <div className="font-mono text-zinc-200">{liveProposal.side} {liveProposal.quantity} {liveProposal.symbol} @ {liveProposal.price} USDT</div>
+                  <div className="text-zinc-500">Toplam ≈ {liveProposal.notional} USDT · Durum: <span className="text-amber-300">{liveProposal.state}</span></div>
+                  {liveProposal.state === 'AWAITING_APPROVAL' && <>
+                    <div className="text-rose-300">Gerçek para emri için aynen yazın: <strong>{liveProposal.approvalPhrase}</strong></div>
+                    <input aria-label="Tek kullanımlık canlı emir onayı" value={approvalPhrase} onChange={(event) => setApprovalPhrase(event.target.value)} placeholder={liveProposal.approvalPhrase} className="h-9 w-full border border-rose-400/30 bg-black/40 px-2 font-mono text-zinc-100 outline-none" />
+                    <div className="grid grid-cols-2 gap-2"><button onClick={() => void resolveLiveProposal('reject')} disabled={mutationsLocked} className="h-9 border border-white/10 text-zinc-300">Reddet</button><button onClick={() => void resolveLiveProposal('approve')} disabled={mutationsLocked || approvalPhrase !== liveProposal.approvalPhrase || !liveReady} className="h-9 bg-rose-500 font-black text-white disabled:bg-zinc-800 disabled:text-zinc-600">GERÇEK EMRİ ONAYLA</button></div>
+                  </>}
+                </div>}
+                <button onClick={resetDemo} title={!loopStopped ? 'Sıfırlamadan önce Jev döngüsünün durduğunu doğrulayın.' : 'Geçmişi arşivle ve yeni demo oturumu başlat'} disabled={!safeDemo || mutationsLocked || !loopStopped} className="mt-2 flex h-8 w-full items-center justify-center gap-2 border border-white/10 text-zinc-400 hover:bg-white/5 disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Demo Hesabı Sıfırla</button>
               </div>
             </Panel>
           </div>
         </div>
 
         <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-white/8 px-4 py-2 text-[9px] uppercase text-zinc-600">
-          <span className="flex items-center gap-2"><Database className="h-3 w-3" /> Yerel demo ledger / gerçek para kullanılmaz</span>
+          <span className="flex items-center gap-2"><Database className="h-3 w-3" /> Demo ledger ayrı · canlı emir yalnız açık onayla</span>
           <span className="flex items-center gap-2"><Clock3 className="h-3 w-3" /> Son veri {time(market.updatedAt)}</span>
           <span className="flex items-center gap-2">{marketFresh ? <Wifi className="h-3 w-3 text-emerald-400" /> : <WifiOff className="h-3 w-3 text-amber-400" />} {marketFresh ? 'Son sorgu güncel' : 'Veri yok veya eski'}</span>
           <span className="flex items-center gap-2"><CircleDollarSign className="h-3 w-3" /> Başlangıç 10.000 demo kredi</span>

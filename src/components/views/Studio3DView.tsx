@@ -17,6 +17,7 @@ import {
   TriangleAlert,
   Wrench,
 } from 'lucide-react';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 
 type EngineStatus = 'CONFIGURATION_REQUIRED' | 'AVAILABLE' | 'UNAVAILABLE';
 
@@ -121,7 +122,7 @@ export const Studio3DView: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch('/api/edith/design3d/projects', {
+      const response = await ownerMutationFetch('/api/edith/design3d/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -144,7 +145,7 @@ export const Studio3DView: React.FC = () => {
     if (!selectedProject) return;
     setBusy(true);
     try {
-      const response = await fetch(`/api/edith/design3d/projects/${selectedProject.id}/snapshot`, {
+      const response = await ownerMutationFetch(`/api/edith/design3d/projects/${selectedProject.id}/snapshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Manual 3D Studio snapshot.' }),

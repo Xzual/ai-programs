@@ -17,12 +17,16 @@ import { Studio3DView } from './components/views/Studio3DView';
 import { ProactiveView } from './components/views/ProactiveView';
 import { CryptoView } from './components/views/CryptoView';
 import { ThemeTransition } from './components/effects/ThemeTransition';
+import { DynamicTaskCapsule } from './components/tasks/DynamicTaskCapsule';
+import { AdvancedExperienceProvider } from './components/advanced/AdvancedExperiencePanels';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { invokeDesktopCommand } from './edith/desktopShell';
 import { startComputerRuntimeHeartbeat, stopComputer } from './edith/computerDesktopClient';
 import type { ComputerCommandTask } from './edith/computerCommandService';
 import { consumeSseChunk } from './edith/sseStream';
+import { applyAssistantResponseMetadata, createAssistantReply, createMessageId } from './edith/chatMessageCorrelation';
+import { clearOwnerSessionMemory, ownerMutationFetch } from './edith/ownerMutationClient';
 import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles, selectValidModelForProvider } from './edith/providerService';
 import {
   AgentsScreen,
@@ -119,7 +123,9 @@ export default function App() {
     availableModels: [],
     source: 'placeholder',
   });
-  const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>(() => fallbackProviderProfiles());
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfile[]>(() =>
+    fallbackProviderProfiles().map((profile) => ({ ...profile, status: 'unknown', available: false }))
+  );
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
@@ -220,6 +226,8 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    window.dispatchEvent(new Event('edith-owner-logout'));
+    clearOwnerSessionMemory();
     clearAuthSession();
     setAuthSession(null);
   };
@@ -282,7 +290,7 @@ export default function App() {
         checkedAt: Date.now(),
         source: 'placeholder',
       });
-      setProviderProfiles(fallbackProviderProfiles());
+      setProviderProfiles(fallbackProviderProfiles().map((profile) => ({ ...profile, status: 'unknown', available: false })));
     } finally {
       setIsTestingConnection(false);
     }
@@ -394,16 +402,15 @@ export default function App() {
     window.speechSynthesis.cancel(); // Stop any active speech
     await initAudioAnalyser();
 
-    if (settings.ttsEngine === 'claude_voice' && settings.claudeVoiceApiKey) {
+    if (settings.ttsEngine === 'claude_voice') {
       try {
         setAiState('speaking');
         if (msgId) setActiveSpeakingId(msgId);
-        const response = await fetch('/api/voice/tts', {
+        const response = await ownerMutationFetch('/api/voice/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text,
-            apiKey: settings.claudeVoiceApiKey,
             voiceId: activeAssistant.voiceId || settings.claudeVoiceId,
             assistantPersona: activeAssistant.id,
             voiceIdentity: activeAssistant.voice,
@@ -464,29 +471,24 @@ export default function App() {
     if (!text.trim() || isStreaming) return;
 
     // Create User Message
+    const targetSessionId = activeSession.id;
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: createMessageId('msg'),
+      sessionId: targetSessionId,
       sender: 'user',
       text: text.trim(),
       timestamp: Date.now(),
     };
 
     // Prepare Assistant Message Placeholder
-    const assistantMsgId = `msg-ast-${Date.now() + 1}`;
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      sender: 'assistant',
+    const assistantMsg = createAssistantReply(userMsg.id, targetSessionId, {
       assistantProfileId: activeAssistant.id,
       assistantName: activeAssistant.name,
       requestedProvider: settings.aiProvider,
       requestedModel: settings.selectedModel || 'auto',
-      providerUsed: settings.aiProvider,
-      modelUsed: settings.selectedModel || 'auto',
       providerStatus: selectedProviderStatus,
-      text: '',
-      timestamp: Date.now() + 1,
-      isStreaming: true,
-    };
+    });
+    const assistantMsgId = assistantMsg.id;
 
     const updatedMessages = [...activeSession.messages, userMsg, assistantMsg];
     updateActiveSessionMessages(updatedMessages);
@@ -495,7 +497,7 @@ export default function App() {
     setIsStreaming(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await ownerMutationFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -507,6 +509,10 @@ export default function App() {
           systemPrompt: activeAssistant.systemPrompt || settings.systemPrompt,
           assistantPersona: activeAssistant.id,
           assistantName: activeAssistant.name,
+          clientMessageId: userMsg.id,
+          assistantMessageId: assistantMsg.id,
+          correlationId: assistantMsg.correlationId,
+          sessionId: targetSessionId,
           assistantPlatform: activeAssistant.platform,
           memoryNamespace: activeAssistant.memoryNamespace,
           memories: settings.memoryEnabled ? memories : [],
@@ -541,26 +547,26 @@ export default function App() {
           }
           if (data.text) {
             accumulatedText += String(data.text);
-            updateAssistantMessageText(assistantMsgId, accumulatedText, true);
+            updateAssistantMessageText(targetSessionId, assistantMsgId, accumulatedText, true);
           }
           if (!data.text && typeof data.warning === 'string') {
             accumulatedText += `${data.warning}\n`;
-            updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+            updateAssistantMessageText(targetSessionId, assistantMsgId, accumulatedText, true, { error: true });
           }
           if (!data.text && typeof data.error === 'string') {
             accumulatedText += `${data.error}\n`;
-            updateAssistantMessageText(assistantMsgId, accumulatedText, true, { error: true });
+            updateAssistantMessageText(targetSessionId, assistantMsgId, accumulatedText, true, { error: true });
           }
           const metadata = chatMetadataFromSse(data);
           if (Object.keys(metadata).length) {
-            updateAssistantMessageText(assistantMsgId, accumulatedText, true, metadata);
+            updateAssistantMessageText(targetSessionId, assistantMsgId, accumulatedText, true, metadata);
           }
         }
         if (done) break;
       }
 
       // Mark message streaming completed
-      updateAssistantMessageText(assistantMsgId, accumulatedText, false);
+      updateAssistantMessageText(targetSessionId, assistantMsgId, accumulatedText, false);
 
       // Auto-speech if enabled
       if (settings.autoSpeech && accumulatedText) {
@@ -571,6 +577,7 @@ export default function App() {
     } catch (err) {
       console.error('Chat error:', err);
       updateAssistantMessageText(
+        targetSessionId,
         assistantMsgId,
         'Bir hata oluştu veya yerel LLM sunucusuna ulaşılamadı. Lütfen ayarlarınızı kontrol edin.',
         false,
@@ -586,28 +593,23 @@ export default function App() {
   const handleSendCodeMessage = async (text: string) => {
     if (!text.trim() || isStreaming) return;
 
+    const targetSessionId = codeSession.id;
     const userMsg: ChatMessage = {
-      id: `code-msg-${Date.now()}`,
+      id: createMessageId('code-msg'),
+      sessionId: targetSessionId,
       sender: 'user',
       text: text.trim(),
       timestamp: Date.now(),
     };
 
-    const assistantMsgId = `code-msg-ast-${Date.now() + 1}`;
-    const assistantMsg: ChatMessage = {
-      id: assistantMsgId,
-      sender: 'assistant',
+    const assistantMsg = createAssistantReply(userMsg.id, targetSessionId, {
       assistantProfileId: activeAssistant.id,
       assistantName: activeAssistant.name,
       requestedProvider: settings.aiProvider,
       requestedModel: settings.selectedModel || 'auto',
-      providerUsed: settings.aiProvider,
-      modelUsed: settings.selectedModel || 'auto',
       providerStatus: selectedProviderStatus,
-      text: '',
-      timestamp: Date.now() + 1,
-      isStreaming: true,
-    };
+    });
+    const assistantMsgId = assistantMsg.id;
 
     const nextSession: ChatSession = {
       ...codeSession,
@@ -621,7 +623,7 @@ export default function App() {
     setIsStreaming(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await ownerMutationFetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -634,6 +636,10 @@ export default function App() {
             `${activeAssistant.systemPrompt}\n\nKod kanalındasın: kıdemli bir yazılım mühendisliği asistanı gibi davran. Kod isteklerinde net, test edilebilir, güvenli ve mevcut projeyi bozmayan çözümler üret. Kod bloklarını Markdown fenced code block olarak yaz. Gereksiz sohbet etme; önce çözüm, sonra kısa açıklama ver.`,
           assistantPersona: activeAssistant.id,
           assistantName: activeAssistant.name,
+          clientMessageId: userMsg.id,
+          assistantMessageId: assistantMsg.id,
+          correlationId: assistantMsg.correlationId,
+          sessionId: targetSessionId,
           assistantPlatform: activeAssistant.platform,
           memoryNamespace: activeAssistant.memoryNamespace,
           memories: settings.memoryEnabled ? memories : [],
@@ -679,15 +685,7 @@ export default function App() {
                   messages: prev.messages.map((m) =>
                     m.id === assistantMsgId
                       ? {
-                          ...m,
-                          ...metadata,
-                          providerUsed: metadata.providerUsed ?? m.providerUsed,
-                          modelUsed: metadata.modelUsed ?? m.modelUsed,
-                          fallbackUsed: metadata.fallbackUsed ?? m.fallbackUsed,
-                          fallbackProvider: metadata.fallbackProvider ?? m.fallbackProvider,
-                          fallbackModel: metadata.fallbackModel ?? m.fallbackModel,
-                          providerStatus: metadata.providerStatus ?? m.providerStatus,
-                          errorCode: metadata.errorCode ?? m.errorCode,
+                          ...applyAssistantResponseMetadata(m, metadata),
                         }
                       : m
                   ),
@@ -760,12 +758,12 @@ export default function App() {
     saveSessions(updated);
   };
 
-  const updateAssistantMessageText = (msgId: string, text: string, streaming: boolean, metadata: Partial<ChatMessage> = {}) => {
+  const updateAssistantMessageText = (sessionId: string, msgId: string, text: string, streaming: boolean, metadata: Partial<ChatMessage> = {}) => {
     setSessions((prev) => {
       const updated = prev.map((s) => {
-        if (s.id !== activeSession.id) return s;
+        if (s.id !== sessionId) return s;
         const newMsgs = s.messages.map((m) =>
-          m.id === msgId ? { ...m, ...metadata, text, isStreaming: streaming } : m
+          m.id === msgId ? { ...applyAssistantResponseMetadata(m, metadata), text, isStreaming: streaming } : m
         );
         return { ...s, messages: newMsgs, updatedAt: Date.now() };
       });
@@ -844,7 +842,7 @@ export default function App() {
     });
 
     try {
-      const res = await fetch('/api/tools/execute', {
+      const res = await ownerMutationFetch('/api/tools/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -932,8 +930,9 @@ export default function App() {
       console.warn('Emergency stop could not reach the native computer session:', error);
     }
     window.dispatchEvent(new Event('edith-computer-stop'));
+    window.dispatchEvent(new Event('edith-cross-device-stop'));
     try {
-      await fetch('/api/edith/kill-switch/activate', {
+      await ownerMutationFetch('/api/edith/kill-switch/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: 'Emergency stop from E.D.I.T.H. desktop shell.' }),
@@ -981,6 +980,7 @@ export default function App() {
   }
 
   return (
+    <AdvancedExperienceProvider>
     <div className="edith-theme-shell fixed inset-0 flex flex-col overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--assistant-primary)] selection:text-slate-950">
       {themeTransition && (
         <ThemeTransition
@@ -1025,6 +1025,10 @@ export default function App() {
             onLogout={handleLogout}
             isTestingConnection={isTestingConnection}
           />
+        )}
+
+        {activeTab !== 'voice' && activeTab !== 'tasks' && (
+          <DynamicTaskCapsule onOpenTasks={() => setActiveTab('tasks')} />
         )}
 
         {/* Dynamic Tab Views */}
@@ -1116,7 +1120,7 @@ export default function App() {
 
           {activeTab === 'security' && <SecurityCenterScreen tools={tools} integrations={integrations} />}
 
-          {activeTab === 'system' && <SystemHealthScreen ollamaConnected={ollamaConnected} settings={settings} tools={tools} logs={logs} />}
+          {activeTab === 'system' && <SystemHealthScreen ollamaConnected={ollamaConnected} settings={settings} tools={tools} logs={logs} providerHealth={providerHealth} providerProfiles={providerProfiles} />}
 
           {activeTab === 'integrations' && (
             <IntegrationsView
@@ -1152,5 +1156,6 @@ export default function App() {
         onSwitchToGemini={() => updateSettings({ aiProvider: 'gemini' })}
       />
     </div>
+    </AdvancedExperienceProvider>
   );
 }

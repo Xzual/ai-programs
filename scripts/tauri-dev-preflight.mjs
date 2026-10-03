@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -92,6 +93,7 @@ console.log(`E.D.I.T.H. Tauri dev detected Cargo at: ${cargoPath}`);
 
 const cargoBin = path.dirname(cargoPath);
 const env = { ...process.env };
+env.EDITH_DESKTOP_BRIDGE_TOKEN = crypto.randomBytes(32).toString('hex');
 env.Path = [cargoBin, process.env.Path].filter(Boolean).join(path.delimiter);
 env.PATH = [cargoBin, process.env.PATH].filter(Boolean).join(path.delimiter);
 

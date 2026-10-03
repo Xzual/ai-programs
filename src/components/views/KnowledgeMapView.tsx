@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   Activity,
@@ -592,7 +593,7 @@ export const KnowledgeMapView: React.FC<KnowledgeMapViewProps> = ({ memories, to
   const reindex = useCallback(async () => {
     setLoading(true);
     try {
-      await fetch('/api/knowledge/sync', { method: 'POST' });
+      await ownerMutationFetch('/api/knowledge/sync', { method: 'POST' });
       await loadGraph();
     } catch (error) {
       setGraphError(error instanceof Error ? error.message : String(error));

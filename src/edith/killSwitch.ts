@@ -47,6 +47,13 @@ const DEFAULT_STATE: KillSwitchState = {
   disabledCapabilities: DEFAULT_DISABLED_CAPABILITIES,
 };
 
+const activationListeners = new Set<(state: KillSwitchState) => void>();
+
+export function onKillSwitchActivated(listener: (state: KillSwitchState) => void): () => void {
+  activationListeners.add(listener);
+  return () => activationListeners.delete(listener);
+}
+
 export class KillSwitchService {
   status(): KillSwitchState {
     return this.readState();
@@ -62,6 +69,7 @@ export class KillSwitchService {
     };
     this.writeState(state);
     this.audit('kill_switch.activate', actor, state, 'Kill switch activated.');
+    for (const listener of activationListeners) listener(state);
     return state;
   }
 

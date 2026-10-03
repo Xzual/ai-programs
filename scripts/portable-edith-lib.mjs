@@ -60,6 +60,11 @@ export function isExcludedCryptoResource(relative) {
     || /(?:^|\/)test[^/]*\.py$/i.test(normalized);
 }
 
+export function isExcludedPythonRuntime(relative) {
+  const normalized = relative.replaceAll('\\', '/');
+  return normalized.split('/').includes('__pycache__') || /\.(?:pyc|pyo)$/i.test(normalized);
+}
+
 export function assertCryptoResourcesSafe(directory) {
   const files = new Set(listFilesStrict(directory).map(({ relative }) => relative.replaceAll('\\', '/')));
   for (const required of ['run_agent.py', 'requirements.txt', 'config/coin_permissions.json', 'config/demo_asset_modes.json', 'config/observer_config.json']) {
@@ -86,7 +91,15 @@ export function manifestFor(directory, metadata = {}) {
 }
 
 export function findDeveloperPathLeaks(directory) {
-  const patterns = [/[A-Za-z]:\\Users\\[^\\\s]+/i, /C:\/Users\/[^/\s]+/i, /\/(?:home|Users)\/[A-Za-z0-9._-]+\//];
+  const escape = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const localRoots = [process.cwd(), process.env.USERPROFILE].filter(Boolean);
+  const patterns = localRoots.flatMap((value) => {
+    const resolved = path.resolve(value);
+    return [
+      new RegExp(escape(resolved), 'i'),
+      new RegExp(escape(resolved.replaceAll('\\', '/')), 'i'),
+    ];
+  });
   const hits = [];
   for (const { absolute, relative } of listFilesStrict(directory)) {
     if (fs.statSync(absolute).size > 64 * 1024 * 1024) continue;
@@ -99,13 +112,14 @@ export function findDeveloperPathLeaks(directory) {
 export function validateZipEntries(zip, destinationRoot) {
   const script = String.raw`
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [IO.Path]::GetFullPath($env:EDITH_ZIP)
 $root = [IO.Path]::GetFullPath($env:EDITH_ZIP_ROOT)
 $prefix = $root.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-$archive = [IO.Compression.ZipFile]::OpenRead($zip)
+  $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
 try {
   $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-  $rows = @()
+  $count = 0
   foreach ($entry in $archive.Entries) {
     $name = $entry.FullName.Replace('\','/')
     if ([string]::IsNullOrWhiteSpace($name) -or $name.StartsWith('/') -or $name.StartsWith('//') -or $name -match '^[A-Za-z]:' -or $name -match '(^|/)\.\.(/|$)' -or $name -match ':') { throw "Unsafe ZIP entry: $name" }
@@ -116,15 +130,16 @@ try {
     if ($unixType -eq 0xA000 -or ($dosAttrs -band 0x400) -ne 0) { throw "Link or reparse ZIP entry is forbidden: $name" }
     $target = [IO.Path]::GetFullPath([IO.Path]::Combine($root, $name.Replace('/', [IO.Path]::DirectorySeparatorChar)))
     if ($target -ne $root -and -not $target.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw "ZIP entry escapes destination: $name" }
-    $rows += [pscustomobject]@{ name=$name; target=$target }
+    $count += 1
   }
-  @($rows) | ConvertTo-Json -Compress
+  $count
 } finally { $archive.Dispose() }
 `;
   const output = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], {
     encoding: 'utf8', windowsHide: true, timeout: 20_000,
     env: { ...process.env, EDITH_ZIP: path.resolve(zip), EDITH_ZIP_ROOT: path.resolve(destinationRoot) },
   }).trim();
-  const parsed = output ? JSON.parse(output) : [];
-  return Array.isArray(parsed) ? parsed : [parsed];
+  const count = Number.parseInt(output, 10);
+  if (!Number.isSafeInteger(count) || count < 0) throw new Error('ZIP validation did not return a valid entry count.');
+  return count;
 }

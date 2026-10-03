@@ -1,7 +1,10 @@
 import { Router } from "express";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import { cryptoService } from "../../src/edith/cryptoService";
+import { binanceSpotService, BinanceSpotError } from "../crypto/binanceSpotService";
+import { appendSecurityAudit } from "../security/auditLog";
+import { requireOwnerSession, requireProtectedMutation, requireSameOrigin } from "../security/ownerSession";
 
 const resourceId = /^[a-zA-Z0-9_-]{1,160}$/;
 const operationIdentity = /^[A-Za-z0-9_-]{8,128}$/;
@@ -11,6 +14,7 @@ const errorCodes = new Set([
   "jev_unavailable", "jev_timeout", "trade_execution_failed", "portfolio_locked",
   "reset_not_allowed", "invalid_request", "operation_not_found", "trade_not_found",
   "decision_not_found", "session_not_found", "not_found", "idempotency_conflict", "operation_expired",
+  "resource_missing", "runtime_missing", "dependency_missing", "service_unavailable",
 ]);
 
 function canonicalError(body: Record<string, any>) {
@@ -35,6 +39,34 @@ function sendSafeError(res: Response, status: number, code: string, clientReques
   });
 }
 
+function sendBinanceError(req: Request, res: Response, error: unknown, action: string) {
+  const known = error instanceof BinanceSpotError;
+  const code = known ? error.code : "binance_request_failed";
+  appendSecurityAudit(req, {
+    action, authorization: "allowed", result: "error", riskLevel: 4,
+    message: `Binance Spot request failed: ${code}`,
+  });
+  res.setHeader("Cache-Control", "no-store");
+  res.status(known ? error.status : 503).json({
+    ok: false, success: false, errorCode: code,
+    safeMessage: known ? error.message : "Binance Spot request could not be verified.",
+  });
+}
+
+const secretField = /^(?:api[_-]?key|jev[_-]?api[_-]?key|authorization|cookie|set-cookie|secret|token)$/i;
+
+function redactBackendSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactBackendSecrets);
+  if (typeof value === "string") {
+    const jevKey = process.env.JEV_API_KEY?.trim();
+    return jevKey && value.includes(jevKey) ? "[REDACTED]" : value;
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter(([key]) => !secretField.test(key))
+    .map(([key, nested]) => [key, redactBackendSecrets(nested)]));
+}
+
 export function createCryptoRouter(): Router {
   const router = Router();
   const dashboardUrl = process.env.EDITH_CRYPTO_SERVICE_URL || process.env.EDITH_CRYPTO_DASHBOARD_URL || "http://localhost:5000";
@@ -45,8 +77,6 @@ export function createCryptoRouter(): Router {
     "/api/watchlist",
     "/api/risk",
     "/api/mode",
-    "/api/overview",
-    "/api/trades",
     "/api/decisions",
     "/api/markets",
     "/api/analysis",
@@ -72,7 +102,16 @@ export function createCryptoRouter(): Router {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${dashboardUrl}${path}`, { ...init, signal: controller.signal, redirect: "error" });
+      const headers = new Headers(init?.headers);
+      if (init?.method && !["GET", "HEAD", "OPTIONS"].includes(init.method.toUpperCase())) {
+        for (const [name, value] of Object.entries(cryptoService.internalRequestHeaders())) headers.set(name, value);
+      }
+      const response = await fetch(`${dashboardUrl}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal,
+        redirect: "error",
+      });
       // The deadline includes the entire body, including a stalled stream after headers.
       const body: unknown = await response.json();
       if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("INVALID_RESPONSE");
@@ -86,7 +125,7 @@ export function createCryptoRouter(): Router {
     try {
       res.json({
         success: true,
-        status: await cryptoService.status(),
+        status: redactBackendSecrets(await cryptoService.status()),
       });
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed");
@@ -95,10 +134,15 @@ export function createCryptoRouter(): Router {
 
   async function startCryptoService(res: Response, reason: string) {
     try {
-      res.json({
-        success: true,
-        status: await cryptoService.start(reason),
-      });
+      const status = await cryptoService.start(reason);
+      if (!status.healthy) {
+        const code = status.errorCode && errorCodes.has(status.errorCode)
+          ? status.errorCode
+          : "service_unavailable";
+        sendSafeError(res, 503, code);
+        return;
+      }
+      res.json({ success: true, status: redactBackendSecrets(status) });
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed");
     }
@@ -108,7 +152,7 @@ export function createCryptoRouter(): Router {
     try {
       res.json({
         success: true,
-        status: await cryptoService.startObserver(reason),
+        status: redactBackendSecrets(await cryptoService.startObserver(reason)),
       });
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed");
@@ -119,7 +163,7 @@ export function createCryptoRouter(): Router {
     try {
       res.json({
         success: true,
-        status: await cryptoService.stopObserver(reason),
+        status: redactBackendSecrets(await cryptoService.stopObserver(reason)),
       });
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed");
@@ -130,7 +174,7 @@ export function createCryptoRouter(): Router {
     try {
       res.json({
         success: true,
-        status: cryptoService.stop(reason),
+        status: redactBackendSecrets(cryptoService.stop(reason)),
       });
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed");
@@ -146,7 +190,7 @@ export function createCryptoRouter(): Router {
       if (!response.ok || response.body.ok === false || response.body.success === false ||
           (response.body.error != null && response.body.ok !== true && response.body.success !== true)) {
         if (canonicalError(response.body)) {
-          res.status(response.status).json(response.body);
+          res.status(response.status).json(redactBackendSecrets(response.body));
           return;
         }
         const rawCode = response.body.errorCode ?? response.body.error?.code ?? response.body.error;
@@ -155,7 +199,7 @@ export function createCryptoRouter(): Router {
         sendSafeError(res, response.ok ? 502 : response.status, code, clientRequestId, requestId);
         return;
       }
-      res.status(response.status).json(response.body);
+      res.status(response.status).json(redactBackendSecrets(response.body));
     } catch {
       sendSafeError(res, 503, "crypto_response_unconfirmed", clientRequestId, requestId);
     }
@@ -208,7 +252,7 @@ export function createCryptoRouter(): Router {
   ];
 
   for (const path of safeDashboardPostPaths) {
-    router.post(path, async (req, res) => {
+    router.post(path, ...requireProtectedMutation, async (req, res) => {
       const primaryId = req.body?.clientRequestId;
       const aliasId = req.body?.idempotencyKey;
       const clientRequestId = primaryId !== undefined ? primaryId : aliasId;
@@ -225,44 +269,114 @@ export function createCryptoRouter(): Router {
     });
   }
 
-  router.post("/api/edith/crypto/obsidian-export-test", async (_req, res) => {
+  router.post("/api/edith/crypto/obsidian-export-test", ...requireProtectedMutation, async (_req, res) => {
     await proxyDashboardJson(res, "/api/obsidian-export-test", { method: "POST" });
   });
 
-  router.post("/api/crypto/obsidian-export-test", async (_req, res) => {
+  router.post("/api/crypto/obsidian-export-test", ...requireProtectedMutation, async (_req, res) => {
     await proxyDashboardJson(res, "/api/obsidian-export-test", { method: "POST" });
   });
 
-  router.post("/api/edith/crypto/start", async (_req, res) => {
+  router.post("/api/edith/crypto/start", ...requireProtectedMutation, async (_req, res) => {
     await startCryptoObserver(res, "Manual observer start from EDITH Crypto view");
   });
 
-  router.post("/api/crypto/start-observer", async (_req, res) => {
+  router.post("/api/crypto/start-observer", ...requireProtectedMutation, async (_req, res) => {
     await startCryptoObserver(res, "Manual observer start from EDITH Crypto API");
   });
 
-  router.post("/api/edith/crypto/stop", async (_req, res) => {
+  router.post("/api/edith/crypto/stop", ...requireProtectedMutation, async (_req, res) => {
     await stopCryptoObserver(res, "Manual observer stop from EDITH Crypto view");
   });
 
-  router.post("/api/crypto/stop-observer", async (_req, res) => {
+  router.post("/api/crypto/stop-observer", ...requireProtectedMutation, async (_req, res) => {
     await stopCryptoObserver(res, "Manual observer stop from EDITH Crypto API");
   });
 
-  router.post("/api/edith/crypto/start-service", async (_req, res) => {
+  router.post("/api/edith/crypto/start-service", ...requireProtectedMutation, async (_req, res) => {
     await startCryptoService(res, "Manual service start from EDITH Crypto view");
   });
 
-  router.post("/api/crypto/start-service", async (_req, res) => {
+  router.post("/api/crypto/start-service", ...requireProtectedMutation, async (_req, res) => {
     await startCryptoService(res, "Manual service start from EDITH Crypto API");
   });
 
-  router.post("/api/edith/crypto/stop-service", (_req, res) => {
+  router.post("/api/edith/crypto/stop-service", ...requireProtectedMutation, (_req, res) => {
     stopCryptoService(res, "Manual service stop from EDITH Crypto view");
   });
 
-  router.post("/api/crypto/stop-service", (_req, res) => {
+  router.post("/api/crypto/stop-service", ...requireProtectedMutation, (_req, res) => {
     stopCryptoService(res, "Manual service stop from EDITH Crypto API");
+  });
+
+  router.get("/api/crypto/binance/status", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true, status: binanceSpotService.status() });
+  });
+
+  router.get("/api/crypto/binance/markets", async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ ok: true, markets: await binanceSpotService.markets() });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.markets"); }
+  });
+
+  router.get("/api/crypto/binance/account", requireOwnerSession, requireSameOrigin, async (req, res) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ ok: true, account: await binanceSpotService.account() });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.account"); }
+  });
+
+  router.get("/api/crypto/binance/proposals/latest", requireOwnerSession, requireSameOrigin, (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ok: true, proposal: binanceSpotService.latestProposal() ?? null });
+  });
+
+  router.post("/api/crypto/binance/proposals", ...requireProtectedMutation, async (req, res) => {
+    try {
+      const proposal = await binanceSpotService.createProposal(req.body ?? {});
+      appendSecurityAudit(req, {
+        action: "crypto.binance.proposal_created", authorization: "allowed", result: "success", riskLevel: 4,
+        message: `Spot LIMIT proposal created for ${proposal.symbol}; no order submitted.`,
+      });
+      res.status(201).json({ ok: true, proposal });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.proposal_create"); }
+  });
+
+  router.post("/api/crypto/binance/proposals/:id/approve", ...requireProtectedMutation, async (req, res) => {
+    try {
+      const proposal = await binanceSpotService.approve(req.params.id, String(req.body?.approvalPhrase || ""));
+      appendSecurityAudit(req, {
+        action: "crypto.binance.order_approved", authorization: "allowed",
+        result: proposal.state === "UNKNOWN" ? "error" : "success", riskLevel: 4,
+        message: `Owner-approved Spot LIMIT result for ${proposal.symbol}: ${proposal.state}.`,
+      });
+      res.status(proposal.state === "UNKNOWN" ? 202 : 200).json({ ok: true, proposal });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.order_approve"); }
+  });
+
+  router.post("/api/crypto/binance/proposals/:id/reject", ...requireProtectedMutation, (req, res) => {
+    try {
+      const proposal = binanceSpotService.reject(req.params.id);
+      appendSecurityAudit(req, {
+        action: "crypto.binance.order_rejected", authorization: "allowed", result: "success", riskLevel: 4,
+        message: `Spot LIMIT proposal rejected for ${proposal.symbol}.`,
+      });
+      res.json({ ok: true, proposal });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.order_reject"); }
+  });
+
+  router.post("/api/crypto/binance/kill-switch", ...requireProtectedMutation, (req, res) => {
+    try {
+      if (typeof req.body?.active !== "boolean") throw new BinanceSpotError("invalid_request", "Kill switch active must be a boolean.");
+      const status = binanceSpotService.setKillSwitch(req.body.active);
+      appendSecurityAudit(req, {
+        action: "crypto.binance.kill_switch", authorization: "allowed", result: "success", riskLevel: 4,
+        message: `Binance Spot kill switch ${status.killSwitch ? "activated" : "deactivated"}.`,
+      });
+      res.json({ ok: true, status });
+    } catch (error) { sendBinanceError(req, res, error, "crypto.binance.kill_switch"); }
   });
 
   return router;

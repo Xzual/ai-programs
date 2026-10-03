@@ -9,8 +9,10 @@ import logging
 import os
 import sqlite3
 import json
+from pathlib import Path
+from urllib.parse import urlsplit
 
-from config import CONFIG
+from config import CONFIG, CRYPTO_ROOT, RUNTIME_ROOT
 from memory_manager import MemoryManager
 from risk_manager import RiskManager
 from coin_permissions import CoinPermissionManager
@@ -39,13 +41,28 @@ last_market_status = {"status": "unknown", "updatedAt": None, "symbol": None}
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 _INTERNAL_TOKEN = os.getenv('EDITH_CRYPTO_INTERNAL_TOKEN', '').strip()
-_LOOPBACK_ORIGINS = ('http://127.0.0.1:', 'http://localhost:')
+
+
+def _is_loopback_origin(origin):
+    try:
+        parsed = urlsplit(origin)
+        return (
+            parsed.scheme == 'http'
+            and parsed.hostname in {'127.0.0.1', 'localhost', '::1'}
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in {'', '/'}
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        return False
 
 
 @app.before_request
 def protect_internal_mutations():
     origin = request.headers.get('Origin', '')
-    if origin and not origin.startswith(_LOOPBACK_ORIGINS):
+    if origin and not _is_loopback_origin(origin):
         return jsonify(safe_envelope({'realOrderSent': False}, 'invalid_request')), 403
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'} and not app.testing:
         supplied = request.headers.get('X-EDITH-Internal-Token', '')
@@ -129,11 +146,27 @@ def _last_observation_at():
 
 def _health_payload():
     runtime_status = runtime_controller.status()
+    required_resources = (
+        CRYPTO_ROOT / 'run_agent.py',
+        CRYPTO_ROOT / 'requirements.txt',
+        CRYPTO_ROOT / 'config' / 'demo_asset_modes.json',
+    )
+    missing_resources = [path.name for path in required_resources if not path.is_file()]
+    resource_root = Path(CRYPTO_ROOT).resolve()
+    runtime_root = Path(RUNTIME_ROOT).resolve()
     return {
         "service": "edith-crypto",
         "running": True,
         "healthy": True,
-        "runtime": runtime_status,
+        "runtime": {
+            **runtime_status,
+            "resourceLayout": {
+                "ready": not missing_resources,
+                "missing": missing_resources,
+                "packaged": os.getenv('EDITH_PACKAGED', '').strip().lower() in {'1', 'true', 'yes'},
+                "stateSeparatedFromResources": runtime_root != resource_root,
+            },
+        },
         "state": runtime_status.get("state"),
         "observerRunning": runtime_status.get("observerRunning"),
         "mode": CONFIG.TRADING_MODE,

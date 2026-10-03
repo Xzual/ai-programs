@@ -1,4 +1,364 @@
 {
   "browserErrors": [],
+  "consoleErrors": [
+    {
+      "viewport": "768",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "768",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "768",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1366",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1440",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1920",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "2560",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "console.error",
+      "message": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    }
+  ],
+  "httpResponses": [
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    }
+  ],
+  "expectedOwnerProbes": [
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/security/session",
+      "url": "http://127.0.0.1:3000/api/security/session"
+    }
+  ],
+  "expectedAdvancedOwnerProbes": [
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "768",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1366",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1440",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "1920",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    },
+    {
+      "viewport": "2560",
+      "type": "http",
+      "method": "GET",
+      "status": 401,
+      "pathname": "/api/edith/advanced/state",
+      "url": "http://127.0.0.1:3000/api/edith/advanced/state?workspaceId=359e84be-7562-4760-b342-2d7576076570"
+    }
+  ],
   "blockedWrites": []
 }

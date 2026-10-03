@@ -1,6 +1,8 @@
 import type { EdithSkill, EdithSkillId, SkillRegistrySnapshot, SkillRisk } from './skillRegistry';
 
 export interface EdithCapabilityTool {
+  kind: 'planning_abstraction';
+  executable: false;
   id: string;
   name: string;
   description: string;
@@ -17,7 +19,7 @@ export interface EdithCapabilityTool {
 
 type EnableRule = 'ready' | 'configured' | 'catalog_only' | 'safety_stop';
 
-interface ToolDefinition extends Omit<EdithCapabilityTool, 'enabled' | 'enabledReason' | 'lastChecked'> {
+interface ToolDefinition extends Omit<EdithCapabilityTool, 'kind' | 'executable' | 'enabled' | 'enabledReason' | 'lastChecked'> {
   enableRule?: EnableRule;
 }
 
@@ -188,13 +190,21 @@ export function buildCapabilityToolRegistry(snapshot: SkillRegistrySnapshot): Ed
     if (!parent) {
       return {
         ...definition,
+        kind: 'planning_abstraction',
+        executable: false,
         enabled: false,
         enabledReason: 'Parent skill is not registered.',
         lastChecked: snapshot.checkedAt,
       };
     }
     const state = enabledFor(parent, enableRule);
-    return { ...definition, ...state, lastChecked: snapshot.checkedAt };
+    return {
+      ...definition,
+      kind: 'planning_abstraction',
+      executable: false,
+      ...state,
+      lastChecked: snapshot.checkedAt,
+    };
   });
 }
 

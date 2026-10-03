@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { stageCryptoResources } from './stage-edith-crypto-resources.mjs';
+import { assertPackagedCryptoResources, stageCryptoResources } from './stage-edith-crypto-resources.mjs';
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-crypto-stage-'));
 const source = path.join(temp, 'source');
@@ -66,8 +66,21 @@ try {
       destination: path.join(temp, 'outside-staging'),
       allowedDestinationRoot: stagingRoot,
     }),
-    /escapes its allowed root/,
+    /(?:escapes its allowed root|must stay inside)/,
   );
+
+  const projectSource = path.resolve('crypto');
+  const productionDestination = path.join(stagingRoot, 'production-crypto');
+  const production = stageCryptoResources({
+    source: projectSource,
+    destination: productionDestination,
+    allowedDestinationRoot: stagingRoot,
+  });
+  assertPackagedCryptoResources(productionDestination);
+  const forbiddenProductionFiles = production.files.filter((relative) =>
+    /(?:^|\/)(?:data|logs?|legacy|backups?|tests?|screenshots?|docs?)(?:\/|$)|\.(?:md|png|jpe?g|webp|sqlite3?|db|log|bak)$/i.test(relative),
+  );
+  assert.deepEqual(forbiddenProductionFiles, []);
 
   console.log(JSON.stringify({
     pass: true,
@@ -75,6 +88,8 @@ try {
     excludedRuntimeState: true,
     embeddedSecretRejected: true,
     destinationContainmentEnforced: true,
+    productionSourceFiles: production.files.length,
+    productionForbiddenFiles: forbiddenProductionFiles,
   }, null, 2));
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

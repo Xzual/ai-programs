@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Bell, CheckCircle2, Eye, Megaphone, RefreshCw, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 
 type ProactiveCategory = 'calendar' | 'mail' | 'system' | 'logs' | 'iot';
 
@@ -68,7 +69,7 @@ export const ProactiveView: React.FC = () => {
     if (!settings) return;
     setBusy(true);
     try {
-      const response = await fetch('/api/edith/proactive/settings', {
+      const response = await ownerMutationFetch('/api/edith/proactive/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(update),
@@ -87,12 +88,12 @@ export const ProactiveView: React.FC = () => {
     setBusy(true);
     try {
       const [sentimentRes, presenceRes] = await Promise.all([
-        fetch('/api/edith/context/sentiment', {
+        ownerMutationFetch('/api/edith/context/sentiment', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ text: sentimentText }),
         }),
-        fetch('/api/edith/context/presence', {
+        ownerMutationFetch('/api/edith/context/presence', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ inferredState: presenceState, activeApplication: 'EDITH' }),
@@ -100,7 +101,7 @@ export const ProactiveView: React.FC = () => {
       ]);
       const sentiment = await sentimentRes.json();
       const presence = await presenceRes.json();
-      const response = await fetch('/api/edith/proactive/check', {
+      const response = await ownerMutationFetch('/api/edith/proactive/check', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sentiment: sentiment.context, presence: presence.context }),
@@ -118,7 +119,7 @@ export const ProactiveView: React.FC = () => {
   const dismissSignal = async (id: string) => {
     setBusy(true);
     try {
-      await fetch(`/api/edith/proactive/signals/${id}/dismiss`, { method: 'POST' });
+      await ownerMutationFetch(`/api/edith/proactive/signals/${id}/dismiss`, { method: 'POST' });
       await refresh();
       setStatus('Sinyal kapatıldı');
     } catch (error) {

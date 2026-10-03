@@ -17,6 +17,7 @@ import {
 import { open as openDirectoryDialog } from '@tauri-apps/plugin-dialog';
 import { UserSettings, AiProvider, ProviderProfile, ProviderRuntimeStatus } from '../../types';
 import { isTauriShell } from '../../edith/desktopShell';
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
 import {
   fetchProviderProfiles,
   modelDisabledReason,
@@ -181,7 +182,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }
 
   async function syncObsidianNow() {
-    await fetch('/api/edith/obsidian/sync-now', { method: 'POST' });
+    await ownerMutationFetch('/api/edith/obsidian/sync-now', { method: 'POST' });
     await loadObsidianStatus();
   }
 
@@ -191,7 +192,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       const parentPath = await openDirectoryDialog({ directory: true, multiple: false, title: 'E.D.İ.T.H vault konumunu seç' });
       if (typeof parentPath !== 'string') return;
       setObsidianVaultBusy(true);
-      const response = await fetch('/api/edith/obsidian/vault', {
+      const response = await ownerMutationFetch('/api/edith/obsidian/vault', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parentPath }),
@@ -218,7 +219,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }
 
   async function updatePermissionMode(mode: PermissionMode) {
-    const response = await fetch('/api/edith/permissions/policy', {
+    const response = await ownerMutationFetch('/api/edith/permissions/policy', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),

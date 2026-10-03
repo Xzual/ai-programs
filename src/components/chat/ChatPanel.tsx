@@ -122,7 +122,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               message={msg}
               settings={settings}
               providerProfiles={providerProfiles}
-              assistantName={msg.assistantName ?? assistantProfile.name}
               onSpeak={msg.sender === 'assistant' ? onSpeakMessage : undefined}
             />
           </div>

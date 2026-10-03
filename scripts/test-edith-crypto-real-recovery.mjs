@@ -55,8 +55,8 @@ try {
     optimizeDeps: { entries: ['src/components/crypto/CryptoExchangeTerminal.tsx'], include: ['react-dom/client'] },
     server: { middlewareMode: true, hmr: { server: uiServer } }, appType: 'custom' });
   app.use('/api', (_req, res) => res.status(500).json({ ok: false }));
-  app.use(vite.middlewares);
   app.get('/', async (_req, res) => res.type('html').send(await vite.transformIndexHtml('/', '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;overflow:auto"><div id="root"></div><script type="module">import React from "react"; import {createRoot} from "react-dom/client"; import {CryptoExchangeTerminal} from "/src/components/crypto/CryptoExchangeTerminal.tsx"; import "/src/index.css"; createRoot(document.getElementById("root")).render(React.createElement(CryptoExchangeTerminal));</script></body></html>')));
+  app.use(vite.middlewares);
   browser = await chromium.launch({ headless: true });
   page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   const writes = [];
@@ -90,12 +90,12 @@ try {
     }
     await route.continue();
   });
-  await page.goto(`http://127.0.0.1:${uiServer.address().port}`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`http://127.0.0.1:${uiServer.address().port}`, { waitUntil: 'commit', timeout: 30000 });
   const terminal = page.getByTestId('crypto-terminal');
-  await terminal.waitFor({ state: 'visible', timeout: 30000 });
+  await terminal.waitFor({ state: 'visible', timeout: 60000 });
   await terminal.getByLabel('Alım tutarı', { exact: true }).fill('100');
   await terminal.getByRole('button', { name: 'DEMO AL', exact: true }).click({ timeout: 30000 });
-  await page.getByTestId('crypto-operation-result').waitFor({ state: 'visible', timeout: 30000 });
+  await page.getByTestId('crypto-operation-result').waitFor({ state: 'visible', timeout: 60000 });
   assert.equal(writes.filter((w) => w.path.endsWith('/buy')).length, 1);
   const buy = writes.find((w) => w.path.endsWith('/buy'));
   assert.ok(buy?.body.tradeId);

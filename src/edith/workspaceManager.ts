@@ -123,10 +123,7 @@ export class LocalWorkspaceMetadataAdapter implements WorkspaceMetadataAdapter {
 
   async sync(metadata: WorkspaceCloudMetadata): Promise<{ ok: boolean; syncedAt?: string; error?: string }> {
     try {
-      fs.mkdirSync(path.dirname(this.metadataFile), { recursive: true });
-      const tempFile = `${this.metadataFile}.${process.pid}.${Date.now()}.tmp`;
-      fs.writeFileSync(tempFile, `${JSON.stringify(metadata, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-      fs.renameSync(tempFile, this.metadataFile);
+      atomicReplaceFile(this.metadataFile, `${JSON.stringify(metadata, null, 2)}\n`);
       return { ok: true, syncedAt: now() };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Local workspace metadata sync failed.' };
@@ -153,6 +150,24 @@ const WORKSPACE_DIRECTORIES = ['Memory', 'Projects', 'Research', 'Tasks', 'Tradi
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function atomicReplaceFile(target: string, content: string): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const nonce = `${process.pid}-${Date.now()}-${randomUUID()}`;
+  const tempFile = `${target}.${nonce}.tmp`;
+  const backupFile = `${target}.${nonce}.bak`;
+  const existed = fs.existsSync(target);
+  fs.writeFileSync(tempFile, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  try {
+    if (existed) fs.renameSync(target, backupFile);
+    fs.renameSync(tempFile, target);
+    if (existed && fs.existsSync(backupFile)) fs.rmSync(backupFile);
+  } catch (error) {
+    if (fs.existsSync(tempFile)) fs.rmSync(tempFile);
+    if (existed && fs.existsSync(backupFile) && !fs.existsSync(target)) fs.renameSync(backupFile, target);
+    throw error;
+  }
 }
 
 function stringValue(value: unknown): string {
@@ -547,11 +562,8 @@ export class WorkspaceManager {
   }
 
   private persist(config: WorkspaceConfig): void {
-    fs.mkdirSync(path.dirname(this.configFile), { recursive: true });
     const serialized = `${JSON.stringify(config, null, 2)}\n`;
-    const tempFile = `${this.configFile}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tempFile, serialized, { encoding: 'utf8', mode: 0o600 });
-    fs.renameSync(tempFile, this.configFile);
+    atomicReplaceFile(this.configFile, serialized);
     this.config = config;
     this.loadError = undefined;
   }

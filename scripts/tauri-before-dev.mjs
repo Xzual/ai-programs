@@ -34,6 +34,20 @@ function isPortReachable(port) {
   });
 }
 
+async function isNativeBridgeAuthorized(port) {
+  const token = process.env.EDITH_DESKTOP_BRIDGE_TOKEN;
+  if (!token) return false;
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/computer-use/native-safety`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(1_500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function spawnDevProcess(name, args, extraEnv = {}) {
   const child = spawn(npmCommand, args, {
     stdio: 'inherit',
@@ -76,6 +90,11 @@ process.on('SIGTERM', () => {
 });
 
 if (await isPortInUse(3000) || await isPortReachable(3000)) {
+  if (!await isNativeBridgeAuthorized(3000)) {
+    console.error('[E.D.I.T.H. Tauri Dev] Port 3000 is occupied by a backend that does not share this Tauri process safety token.');
+    console.error('[E.D.I.T.H. Tauri Dev] Stop the existing browser-only dev server, then run npm run tauri:dev again.');
+    process.exit(1);
+  }
   console.log('[E.D.I.T.H. Tauri Dev] Express API already reachable on http://localhost:3000');
 } else {
   console.log('[E.D.I.T.H. Tauri Dev] Starting Express API on http://localhost:3000');

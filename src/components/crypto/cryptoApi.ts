@@ -1,3 +1,5 @@
+import { ownerMutationFetch } from '../../edith/ownerMutationClient';
+
 export type Json = Record<string, any>;
 export const record = (value: unknown): value is Json => value !== null && typeof value === 'object' && !Array.isArray(value);
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -17,7 +19,9 @@ export async function api(path: string, init?: RequestInit): Promise<Json> {
   const signal = init?.signal
     ? AbortSignal.any([init.signal, AbortSignal.timeout(20000)])
     : AbortSignal.timeout(20000);
-  const response = await fetch(path, { ...init, signal, cache: 'no-store' });
+  const method = (init?.method ?? 'GET').toUpperCase();
+  const request = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? ownerMutationFetch : fetch;
+  const response = await request(path, { ...init, signal, cache: 'no-store' });
   const raw = await response.json().catch(() => { throw new Error('INVALID_RESPONSE'); });
   if (!record(raw)) throw new Error('INVALID_RESPONSE');
   const body = cryptoData(raw);

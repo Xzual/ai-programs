@@ -6,7 +6,7 @@
     "urls": ["http://127.0.0.1:*", "http://localhost:*"]
   },
   "permissions": [
-    "dialog:allow-open",
+    "edith-desktop-loopback",
     "core:window:allow-inner-position",
     "core:window:allow-scale-factor"
   ]

@@ -87,6 +87,9 @@ export type MemorySensitivity = 'public' | 'internal' | 'sensitive';
 
 export interface ChatMessage {
   id: string;
+  correlationId?: string;
+  replyToMessageId?: string;
+  sessionId?: string;
   sender: 'user' | 'assistant' | 'system';
   text: string;
   timestamp: number;

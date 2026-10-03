@@ -5,6 +5,7 @@ import path from 'node:path';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-verifier-test-'));
 const originalCwd = process.cwd();
+let closePersistence: (() => void) | undefined;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,6 +38,7 @@ try {
   const { verificationService } = await import('../src/edith/verifier');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
   const { readRecentAuditEvents } = await import('../src/edith/audit');
+  closePersistence = () => { getEdithPersistenceStore().close?.(); };
 
   const task = taskService.createTask({
     title: 'Verifier regression',
@@ -48,28 +50,33 @@ try {
   assert.equal(planned.success, true);
 
   const prematureVerification = verificationService.verifyTask(task.id);
+  const prematureReloaded = taskService.getTask(task.id);
+  const prematureAudits = readRecentAuditEvents(1000).filter((event) => event.taskId === task.id && event.action === 'task.verify');
   assert.equal(prematureVerification.success, false);
   assert.equal(prematureVerification.status, 'RETRYABLE');
-  assert.equal(taskService.getTask(task.id)?.status, 'PLANNING');
+  assert.equal(prematureReloaded?.status, 'PLANNING');
+  assert.equal(prematureReloaded?.verification, undefined);
+  assert.equal(prematureAudits.length, 0);
 
   const executed = await executorService.executeTask(task.id);
-  assert.equal(executed.success, true);
-  assert.equal(executed.status, 'VERIFYING');
-
-  const verified = verificationService.verifyTask(task.id);
   const reloaded = taskService.getTask(task.id);
   const auditEvents = readRecentAuditEvents(1000);
+  const verificationAudits = auditEvents.filter((event) => event.taskId === task.id && event.action === 'task.verify');
 
-  assert.equal(verified.success, true);
-  assert.equal(verified.status, 'PASS');
+  assert.equal(executed.success, true);
+  assert.equal(executed.status, 'COMPLETED');
   assert.equal(reloaded?.status, 'COMPLETED');
   assert.equal(reloaded?.verification?.status, 'PASS');
   assert.equal(reloaded?.verification?.checks.every((check) => !check.required || check.status === 'PASS'), true);
   assert.equal(reloaded?.observations.some((observation) => observation.includes('Verifier PASS')), true);
   assert.equal(reloaded?.checkpoints.some((checkpoint) => checkpoint.includes('Verification')), true);
-  assert.equal(auditEvents.some((event) => event.taskId === task.id && event.action === 'task.verify'), true);
-
-  getEdithPersistenceStore().close?.();
+  assert.equal(reloaded?.timeline.some((event) => event.type === 'verification'), true);
+  assert.equal(reloaded?.auditEvents.some((auditId) => verificationAudits.some((event) => event.id === auditId)), true);
+  assert.equal(verificationAudits.length, 1);
+  const repeated = verificationService.verifyTask(task.id);
+  assert.equal(repeated.success, false);
+  assert.equal(taskService.getTask(task.id)?.verification?.id, reloaded?.verification?.id);
+  assert.equal(readRecentAuditEvents(1000).filter((event) => event.taskId === task.id && event.action === 'task.verify').length, 1);
 
   console.log(JSON.stringify({
     success: true,
@@ -77,9 +84,10 @@ try {
     status: reloaded?.status,
     verification: reloaded?.verification?.status,
     checks: reloaded?.verification?.checks.length,
-    scenarios: ['premature_block', 'verify_execution_evidence', 'complete_only_on_pass', 'persist_verification', 'audit'],
+    scenarios: ['premature_reject_without_persistence', 'executor_integrated_verification', 'complete_only_on_pass', 'persist_verification', 'single_verification_audit'],
   }, null, 2));
 } finally {
+  closePersistence?.();
   process.chdir(originalCwd);
   await removeTempRoot();
 }

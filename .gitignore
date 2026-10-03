@@ -44,3 +44,15 @@ src-tauri/binaries/
 # Tauri / Rust
 src-tauri/target/
 src-tauri/gen/
+
+# Generated reports/packages and machine-local integration registration.
+# Preserve these in the offline pre-format backup, not on GitHub.
+/artifacts/
+/docx_qa_edith154_v*/
+/tmp/
+/output/
+/E.D.I.T.H._1.0.0_x64_en-US.wxs
+/minik bot/windows/integrations/zen-downloads/native-host.installed.json
+/minik bot/windows/integrations/zen-downloads/register-local-host.reg
+/edith-promo-landing/ai programs tester/hts-cache/
+/mobile/.kotlin/

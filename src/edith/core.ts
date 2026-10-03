@@ -1,4 +1,5 @@
 import { permissionService } from './permissionService';
+import type { CanonicalTaskStatus } from './contracts';
 
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
 export type EdithToolRisk = 'READ' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -415,25 +416,7 @@ export interface EdithAgentRoute {
   missingPermissions: string[];
 }
 
-export type EdithTaskStatus =
-  | 'CREATED'
-  | 'ANALYZING'
-  | 'QUEUED'
-  | 'PLANNING'
-  | 'WAITING_DEPENDENCY'
-  | 'RUNNING'
-  | 'PAUSED'
-  | 'RETRYING'
-  | 'VERIFYING'
-  | 'WAITING_PERMISSION'
-  | 'WAITING_FOR_APPROVAL'
-  | 'BLOCKED'
-  | 'RECOVERING'
-  | 'COMPLETED'
-  | 'FAILED'
-  | 'CANCELLED'
-  | 'ROLLING_BACK'
-  | 'ROLLED_BACK';
+export type EdithTaskStatus = CanonicalTaskStatus;
 
 export type EdithTaskTimelineEventType =
   | 'status'
@@ -462,6 +445,9 @@ export interface EdithTaskTimelineEvent {
   riskLevel?: EdithRiskLevel;
   auditEventId?: string;
   metadata?: Record<string, unknown>;
+  contractVersion?: 2;
+  sequence?: number;
+  revision?: number;
 }
 
 export interface EdithAgentActivity {
@@ -517,6 +503,9 @@ export interface EdithTask {
     interruptedAt?: string;
     resumeFromStepId?: string;
   };
+  contractVersion?: 2;
+  revision?: number;
+  eventSequence?: number;
 }
 
 export interface EdithToolSchemaField {

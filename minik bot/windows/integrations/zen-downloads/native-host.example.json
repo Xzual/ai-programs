@@ -1,0 +1,7 @@
+{
+  "name": "fr.louisraille.coucou.downloads",
+  "description": "Coucou local-only Zen download metadata receiver",
+  "path": "C:\\REPLACE_WITH_INSTALLED_PATH\\zen-download-host.exe",
+  "type": "stdio",
+  "allowed_extensions": ["downloads@coucou.local"]
+}

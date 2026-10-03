@@ -7,9 +7,12 @@ const SESSION_COOKIE = "edith_owner_session";
 const CSRF_HEADER = "x-edith-csrf-token";
 const DEFAULT_TTL_MS = 8 * 60 * 60 * 1000;
 const sessions = new Map<string, StoredOwnerSession>();
+const invalidationListeners = new Set<(event: OwnerSessionInvalidationEvent) => void>();
+let ownerBootstrapConsumed = false;
 
 interface StoredOwnerSession {
   sessionHash: string;
+  bindingId: string;
   actor: "owner";
   csrfToken: string;
   createdAt: number;
@@ -18,9 +21,40 @@ interface StoredOwnerSession {
 
 export interface OwnerSessionContext {
   actor: "owner";
+  bindingId: string;
   csrfToken: string;
   createdAt: number;
   expiresAt: number;
+}
+
+export interface OwnerSessionInvalidationEvent {
+  bindingId: string;
+  reason: "logout" | "rotated" | "expired";
+  occurredAt: string;
+}
+
+export function onOwnerSessionInvalidated(listener: (event: OwnerSessionInvalidationEvent) => void): () => void {
+  invalidationListeners.add(listener);
+  return () => invalidationListeners.delete(listener);
+}
+
+export function ownerSessionBindingActive(bindingId: string): boolean {
+  for (const session of [...sessions.values()]) {
+    if (session.expiresAt <= Date.now()) {
+      invalidateSession(session, "expired");
+      continue;
+    }
+    if (session.bindingId === bindingId) return true;
+  }
+  return false;
+}
+
+function invalidateSession(session: StoredOwnerSession, reason: OwnerSessionInvalidationEvent["reason"]): void {
+  sessions.delete(session.sessionHash);
+  const event = { bindingId: session.bindingId, reason, occurredAt: new Date().toISOString() };
+  for (const listener of invalidationListeners) {
+    try { listener(event); } catch { /* Session invalidation must remain fail-closed even if a listener fails. */ }
+  }
 }
 
 function ttlMs(): number {
@@ -54,9 +88,18 @@ function requestOrigin(req: Request): string | undefined {
 function trustedOrigin(req: Request): boolean {
   const supplied = req.get("origin");
   const expected = requestOrigin(req);
-  if (!supplied || !expected) return false;
+  if (!expected) return false;
   try {
-    return new URL(supplied).origin.toLowerCase() === new URL(expected).origin.toLowerCase();
+    const expectedOrigin = new URL(expected).origin.toLowerCase();
+    if (supplied) return new URL(supplied).origin.toLowerCase() === expectedOrigin;
+
+    // Same-origin browser GET/HEAD requests commonly omit Origin. Accept only a
+    // matching Referer backed by Fetch Metadata; mutations still require Origin.
+    if (req.method !== "GET" && req.method !== "HEAD") return false;
+    const fetchSite = req.get("sec-fetch-site");
+    if (fetchSite !== "same-origin" && fetchSite !== "none") return false;
+    const referer = req.get("referer");
+    return Boolean(referer && new URL(referer).origin.toLowerCase() === expectedOrigin);
   } catch {
     return false;
   }
@@ -68,7 +111,7 @@ function readSession(req: Request): StoredOwnerSession | undefined {
   const stored = sessions.get(hash(raw));
   if (!stored) return undefined;
   if (stored.expiresAt <= Date.now()) {
-    sessions.delete(stored.sessionHash);
+    invalidateSession(stored, "expired");
     return undefined;
   }
   return stored;
@@ -115,6 +158,24 @@ export function getOwnerSession(req: Request): OwnerSessionContext | undefined {
   if (!session) return undefined;
   return {
     actor: session.actor,
+    bindingId: session.bindingId,
+    csrfToken: session.csrfToken,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+  };
+}
+
+export function getSoleActiveOwnerSession(): OwnerSessionContext | undefined {
+  const active: StoredOwnerSession[] = [];
+  for (const session of [...sessions.values()]) {
+    if (session.expiresAt <= Date.now()) invalidateSession(session, "expired");
+    else active.push(session);
+  }
+  if (active.length !== 1) return undefined;
+  const session = active[0];
+  return {
+    actor: session.actor,
+    bindingId: session.bindingId,
     csrfToken: session.csrfToken,
     createdAt: session.createdAt,
     expiresAt: session.expiresAt,
@@ -165,6 +226,11 @@ export function createOwnerSessionRouter(): Router {
   router.post("/api/security/session", requireSameOrigin, (req, res) => {
     const configured = process.env.EDITH_OWNER_TOKEN;
     const supplied = bearerToken(req);
+    const oneTimeBootstrap = process.env.EDITH_OWNER_TOKEN_ONE_TIME === "true";
+    if (oneTimeBootstrap && ownerBootstrapConsumed) {
+      reject(req, res, 401, "owner_bootstrap_consumed", "Owner authentication failed.");
+      return;
+    }
     if (!configured) {
       reject(req, res, 503, "owner_authentication_not_configured", "Owner authentication is not configured.");
       return;
@@ -175,17 +241,22 @@ export function createOwnerSessionRouter(): Router {
     }
 
     // Rotate every successful login so old browser sessions cannot be replayed.
-    sessions.clear();
+    for (const session of [...sessions.values()]) invalidateSession(session, "rotated");
     const sessionId = crypto.randomBytes(32).toString("base64url");
     const now = Date.now();
     const stored: StoredOwnerSession = {
       sessionHash: hash(sessionId),
+      bindingId: `owner-session-${hash(sessionId).slice(0, 32)}`,
       actor: "owner",
       csrfToken: crypto.randomBytes(32).toString("base64url"),
       createdAt: now,
       expiresAt: now + ttlMs(),
     };
     sessions.set(stored.sessionHash, stored);
+    if (oneTimeBootstrap) {
+      ownerBootstrapConsumed = true;
+      delete process.env.EDITH_OWNER_TOKEN;
+    }
     setSessionCookie(req, res, sessionId, stored.expiresAt);
     appendSecurityAudit(req, {
       action: "security.owner_session_created",
@@ -221,11 +292,13 @@ export function createOwnerSessionRouter(): Router {
 
   router.delete("/api/security/session", ...requireProtectedMutation, (req, res) => {
     const raw = cookieValue(req);
-    if (raw) sessions.delete(hash(raw));
+    if (raw) {
+      const session = sessions.get(hash(raw));
+      if (session) invalidateSession(session, "logout");
+    }
     clearSessionCookie(req, res);
     res.json({ success: true });
   });
 
   return router;
 }
-

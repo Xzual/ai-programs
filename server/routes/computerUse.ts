@@ -1,6 +1,12 @@
+import crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { killSwitchService } from '../../src/edith/killSwitch';
-import { isComputerOperatorEvent, type ComputerOperatorEvent } from '../../src/edith/computerOperatorEvents';
+import {
+  parseRealtimeEnvelopeV2_1,
+  type TypedRealtimeEnvelopeV2,
+} from '../../src/edith/contracts';
+import { createComputerOperatorEvent, isComputerOperatorEvent, type ComputerOperatorEvent } from '../../src/edith/computerOperatorEvents';
+import { requireProtectedMutation } from '../security/ownerSession';
 
 const RUNTIME_TTL_MS = 15_000;
 const EVENT_LIMIT = 100;
@@ -18,6 +24,11 @@ interface DesktopRuntimeReport {
   ownerCommandMode: boolean;
   killSwitch: 'active' | 'inactive' | 'unknown';
   overlay: 'in_app' | 'missing';
+  targeting?: 'window_relative_fallback' | 'uia_first';
+  uia?: 'ready' | 'missing';
+  ocr?: 'ready' | 'missing';
+  multiMonitor?: 'virtual_desktop' | 'missing';
+  verification?: 'post_observation_required' | 'unavailable';
   sessionExpiresAt?: number;
   safeMessage: string;
   lastError?: string | null;
@@ -30,6 +41,9 @@ interface ComputerUseRouterOptions {
 
 let desktopRuntime: DesktopRuntimeReport | undefined;
 const eventJournal: ComputerOperatorEvent[] = [];
+let eventSequence = 0;
+const realtimeJournal: TypedRealtimeEnvelopeV2[] = [];
+const realtimeCursorByStream = new Map<string, number>();
 
 function currentDesktopRuntime(now = Date.now()): DesktopRuntimeReport | undefined {
   if (!desktopRuntime || now - desktopRuntime.reportedAt > RUNTIME_TTL_MS) return undefined;
@@ -39,6 +53,16 @@ function currentDesktopRuntime(now = Date.now()): DesktopRuntimeReport | undefin
 function loopbackRequest(req: Request): boolean {
   const address = req.socket.remoteAddress ?? '';
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+function desktopBridgeAuthorized(req: Request): boolean {
+  if (!loopbackRequest(req)) return false;
+  const configured = process.env.EDITH_DESKTOP_BRIDGE_TOKEN;
+  const supplied = /^Bearer\s+(.+)$/i.exec(req.get('authorization') ?? '')?.[1]?.trim();
+  if (!configured || !supplied) return false;
+  const expected = Buffer.from(configured);
+  const candidate = Buffer.from(supplied);
+  return expected.length === candidate.length && crypto.timingSafeEqual(expected, candidate);
 }
 
 function desktopReporter(req: Request): boolean {
@@ -69,6 +93,11 @@ function runtimeReport(value: unknown): Omit<DesktopRuntimeReport, 'reportedAt'>
     ownerCommandMode: input.ownerCommandMode,
     killSwitch: input.killSwitch as DesktopRuntimeReport['killSwitch'],
     overlay: input.overlay as DesktopRuntimeReport['overlay'],
+    targeting: input.targeting === 'uia_first' ? 'uia_first' : 'window_relative_fallback',
+    uia: input.uia === 'ready' ? 'ready' : 'missing',
+    ocr: input.ocr === 'ready' ? 'ready' : 'missing',
+    multiMonitor: input.multiMonitor === 'virtual_desktop' ? 'virtual_desktop' : 'missing',
+    verification: input.verification === 'post_observation_required' ? 'post_observation_required' : 'unavailable',
     sessionExpiresAt: typeof input.sessionExpiresAt === 'number' ? input.sessionExpiresAt : undefined,
     safeMessage: input.safeMessage.slice(0, 500),
     lastError: typeof input.lastError === 'string' ? input.lastError.slice(0, 500) : null,
@@ -76,20 +105,23 @@ function runtimeReport(value: unknown): Omit<DesktopRuntimeReport, 'reportedAt'>
 }
 
 function addEvent(event: ComputerOperatorEvent): void {
-  eventJournal.push(event);
+  eventJournal.push({ ...event, sequence: ++eventSequence });
   if (eventJournal.length > EVENT_LIMIT) eventJournal.splice(0, eventJournal.length - EVENT_LIMIT);
 }
 
 function safeEvent(value: unknown): ComputerOperatorEvent | null {
   if (!isComputerOperatorEvent(value)) return null;
   const event: ComputerOperatorEvent = {
+    contractVersion: value.contractVersion,
     id: value.id.slice(0, 80),
+    sequence: value.sequence,
     type: value.type,
     createdAt: value.createdAt,
   };
   if (typeof value.message === 'string') event.message = value.message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 240);
   if (typeof value.safeMessage === 'string') event.safeMessage = value.safeMessage.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 240);
-  if (Number.isInteger(value.x) && Number.isInteger(value.y) && Number(value.x) >= 0 && Number(value.y) >= 0) {
+  if (Number.isInteger(value.x) && Number.isInteger(value.y)
+    && Math.abs(Number(value.x)) <= 32768 && Math.abs(Number(value.y)) <= 32768) {
     event.x = Number(value.x);
     event.y = Number(value.y);
   }
@@ -99,12 +131,37 @@ function safeEvent(value: unknown): ComputerOperatorEvent | null {
       ? preview
       : `[redacted ${Array.from(preview).length} chars]`;
   }
+  for (const key of ['sessionId', 'planId', 'stepId', 'observationId', 'actionId'] as const) {
+    const field = value[key];
+    if (typeof field === 'string') event[key] = field.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120);
+  }
+  if (value.verificationStatus && ['verified', 'partial', 'pending_post_observation'].includes(value.verificationStatus)) {
+    event.verificationStatus = value.verificationStatus;
+  }
   return event;
+}
+
+function containsForbiddenDesktopEventMaterial(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsForbiddenDesktopEventMaterial);
+  if (!value || typeof value !== 'object') return false;
+  return Object.entries(value).some(([key, child]) =>
+    ['imageDataUrl', 'pixels', 'pixelData', 'base64', 'rawText', 'typedText'].includes(key)
+    || containsForbiddenDesktopEventMaterial(child));
+}
+
+function safeRealtimeEvent(value: unknown): TypedRealtimeEnvelopeV2 | null {
+  if (containsForbiddenDesktopEventMaterial(value)) return null;
+  const parsed = parseRealtimeEnvelopeV2_1(value);
+  if (!parsed.success || !parsed.value.event.startsWith('desktop.')) return null;
+  return parsed.value as TypedRealtimeEnvelopeV2;
 }
 
 export function resetComputerUseRuntimeForTests(): void {
   desktopRuntime = undefined;
   eventJournal.splice(0, eventJournal.length);
+  eventSequence = 0;
+  realtimeJournal.splice(0, realtimeJournal.length);
+  realtimeCursorByStream.clear();
 }
 
 export function computerUseStatus(options: { killSwitchActive?: boolean } = {}) {
@@ -123,7 +180,11 @@ export function computerUseStatus(options: { killSwitchActive?: boolean } = {}) 
     ? [
       ready ? 'Owner-approved local session is active.' : 'Screen and input actions require an active owner-approved desktop session.',
       'HTTP endpoints never inject mouse or keyboard input.',
-      'Current native capture and pointer tests target the Windows primary display.',
+      reported.multiMonitor === 'virtual_desktop'
+        ? 'Native capture uses Windows virtual-desktop physical coordinates; per-monitor DPI metadata is included in observations.'
+        : 'Multi-monitor capture is unavailable.',
+      reported.uia === 'ready' ? 'Accessibility targeting is available.' : 'UIA and OCR semantic targeting are not connected; actions are restricted to the observed foreground window.',
+      'Native overlay/capsule is not implemented; the visible guide is confined to the E.D.I.T.H. window.',
       'Only Notepad and Calculator are allowed through the local app launcher.',
     ]
     : ['No native desktop heartbeat is active.', 'Open the Tauri desktop app; browser mode cannot observe or control devices.'];
@@ -148,7 +209,7 @@ export function computerUseStatus(options: { killSwitchActive?: boolean } = {}) 
       : ['status', 'stop'],
     limitations,
     requiredPermissions: ready ? [] : ['owner_approval', 'computer:control'],
-    endpoints: ['/api/computer-use/status', '/api/computer-use/observe', '/api/computer-use/action', '/api/computer-use/stop', '/api/computer-use/events'],
+    endpoints: ['/api/computer-use/status', '/api/computer-use/observe', '/api/computer-use/action', '/api/computer-use/stop', '/api/computer-use/events', '/api/computer-use/realtime-events'],
     lastChecked: checkedAt,
   } as const;
 }
@@ -160,7 +221,7 @@ export function validateComputerUseAction(value: unknown): string | null {
   if (typeof action !== 'string') return 'Action name is required.';
   if (action === 'moveMouse' || action === 'clickMouse' || action === 'click') {
     if (!Number.isInteger(input.x) || !Number.isInteger(input.y)) return 'Mouse coordinates must be integers.';
-    if ((input.x as number) < 0 || (input.y as number) < 0) return 'Mouse coordinates must be nonnegative.';
+    if (Math.abs(input.x as number) > 32768 || Math.abs(input.y as number) > 32768) return 'Mouse coordinates exceed the virtual desktop safety range.';
     if ((action === 'clickMouse' || action === 'click') && input.button !== undefined && !['left', 'right'].includes(String(input.button))) return 'Unsupported mouse button.';
     return null;
   }
@@ -186,7 +247,22 @@ export function createComputerUseRouter(options: ComputerUseRouterOptions = {}):
   const router = Router();
   router.get('/api/computer-use/status', (_req, res) => res.json(computerUseStatus()));
 
-  router.post('/api/computer-use/runtime', (req, res) => {
+  router.get('/api/computer-use/native-safety', (req, res) => {
+    if (!desktopBridgeAuthorized(req)) {
+      return res.status(401).json({
+        success: false,
+        errorCode: 'native_bridge_unauthorized',
+        safeMessage: 'Native safety bridge authentication failed.',
+      });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({
+      success: true,
+      killSwitchActive: killSwitchService.status().active,
+    });
+  });
+
+  router.post('/api/computer-use/runtime', ...requireProtectedMutation, (req, res) => {
     if (!desktopReporter(req)) return res.status(403).json({ success: false, errorCode: 'desktop_reporter_required', safeMessage: 'Runtime reports are accepted only from the local Tauri bridge.' });
     const report = runtimeReport(req.body);
     if (!report) return res.status(400).json({ success: false, errorCode: 'validation_error', safeMessage: 'Invalid desktop runtime report.' });
@@ -203,7 +279,7 @@ export function createComputerUseRouter(options: ComputerUseRouterOptions = {}):
     return nativeRequired(req, res);
   });
 
-  router.post('/api/computer-use/stop', (_req, res) => {
+  router.post('/api/computer-use/stop', ...requireProtectedMutation, (_req, res) => {
     if (!loopbackRequest(_req)) return res.status(403).json({ success: false, errorCode: 'local_request_required', safeMessage: 'Computer Use stop is accepted only from the local machine.' });
     if (options.activateStop) options.activateStop();
     else killSwitchService.activate('Computer Use stop endpoint invoked.', 'computer-use-api');
@@ -220,17 +296,34 @@ export function createComputerUseRouter(options: ComputerUseRouterOptions = {}):
       safeMessage: 'Emergency stop is active.',
       reportedAt: Date.now(),
     } : undefined;
-    addEvent({ id: `computer-stop-${Date.now()}`, type: 'stopped', createdAt: new Date().toISOString(), message: 'Computer Use stop endpoint invoked.' });
+    addEvent(createComputerOperatorEvent('stopped', 'Computer Use stop endpoint invoked.'));
     return res.json({ success: true, stopped: true, killSwitch: options.activateStop ? undefined : true, safeMessage: 'Computer Use stop signal accepted.' });
   });
 
   router.get('/api/computer-use/events', (_req, res) => res.json({ events: [...eventJournal], safeMessage: 'Events are sanitized status metadata; screenshots and typed text are not stored here.' }));
-  router.post('/api/computer-use/events', (req, res) => {
+  router.post('/api/computer-use/events', ...requireProtectedMutation, (req, res) => {
     if (!desktopReporter(req)) return res.status(403).json({ success: false, errorCode: 'desktop_reporter_required', safeMessage: 'Events are accepted only from the local Tauri bridge.' });
     const event = safeEvent(req.body);
     if (!event) return res.status(400).json({ success: false, errorCode: 'validation_error', safeMessage: 'Invalid Computer Use event.' });
     addEvent(event);
     return res.status(202).json({ success: true });
+  });
+  router.get('/api/computer-use/realtime-events', (_req, res) => res.json({
+    events: [...realtimeJournal],
+    safeMessage: 'Canonical desktop events contain contract metadata only; screenshots and typed text are not stored.',
+  }));
+  router.post('/api/computer-use/realtime-events', ...requireProtectedMutation, (req, res) => {
+    if (!desktopReporter(req)) return res.status(403).json({ success: false, errorCode: 'desktop_reporter_required', safeMessage: 'Realtime events are accepted only from the local Tauri bridge.' });
+    const event = safeRealtimeEvent(req.body);
+    if (!event) return res.status(400).json({ success: false, errorCode: 'invalid_desktop_realtime_event', safeMessage: 'Desktop realtime event failed schema or redaction validation.' });
+    const previousCursor = realtimeCursorByStream.get(event.streamId) ?? 0;
+    if (event.cursor !== previousCursor + 1 || event.sequence !== event.cursor) {
+      return res.status(409).json({ success: false, errorCode: 'desktop_event_out_of_order', safeMessage: 'Desktop realtime event cursor is out of order.' });
+    }
+    realtimeCursorByStream.set(event.streamId, event.cursor);
+    realtimeJournal.push(event);
+    if (realtimeJournal.length > EVENT_LIMIT) realtimeJournal.splice(0, realtimeJournal.length - EVENT_LIMIT);
+    return res.status(202).json({ success: true, cursor: event.cursor });
   });
   return router;
 }

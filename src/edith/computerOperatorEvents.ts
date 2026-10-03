@@ -1,3 +1,5 @@
+import { EDITH_CONTRACT_VERSION } from './contracts';
+
 export type ComputerOperatorState =
   | 'observing'
   | 'planning'
@@ -11,7 +13,9 @@ export type ComputerOperatorState =
   | 'stopped';
 
 export interface ComputerOperatorEvent {
+  contractVersion: typeof EDITH_CONTRACT_VERSION;
   id: string;
+  sequence: number;
   type: ComputerOperatorState;
   createdAt: string;
   message?: string;
@@ -19,13 +23,27 @@ export interface ComputerOperatorEvent {
   x?: number;
   y?: number;
   textPreview?: string;
+  sessionId?: string;
+  planId?: string;
+  stepId?: string;
+  observationId?: string;
+  actionId?: string;
+  verificationStatus?: 'verified' | 'partial' | 'pending_post_observation';
 }
 
 interface EventDetails {
   x?: number;
   y?: number;
   text?: string;
+  sessionId?: string;
+  planId?: string;
+  stepId?: string;
+  observationId?: string;
+  actionId?: string;
+  verificationStatus?: ComputerOperatorEvent['verificationStatus'];
 }
+
+let eventSequence = 0;
 
 function cleanMessage(value: string, maximum: number): string {
   return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, maximum);
@@ -45,7 +63,9 @@ export function createComputerOperatorEvent(
   details: EventDetails = {},
 ): ComputerOperatorEvent {
   const event: ComputerOperatorEvent = {
+    contractVersion: EDITH_CONTRACT_VERSION,
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    sequence: ++eventSequence,
     type,
     createdAt: new Date().toISOString(),
   };
@@ -64,13 +84,20 @@ export function createComputerOperatorEvent(
       ? safeText
       : `[redacted ${Array.from(safeText).length} chars]`;
   }
+  for (const key of ['sessionId', 'planId', 'stepId', 'observationId', 'actionId'] as const) {
+    const value = details[key];
+    if (typeof value === 'string' && value.trim()) event[key] = cleanMessage(value, 120);
+  }
+  if (details.verificationStatus) event.verificationStatus = details.verificationStatus;
   return event;
 }
 
 export function isComputerOperatorEvent(value: unknown): value is ComputerOperatorEvent {
   if (!value || typeof value !== 'object') return false;
   const event = value as Partial<ComputerOperatorEvent>;
-  return typeof event.id === 'string'
+  return event.contractVersion === EDITH_CONTRACT_VERSION
+    && Number.isSafeInteger(event.sequence) && Number(event.sequence) > 0
+    && typeof event.id === 'string'
     && typeof event.createdAt === 'string'
     && ['observing', 'planning', 'moving', 'clicking', 'typing', 'scrolling', 'verifying', 'success', 'error', 'stopped'].includes(String(event.type));
 }

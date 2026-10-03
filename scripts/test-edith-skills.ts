@@ -13,6 +13,10 @@ const secretMarker = 'test-secret-do-not-return';
 try {
   process.chdir(root);
   process.env.EDITH_PERSISTENCE = 'json';
+  process.env.EDITH_TEST_MODE = 'true';
+  process.env.EDITH_TEST_DATA_DIR = path.join(root, 'test-data');
+  process.env.EDITH_OBSIDIAN_PROVIDER_APP_ROOT = previousCwd;
+  process.env.EDITH_TEST_OBSIDIAN_SANDBOX_ROOT = vaultPath;
   process.env.OBSIDIAN_VAULT_PATH = vaultPath;
   process.env.GEMINI_API_KEY = `AIza-fake-${secretMarker}`;
   process.env.EDITH_OBSIDIAN_ENABLED = 'true';
@@ -32,7 +36,7 @@ try {
     mapJevSkillStatus,
   } = registryModule;
   const { buildCapabilityToolRegistry } = await import('../src/edith/toolRegistry');
-  const { edithToolRegistry, getEdithToolHealth } = await import('../src/edith/serverRegistry');
+  const { edithToolRegistry, getEdithToolHealth, getEdithToolRegistrySnapshot } = await import('../src/edith/serverRegistry');
   const { builtInSkillMetadata, skillExecutionEligibility, validateSkillPackageMetadata } = await import('../src/edith/skillStoreMetadata');
   const { obsidianVaultService } = await import('../src/edith/obsidianVaultService');
   const { createSkillsRouter } = await import('../server/routes/skills');
@@ -92,7 +96,19 @@ try {
   assert.notEqual(initial.skills.find((skill) => skill.id === 'gemini_text_chat')?.status, 'ready');
   assert.equal(initial.skills.find((skill) => skill.id === 'gemini_text_chat')?.details?.model, 'gemini-3.6-flash');
   assert.equal(initial.skills.find((skill) => skill.id === 'voice_room')?.details?.model, 'gemini-3.1-flash-live-preview');
-  assert.equal(initial.skills.find((skill) => skill.id === 'jev_decision_model')?.status, 'config_required');
+  const initialJev = initial.skills.find((skill) => skill.id === 'jev_decision_model');
+  assert.ok(initialJev);
+  assert.equal(['config_required', 'degraded'].includes(initialJev.status), true);
+  assert.notEqual(initialJev.status, 'ready');
+  assert.equal(initialJev.readiness.ready, false);
+  assert.equal(initialJev.details?.available, false);
+  if (initialJev.status === 'degraded') {
+    assert.equal(initialJev.details?.configured, true);
+    assert.equal(initialJev.readiness.level, 'limited');
+  } else {
+    assert.equal(initialJev.details?.configured, false);
+    assert.equal(initialJev.readiness.level, 'setup_required');
+  }
   assert.equal(initial.skills.find((skill) => skill.id === 'obsidian_memory')?.status, 'config_required');
   assert.equal(
     initial.skills.find((skill) => skill.id === 'computer_use')?.status,
@@ -119,6 +135,11 @@ try {
   assert.equal(mapCryptoDemoSkillStatus({ healthy: false, managedProcessRunning: false, scriptPath: cryptoScript }), 'offline');
   assert.equal(mapJevSkillStatus(undefined, false, true), 'config_required');
   assert.equal(mapJevSkillStatus({ configured: true, available: true }, true, true), 'ready');
+  assert.equal(mapJevSkillStatus({
+    configured: true,
+    status: 'stale',
+    lastProviderContact: new Date().toISOString(),
+  }, true, true), 'degraded', 'Historical provider contact must not imply current Jev readiness.');
 
   const tools = buildCapabilityToolRegistry(initial);
   assert.equal(tools.length >= 25, true);
@@ -127,9 +148,19 @@ try {
   assert.equal(tools.find((tool) => tool.id === 'demoBuy')?.requiresApproval, true);
   assert.equal(tools.find((tool) => tool.id === 'stopComputerUse')?.enabled, true);
   assert.equal(tools.find((tool) => tool.id === 'runJevDecision')?.enabled, false);
+  assert.equal(tools.every((tool) => tool.kind === 'planning_abstraction' && tool.executable === false), true);
+  const canonicalTools = getEdithToolRegistrySnapshot();
+  assert.equal(canonicalTools.authority, 'edithToolRegistry');
+  assert.equal(canonicalTools.counts.total, canonicalTools.tools.length);
+  assert.equal(canonicalTools.health.length, canonicalTools.tools.length);
+  assert.equal(canonicalTools.counts.enabled + canonicalTools.counts.blocked, canonicalTools.counts.total);
 
   const serialized = JSON.stringify({ initial, tools });
   assert.equal(serialized.includes(secretMarker), false);
+  assert.equal(serialized.includes(root), false, 'Capability registry must not expose absolute workspace or vault paths.');
+  for (const sensitiveKey of ['vaultPath', 'workspacePath', 'persistencePath', 'logsPath', 'backupPath', 'exportsPath']) {
+    assert.equal(serialized.includes(`\"${sensitiveKey}\"`), false, `Capability registry must not expose ${sensitiveKey}.`);
+  }
   assert.equal(JSON.stringify(edithToolRegistry.list()).includes(secretMarker), false);
   const summary = buildCapabilitySummary(initial);
   const compactContext = formatCapabilityContext(summary);
@@ -189,7 +220,7 @@ try {
 
   const app = express();
   app.use(express.json());
-  app.use(createSkillsRouter({ readRegistry: async () => available, readExecutionTools: () => edithToolRegistry.list() }));
+  app.use(createSkillsRouter({ readRegistry: async () => available }));
   app.use(createChatRouter());
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -205,9 +236,18 @@ try {
       assert.equal(response.ok, true, endpoint);
       const body = await response.text();
       assert.equal(body.includes(secretMarker), false, endpoint);
+      assert.equal(body.includes(root), false, `${endpoint} must not expose absolute test workspace paths.`);
       const parsed = JSON.parse(body) as Record<string, unknown>;
       assert.equal(parsed.success, true, endpoint);
       if (endpoint === '/api/edith/skills') assert.equal((parsed.skills as unknown[]).length, 14);
+      if (endpoint === '/api/edith/tools') {
+        assert.equal(parsed.authority, 'edithToolRegistry');
+        assert.equal((parsed.tools as unknown[]).length, canonicalTools.counts.total);
+        assert.equal((parsed.health as unknown[]).length, canonicalTools.counts.total);
+        assert.equal((parsed.counts as { total: number }).total, canonicalTools.counts.total);
+        assert.equal((parsed.planningCapabilities as Array<{ executable: boolean }>).every((item) => item.executable === false), true);
+        assert.equal('registryTools' in parsed, false);
+      }
       if (endpoint === '/api/edith/capabilities/summary') {
         assert.equal(Array.isArray(parsed.ready), true);
         assert.equal(body.length < 7_000, true);
@@ -230,10 +270,11 @@ try {
   console.log(JSON.stringify({
     success: true,
     skills: initial.skills.length,
-    tools: tools.length,
+    planningCapabilities: tools.length,
+    canonicalTools: canonicalTools.counts.total,
     notesWritten: noteResults.length,
     tests: [
-      'schema', 'honest_statuses', 'runtime_mapping', 'demo_safety', 'secret_redaction', 'compact_summary',
+      'schema', 'honest_statuses', 'runtime_mapping', 'demo_safety', 'secret_and_path_redaction', 'compact_summary',
       'capability_intent', 'api_endpoints', 'chat_routing', 'linked_notes', 'tool_registry_notes',
       'knowledge_backbone_indexes', 'skill_store_metadata_policy', 'user_note_preservation',
     ],

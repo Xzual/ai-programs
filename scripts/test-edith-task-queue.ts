@@ -5,6 +5,27 @@ import path from 'node:path';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-task-queue-test-'));
 const originalCwd = process.cwd();
+let closePersistence: (() => void) | undefined;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function removeTempRoot(): Promise<void> {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
+      if (attempt === 5) {
+        console.warn(`Temp cleanup skipped because Windows still holds a handle: ${tempRoot}`);
+        return;
+      }
+      await sleep(150 * (attempt + 1));
+    }
+  }
+}
 
 try {
   process.chdir(tempRoot);
@@ -15,6 +36,7 @@ try {
   const { taskQueueService } = await import('../src/edith/taskQueueService');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
   const { readRecentAuditEvents } = await import('../src/edith/audit');
+  closePersistence = () => { getEdithPersistenceStore().close?.(); };
 
   const created = taskService.createTask({
     title: 'Persistent queue regression',
@@ -37,16 +59,26 @@ try {
   assert.equal(running?.queue?.state, 'running');
 
   const paused = taskQueueService.pause(created.id, 'Waiting for user review.');
-  assert.equal(paused?.status, 'PAUSED');
+  assert.equal(paused?.status, 'BLOCKED');
   assert.equal(paused?.queue?.state, 'resumable');
   assert.equal(paused?.queue?.resumeFromStepId, secondStepId);
+  assert.equal(paused?.timeline.at(-1)?.status, 'BLOCKED');
+  assert.equal(taskQueueService.snapshot().resumable.some((task) => task.id === created.id), true);
+
+  const taskFile = getEdithPersistenceStore().getPaths().legacyTaskFile;
+  const persistedPaused = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
+  const pausedTask = persistedPaused.find((task: { id: string }) => task.id === created.id);
+  assert.equal(pausedTask.status, 'BLOCKED');
+  assert.equal(pausedTask.queue.state, 'resumable');
+  assert.equal(pausedTask.queue.resumeFromStepId, secondStepId);
 
   const resumed = taskQueueService.resume(created.id);
   assert.equal(resumed?.status, 'QUEUED');
   assert.equal(resumed?.queue?.state, 'queued');
+  assert.equal(resumed?.plan?.steps.find((step) => step.id === firstStepId)?.status, 'COMPLETED');
+  assert.equal(resumed?.queue?.resumeFromStepId, secondStepId);
   assert.equal(taskQueueService.next()?.id, created.id);
 
-  const taskFile = getEdithPersistenceStore().getPaths().legacyTaskFile;
   const persisted = JSON.parse(fs.readFileSync(taskFile, 'utf8'));
   const persistedTask = persisted.find((task: { id: string }) => task.id === created.id);
   assert.equal(persistedTask.queue.state, 'queued');
@@ -82,10 +114,7 @@ try {
     ],
   }, null, 2));
 } finally {
+  closePersistence?.();
   process.chdir(originalCwd);
-  try {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
-  } catch {
-    // Cleanup is best-effort on Windows.
-  }
+  await removeTempRoot();
 }

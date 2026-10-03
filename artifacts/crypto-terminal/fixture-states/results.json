@@ -4,170 +4,9 @@
     {
       "name": "whole-offline",
       "testOnlyFixtures": true,
-      "passed": true,
+      "passed": false,
       "audit": {
-        "fixtures": [
-          {
-            "pathname": "/api/crypto/status",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/symbols",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "BTCUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/portfolio",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/trades",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/decision/latest",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/jev/status",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/jev/loop",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/status",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/symbols",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "BTCUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/portfolio",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/trades",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/decision/latest",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/jev/status",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/jev/loop",
-            "symbol": null,
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "BTCUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "BNBUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "XRPUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "DOGEUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/status",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/symbols",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "BTCUSDT",
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/portfolio",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/trades",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/decision/latest",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/jev/status",
-            "symbol": null,
-            "status": 503
-          },
-          {
-            "pathname": "/api/crypto/jev/loop",
-            "symbol": null,
-            "status": 503
-          }
-        ],
+        "fixtures": [],
         "blockedWrites": [],
         "unknownCryptoRoutes": [],
         "forwarded": [
@@ -186,6 +25,10 @@
           {
             "method": "GET",
             "pathname": "/@react-refresh"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -217,7 +60,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
+            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
           },
           {
             "method": "GET",
@@ -261,6 +104,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -281,6 +132,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/edith/providerService.ts"
           },
           {
@@ -297,7 +156,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/node_modules/.vite/deps/chunk-MVWPOKMQ.js"
+            "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
@@ -306,140 +165,12 @@
           {
             "method": "GET",
             "pathname": "/src/edith/settingsRuntimeService.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/chat/VoiceBar.tsx"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/chat/ChatPanel.tsx"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/config/assistantProfiles.json"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/edith/computerOperatorEvents.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/edith/voiceRoomService.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/edith/voiceLiveClient.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
-          },
-          {
-            "method": "GET",
-            "pathname": "/node_modules/.vite/deps/lightweight-charts.js"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/crypto/crypto-terminal.css"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/crypto/TerminalPrimitives.tsx"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/crypto/cryptoApi.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/src/components/crypto/useCryptoOperation.ts"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/health"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/tools"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/providers/health"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/health"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/tools"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/providers/health"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/skills/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/workspace/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/edith/skills/status"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/workspace/status"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": [
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)",
-          "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
-        ]
+        "consoleErrors": []
       },
-      "reducedMotion": {
-        "requested": true,
-        "activeAnimations": 0
-      }
+      "error": "page.goto: Timeout 10000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://127.0.0.1:3000/\", waiting until \"domcontentloaded\"\u001b[22m\n"
     },
     {
       "name": "market-only-failure",
@@ -488,6 +219,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -528,6 +269,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -535,11 +286,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -554,17 +300,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -629,6 +390,10 @@
           },
           {
             "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
             "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
           },
           {
@@ -646,10 +411,6 @@
           {
             "method": "GET",
             "pathname": "/src/index.css"
-          },
-          {
-            "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -701,6 +462,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -718,6 +487,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -749,11 +526,35 @@
           },
           {
             "method": "GET",
-            "pathname": "/src/components/chat/ChatPanel.tsx"
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -774,6 +575,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -821,11 +642,19 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
             "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -837,11 +666,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -857,11 +682,19 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
           }
         ],
         "pageErrors": [],
@@ -921,6 +754,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -961,6 +804,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -968,11 +821,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -987,17 +835,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -1062,6 +925,10 @@
           },
           {
             "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
             "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
           },
           {
@@ -1079,10 +946,6 @@
           {
             "method": "GET",
             "pathname": "/src/index.css"
-          },
-          {
-            "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -1134,6 +997,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -1151,6 +1022,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -1182,11 +1061,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -1207,6 +1110,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -1254,11 +1177,19 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
             "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -1270,11 +1201,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -1290,11 +1217,19 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
           }
         ],
         "pageErrors": [],
@@ -1352,6 +1287,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -1392,6 +1337,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -1399,11 +1354,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -1418,17 +1368,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -1535,10 +1500,6 @@
           },
           {
             "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
-          },
-          {
-            "method": "GET",
             "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
           },
           {
@@ -1556,6 +1517,10 @@
           {
             "method": "GET",
             "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -1607,6 +1572,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -1624,6 +1597,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -1655,11 +1636,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -1680,6 +1685,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -1735,11 +1760,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -1748,6 +1769,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -1763,15 +1800,34 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks/task-1788387270170-h07c0x/activity"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -1825,6 +1881,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -1865,6 +1931,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -1872,11 +1948,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -1891,17 +1962,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -2038,6 +2124,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -2055,6 +2149,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -2086,11 +2188,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -2111,6 +2237,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -2166,11 +2312,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -2179,6 +2321,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -2194,15 +2352,25 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -2256,6 +2424,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -2296,6 +2474,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -2303,11 +2491,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -2322,17 +2505,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -2469,6 +2667,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -2486,6 +2692,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -2517,11 +2731,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -2542,6 +2780,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -2597,11 +2855,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -2610,6 +2864,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -2625,15 +2895,29 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -2687,6 +2971,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -2727,6 +3021,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -2734,11 +3038,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -2753,17 +3052,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -2900,6 +3214,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -2917,6 +3239,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -2948,11 +3278,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -2973,6 +3327,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -3028,11 +3402,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -3041,6 +3411,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -3056,15 +3442,29 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -3118,6 +3518,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -3158,6 +3568,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -3165,11 +3585,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -3184,17 +3599,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -3331,6 +3761,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -3348,6 +3786,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -3379,11 +3825,35 @@
           },
           {
             "method": "GET",
-            "pathname": "/src/components/chat/ChatPanel.tsx"
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -3404,6 +3874,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -3459,11 +3949,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -3472,6 +3958,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -3487,15 +3989,29 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -3549,6 +4065,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -3589,6 +4115,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -3596,11 +4132,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -3615,17 +4146,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -3762,6 +4308,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -3779,6 +4333,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -3810,11 +4372,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -3835,6 +4421,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -3890,11 +4496,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -3903,6 +4505,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -3918,15 +4536,25 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -3980,6 +4608,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -4020,6 +4658,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -4027,11 +4675,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -4046,17 +4689,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -4193,6 +4851,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -4210,6 +4876,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -4241,11 +4915,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -4266,6 +4964,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -4321,11 +5039,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -4334,6 +5048,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -4349,15 +5079,29 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -4411,6 +5155,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -4451,6 +5205,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -4458,11 +5222,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -4477,17 +5236,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -4552,10 +5326,6 @@
           },
           {
             "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
-          },
-          {
-            "method": "GET",
             "pathname": "/node_modules/.vite/deps/react_jsx-dev-runtime.js"
           },
           {
@@ -4573,6 +5343,10 @@
           {
             "method": "GET",
             "pathname": "/src/index.css"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -4624,6 +5398,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -4641,6 +5423,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -4672,11 +5462,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -4697,6 +5511,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -4752,11 +5586,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -4765,6 +5595,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -4780,15 +5626,29 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/advanced/state"
           }
         ],
         "pageErrors": [],
-        "consoleErrors": []
+        "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        ]
       },
       "reducedMotion": {
         "requested": true,
@@ -4842,6 +5702,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/status",
             "symbol": null,
             "status": 200
@@ -4882,6 +5752,16 @@
             "status": 200
           },
           {
+            "pathname": "/api/crypto/binance/status",
+            "symbol": null,
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/binance/markets",
+            "symbol": null,
+            "status": 200
+          },
+          {
             "pathname": "/api/crypto/market",
             "symbol": "BTCUSDT",
             "status": 200
@@ -4889,11 +5769,6 @@
           {
             "pathname": "/api/crypto/market",
             "symbol": "ETHUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "SOLUSDT",
             "status": 200
           },
           {
@@ -4908,17 +5783,32 @@
           },
           {
             "pathname": "/api/crypto/market",
+            "symbol": "SOLUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "TRXUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "ZECUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
+            "symbol": "HYPEUSDT",
+            "status": 200
+          },
+          {
+            "pathname": "/api/crypto/market",
             "symbol": "DOGEUSDT",
             "status": 200
           },
           {
             "pathname": "/api/crypto/market",
             "symbol": "ADAUSDT",
-            "status": 200
-          },
-          {
-            "pathname": "/api/crypto/market",
-            "symbol": "AVAXUSDT",
             "status": 200
           },
           {
@@ -5043,15 +5933,15 @@
           },
           {
             "method": "GET",
+            "pathname": "/node_modules/vite/dist/client/env.mjs"
+          },
+          {
+            "method": "GET",
             "pathname": "/node_modules/.vite/deps/chunk-FYOQSAIZ.js"
           },
           {
             "method": "GET",
             "pathname": "/node_modules/.vite/deps/chunk-G3PMV62Z.js"
-          },
-          {
-            "method": "GET",
-            "pathname": "/node_modules/vite/dist/client/env.mjs"
           },
           {
             "method": "GET",
@@ -5095,6 +5985,14 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/tasks/DynamicTaskCapsule.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/advanced/AdvancedExperiencePanels.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/modals/OllamaGuideModal.tsx"
           },
           {
@@ -5112,6 +6010,14 @@
           {
             "method": "GET",
             "pathname": "/src/edith/sseStream.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/chatMessageCorrelation.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/ownerMutationClient.ts"
           },
           {
             "method": "GET",
@@ -5143,11 +6049,35 @@
           },
           {
             "method": "GET",
+            "pathname": "/src/components/settings/ObsidianProviderPanel.tsx"
+          },
+          {
+            "method": "GET",
             "pathname": "/src/components/chat/VoiceBar.tsx"
           },
           {
             "method": "GET",
             "pathname": "/src/components/chat/ChatPanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/react-dom.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/taskActivityClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/@tauri-apps_api_core.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/advancedExperienceClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/computerContractAdapter.ts"
           },
           {
             "method": "GET",
@@ -5168,6 +6098,26 @@
           {
             "method": "GET",
             "pathname": "/src/components/crypto/CryptoExchangeTerminal.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/components/cross-device/CrossDeviceBridgePanel.tsx"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/obsidianProviderClient.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/node_modules/.vite/deps/chunk-G7S6KQDI.js"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/contracts.ts"
+          },
+          {
+            "method": "GET",
+            "pathname": "/src/edith/crossDeviceDesktopBridge.ts"
           },
           {
             "method": "GET",
@@ -5223,11 +6173,7 @@
           },
           {
             "method": "GET",
-            "pathname": "/api/edith/interaction-safety"
-          },
-          {
-            "method": "GET",
-            "pathname": "/api/voice/live/status"
+            "pathname": "/api/security/session"
           },
           {
             "method": "GET",
@@ -5236,6 +6182,22 @@
           {
             "method": "GET",
             "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/interaction-safety"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/voice/live/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/workspace/status"
           },
           {
             "method": "GET",
@@ -5251,15 +6213,24 @@
           },
           {
             "method": "GET",
+            "pathname": "/api/edith/tasks"
+          },
+          {
+            "method": "GET",
             "pathname": "/api/edith/skills/status"
           },
           {
             "method": "GET",
             "pathname": "/api/workspace/status"
+          },
+          {
+            "method": "GET",
+            "pathname": "/api/edith/tasks"
           }
         ],
         "pageErrors": [],
         "consoleErrors": [
+          "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
           "Failed to load resource: the server responded with a status of 503 (Service Unavailable)"
         ]
       },

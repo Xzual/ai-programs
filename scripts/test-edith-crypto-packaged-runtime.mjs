@@ -94,9 +94,14 @@ async function expressManagedPathSmoke() {
   const proxyPort = await freePort();
   const managedCryptoPort = await freePort();
   const expressRuntimeRoot = path.join(temp, 'express managed state');
+  const routerEntry = path.join(temp, 'packaged-router-entry.ts');
+  fs.writeFileSync(routerEntry, [
+    `export { createCryptoRouter } from ${JSON.stringify(path.join(root, 'server', 'routes', 'crypto.ts'))};`,
+    `export { createOwnerSessionRouter } from ${JSON.stringify(path.join(root, 'server', 'security', 'ownerSession.ts'))};`,
+  ].join('\n'));
   const bundle = await build({
     absWorkingDir: root,
-    entryPoints: ['server/routes/crypto.ts'],
+    entryPoints: [routerEntry],
     bundle: true,
     platform: 'node',
     format: 'cjs',
@@ -106,6 +111,7 @@ async function expressManagedPathSmoke() {
       name: 'packaged-runtime-isolation',
       setup(builder) {
         builder.onResolve({ filter: /^\.\/audit$/ }, () => ({ path: 'audit', namespace: 'qa-fixture' }));
+        builder.onResolve({ filter: /src[\\/]edith[\\/]audit$/ }, () => ({ path: 'audit', namespace: 'qa-fixture' }));
         builder.onResolve({ filter: /^\.\/workspaceManager$/ }, () => ({ path: 'workspace', namespace: 'qa-fixture' }));
         builder.onLoad({ filter: /.*/, namespace: 'qa-fixture' }, (args) => ({
           contents: args.path === 'audit'
@@ -130,6 +136,7 @@ async function expressManagedPathSmoke() {
     EDITH_CRYPTO_SERVICE_URL: `http://127.0.0.1:${managedCryptoPort}`,
     CRYPTO_PORT: String(managedCryptoPort),
     JEV_API_KEY: '',
+    EDITH_OWNER_TOKEN: 'packaged-smoke-owner-token',
   };
   const isolatedProcess = {
     env: isolatedEnv,
@@ -155,13 +162,29 @@ async function expressManagedPathSmoke() {
 
   const app = express();
   app.use(express.json());
+  app.use(module.exports.createOwnerSessionRouter());
   app.use(module.exports.createCryptoRouter());
   const server = await new Promise((resolve) => {
     const listening = app.listen(proxyPort, '127.0.0.1', () => resolve(listening));
   });
   try {
+    const origin = `http://127.0.0.1:${proxyPort}`;
+    const sessionResponse = await fetch(`${origin}/api/security/session`, {
+      method: 'POST',
+      headers: { origin, authorization: `Bearer ${isolatedEnv.EDITH_OWNER_TOKEN}` },
+    });
+    assert.equal(sessionResponse.status, 201);
+    const session = await sessionResponse.json();
+    const cookie = sessionResponse.headers.get('set-cookie')?.split(';', 1)[0];
+    assert.ok(cookie);
+    const mutationHeaders = {
+      origin,
+      cookie,
+      'x-edith-csrf-token': session.session.csrfToken,
+    };
     const startedResponse = await fetch(`http://127.0.0.1:${proxyPort}/api/crypto/start-service`, {
       method: 'POST',
+      headers: mutationHeaders,
     });
     assert.equal(startedResponse.status, 200, 'managed service start must not return missing-script 503');
     const started = await startedResponse.json();
@@ -175,15 +198,31 @@ async function expressManagedPathSmoke() {
     assert.equal(status.ok, true);
     assert.equal(status.data?.running ?? status.running, true);
     assert.equal(status.data?.realOrderEndpointsAvailable ?? status.realOrderEndpointsAvailable, false);
+    const managedMutation = await fetch(`http://127.0.0.1:${proxyPort}/api/crypto/jev/loop/stop`, {
+      method: 'POST', headers: { ...mutationHeaders, 'Content-Type': 'application/json' }, body: '{}',
+    });
+    assert.equal(managedMutation.status, 200, 'Express must attach its in-memory child token');
+    assert.equal(JSON.stringify(await managedMutation.json()).includes('X-EDITH-Internal-Token'), false);
 
     const managedStatusResponse = await fetch(`http://127.0.0.1:${proxyPort}/api/edith/crypto/status`);
     assert.equal(managedStatusResponse.status, 200);
     const managedStatus = await managedStatusResponse.json();
     assert.equal(managedStatus.status?.runtime?.resourceLayout?.ready, true);
     assert.deepEqual(managedStatus.status?.runtime?.resourceLayout?.missing, []);
-    return { expressManagedStart: true, expressStatusNo503: true };
+    return { expressManagedStart: true, expressStatusNo503: true, managedMutationAuthorized: true };
   } finally {
-    await fetch(`http://127.0.0.1:${proxyPort}/api/crypto/stop-service`, { method: 'POST' }).catch(() => undefined);
+    const origin = `http://127.0.0.1:${proxyPort}`;
+    const login = await fetch(`${origin}/api/security/session`, {
+      method: 'POST', headers: { origin, authorization: `Bearer ${isolatedEnv.EDITH_OWNER_TOKEN}` },
+    }).catch(() => undefined);
+    if (login?.ok) {
+      const session = await login.json();
+      const cookie = login.headers.get('set-cookie')?.split(';', 1)[0];
+      await fetch(`${origin}/api/crypto/stop-service`, {
+        method: 'POST',
+        headers: { origin, cookie, 'x-edith-csrf-token': session.session.csrfToken },
+      }).catch(() => undefined);
+    }
     for (let attempt = 0; attempt < 30; attempt += 1) {
       try {
         await fetch(`http://127.0.0.1:${managedCryptoPort}/api/health`, { signal: AbortSignal.timeout(150) });
