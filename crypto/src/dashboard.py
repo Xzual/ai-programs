@@ -26,6 +26,7 @@ from runtime_controller import runtime_controller
 from jev_adapter import create_jev_adapter
 from jev_loop import JevDemoLoopController
 from market_service import MarketDataService
+from demo_safety import kill_reason
 
 app = Flask(__name__, template_folder='../templates')
 memory = MemoryManager()
@@ -385,6 +386,7 @@ def api_crypto_status():
         "demoMode": True,
         "demoTradingEnabled": CONFIG.CRYPTO_DEMO_TRADING_ENABLED,
         "demoInitialBalance": CONFIG.DEMO_INITIAL_BALANCE,
+        "killSwitch": bool(kill_reason()),
         "realMoneyUsed": False,
         "liveExecutionEnabled": False,
         "paperTradingEnabled": False,
@@ -590,6 +592,8 @@ def api_crypto_jev_loop_status():
 
 @app.route('/api/crypto/jev/loop/start', methods=['POST'])
 def api_crypto_jev_loop_start():
+    if kill_reason():
+        return jsonify({"ok": False, "error": "KILL_SWITCH_ACTIVE", "status": jev_loop_controller.status()}), 423
     if not jev_adapter.status().get("configured"):
         return jsonify({"ok": False, "error": "JEV_ADAPTER_NOT_CONFIGURED", "status": jev_loop_controller.status()}), 503
     if not CONFIG.CRYPTO_DEMO_TRADING_ENABLED:

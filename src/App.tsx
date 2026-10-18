@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { fetchExplorerUndoReceipt, type ExplorerUndoReceipt } from './edith/filesClient';
+import type { ComputerAppWorkflowRequest, ComputerAppWorkflowResult } from './edith/computerAppWorkflows';
 import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { FocusedSettingsScreen } from './components/settings/FocusedSettingsScreen';
 import { Header } from './components/layout/Header';
@@ -18,6 +20,8 @@ import { ProactiveView } from './components/views/ProactiveView';
 import { CryptoView } from './components/views/CryptoView';
 import { ThemeTransition } from './components/effects/ThemeTransition';
 import { DynamicTaskCapsule } from './components/tasks/DynamicTaskCapsule';
+import { TaskActivityProvider, taskSearchSelectionForAuthority } from './components/tasks/TaskActivityProvider';
+import { TaskHudHost } from './components/tasks/TaskHudHost';
 import { AdvancedExperienceProvider } from './components/advanced/AdvancedExperiencePanels';
 import { OllamaGuideModal } from './components/modals/OllamaGuideModal';
 import { LoginScreen } from './components/auth/LoginScreen';
@@ -27,11 +31,16 @@ import type { ComputerCommandTask } from './edith/computerCommandService';
 import { consumeSseChunk } from './edith/sseStream';
 import { applyAssistantResponseMetadata, createAssistantReply, createMessageId } from './edith/chatMessageCorrelation';
 import { clearOwnerSessionMemory, ownerMutationFetch } from './edith/ownerMutationClient';
+import { nativeMobileConsumerClient } from './edith/nativeMobileConsumerClient';
+import type { OriginalBrowserRequest } from './edith/nativeBrowserConsumerClient';
+import type { BrowserWorkflowRequest } from './edith/core';
 import { fetchProviderHealth, fetchProviderProfiles, fallbackProviderProfiles, selectValidModelForProvider } from './edith/providerService';
 import {
   AgentsScreen,
   AutomationsMissionScreen,
   BrowserResearchScreen,
+  LocalSearchPanel,
+  type LocalSearchSelection,
   ComputerUseScreen,
   ContextPanel,
   FilesScreen,
@@ -87,6 +96,11 @@ import {
 export default function App() {
   // Main State
   const [activeTab, setActiveTab] = useState<ActiveTab>('voice');
+  const [searchSelection, setSearchSelection] = useState<LocalSearchSelection>();
+  const taskSearchAuthority = useRef({active: '', selected: ''});
+  const openSearchSelection = useCallback((selection: LocalSearchSelection) => { if (selection.scope === 'task') taskSearchAuthority.current.selected = taskSearchAuthority.current.active; setSearchSelection(selection); setActiveTab(selection.scope === 'task' ? 'tasks' : 'browser'); }, []);
+  const clearSearchSelection = useCallback(() => setSearchSelection(undefined), []);
+  useEffect(() => { if (searchSelection && activeTab !== (searchSelection.scope === 'task' ? 'tasks' : 'browser')) setSearchSelection(undefined); }, [activeTab, searchSelection]);
   const [settings, setSettings] = useState<UserSettings>(loadSettings());
   const [authSession, setAuthSession] = useState<EdithAuthSession | null>(loadAuthSession());
   const [sessions, setSessions] = useState<ChatSession[]>(loadSessions());
@@ -133,6 +147,12 @@ export default function App() {
   const [bootComplete, setBootComplete] = useState<boolean>(false);
   const [activeSpeakingId, setActiveSpeakingId] = useState<string | null>(null);
   const [pendingComputerTask, setPendingComputerTask] = useState<ComputerCommandTask | null>(null);
+  const [pendingBrowserRequest,setPendingBrowserRequest]=useState<OriginalBrowserRequest>();
+  const pendingBrowserRef=useRef(pendingBrowserRequest);pendingBrowserRef.current=pendingBrowserRequest;
+  const [explorerUndoReceipt, setExplorerUndoReceipt] = useState<ExplorerUndoReceipt>();
+  const explorerReceiptEpoch = useRef(0);
+  const pendingComputerTaskRef = useRef(pendingComputerTask);
+  pendingComputerTaskRef.current = pendingComputerTask;
   const [themeTransition, setThemeTransition] = useState<{
     id: number;
     from: ReturnType<typeof getAssistantProfile>;
@@ -143,6 +163,10 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const activeAssistant = getAssistantProfile(settings.assistantPersona);
+  const taskReadAuthorityKey = `${authSession?.user.id ?? 'signed-out'}:${authSession?.authenticatedAt ?? 0}:${activeAssistant.id}`;
+  if (taskSearchAuthority.current.active !== taskReadAuthorityKey) taskSearchAuthority.current.selected = '';
+  taskSearchAuthority.current.active = taskReadAuthorityKey;
+  const taskSearchSelection = taskSearchSelectionForAuthority(searchSelection, taskSearchAuthority.current.selected, taskReadAuthorityKey);
 
   const assistantInitialMessage = (): ChatMessage => ({
     id: `msg-welcome-${settings.assistantPersona}-${Date.now()}`,
@@ -162,6 +186,39 @@ export default function App() {
   const completeBoot = useCallback(() => {
     setBootComplete(true);
   }, []);
+
+  const handleExplorerRequest = useCallback((request: ComputerAppWorkflowRequest) => {
+    if (pendingComputerTaskRef.current||pendingBrowserRef.current) return;
+    explorerReceiptEpoch.current++;setExplorerUndoReceipt(undefined);
+    const descriptor: ComputerCommandTask = {id:'file-workflow-'+crypto.randomUUID(),kind:'app_workflow',request,label:'Explorer: '+request.workflow};
+    pendingComputerTaskRef.current=descriptor;setPendingComputerTask(descriptor);setActiveTab('computer');
+  }, []);
+
+  const handleBrowserRequest=useCallback((request:BrowserWorkflowRequest)=>{
+    if(pendingBrowserRef.current||pendingComputerTaskRef.current)return;
+    const descriptor:OriginalBrowserRequest={id:'browser-request-'+crypto.randomUUID(),request};
+    pendingBrowserRef.current=descriptor;setPendingBrowserRequest(descriptor);setActiveTab('computer');
+  },[]);
+  const handleBrowserRequestHandled=useCallback((requestId:string)=>{
+    if(pendingBrowserRef.current?.id===requestId){pendingBrowserRef.current=undefined;setPendingBrowserRequest(undefined);}
+  },[]);
+  useEffect(()=>{const clear=()=>{nativeMobileConsumerClient.clear();pendingBrowserRef.current=undefined;setPendingBrowserRequest(undefined);};window.addEventListener('edith-owner-logout',clear);window.addEventListener('edith-computer-stop',clear);return()=>{window.removeEventListener('edith-owner-logout',clear);window.removeEventListener('edith-computer-stop',clear);};},[]);
+
+  const handleComputerWorkflowResult = useCallback((descriptorId: string, result: ComputerAppWorkflowResult) => {
+    if (pendingComputerTaskRef.current?.id !== descriptorId || result.app !== 'explorer' || result.status !== 'verified'
+      || result.taskBinding !== 'registered' || result.taskState !== 'COMPLETED' || !result.taskId || !result.bindingId
+      || !result.effectReceipt?.operationId || !result.effectReceipt.undoReceiptId || result.workflow === 'undo') return;
+    const epoch=explorerReceiptEpoch.current;
+    void fetchExplorerUndoReceipt(result.effectReceipt.operationId,{undoReceiptId:result.effectReceipt.undoReceiptId,taskId:result.taskId,bindingId:result.bindingId})
+      .then(receipt=>{if(epoch===explorerReceiptEpoch.current && (!pendingComputerTaskRef.current || pendingComputerTaskRef.current.id===descriptorId))setExplorerUndoReceipt(receipt);})
+      .catch(()=>{if(epoch===explorerReceiptEpoch.current)setExplorerUndoReceipt(undefined);});
+  }, []);
+
+  useEffect(()=>{
+    const clear=()=>{explorerReceiptEpoch.current++;setExplorerUndoReceipt(undefined);};
+    window.addEventListener('edith-owner-logout',clear);window.addEventListener('edith-computer-stop',clear);
+    return()=>{explorerReceiptEpoch.current++;window.removeEventListener('edith-owner-logout',clear);window.removeEventListener('edith-computer-stop',clear);};
+  },[]);
 
   const handleComputerTaskHandled = useCallback((taskId: string) => {
     setPendingComputerTask((current) => current?.id === taskId ? null : current);
@@ -981,6 +1038,7 @@ export default function App() {
 
   return (
     <AdvancedExperienceProvider>
+    <TaskActivityProvider authorityKey={taskReadAuthorityKey} readEnabled={authSession.authenticated} onWorkspaceChange={clearSearchSelection}>
     <div className="edith-theme-shell fixed inset-0 flex flex-col overflow-hidden bg-[var(--edith-bg)] text-[var(--edith-text)] font-sans selection:bg-[var(--assistant-primary)] selection:text-slate-950">
       {themeTransition && (
         <ThemeTransition
@@ -991,6 +1049,7 @@ export default function App() {
         />
       )}
       <DesktopTitleBar activeAssistant={activeAssistant} onEmergencyStop={handleEmergencyStop} />
+      <LocalSearchPanel onOpenResult={openSearchSelection} />
       <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
         {/* Left Sidebar */}
         {activeTab !== 'voice' && (
@@ -1005,7 +1064,7 @@ export default function App() {
         )}
 
         {/* Main Content Workspace */}
-        <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden max-md:[&>header>div:first-child]:min-w-0 max-md:[&>header>div:first-child]:basis-full">
         {activeTab !== 'voice' && (
           <Header
             settings={settings}
@@ -1031,8 +1090,9 @@ export default function App() {
           <DynamicTaskCapsule onOpenTasks={() => setActiveTab('tasks')} />
         )}
 
+        <TaskHudHost onOpenTasks={() => setActiveTab('tasks')} />
         {/* Dynamic Tab Views */}
-        <main className="relative flex min-h-0 flex-1 overflow-hidden">
+        <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {activeTab === 'dashboard' && (
             <DashboardView
               aiState={aiState}
@@ -1074,7 +1134,7 @@ export default function App() {
 
           {activeTab === 'agents' && <AgentsScreen aiState={aiState} tools={tools} logs={logs} />}
 
-          {activeTab === 'tasks' && <TasksScreen aiState={aiState} messages={activeSession.messages} logs={logs} assistant={activeAssistant} />}
+          {activeTab === 'tasks' && <TasksScreen requestedSelectionKey={taskSearchSelection?.requestId} requestedTaskId={taskSearchSelection?.recordId} onClearRequestedSelection={clearSearchSelection} aiState={aiState} messages={activeSession.messages} logs={logs} assistant={activeAssistant} />}
 
           {activeTab === 'computer' && (
             <ComputerUseScreen
@@ -1082,10 +1142,13 @@ export default function App() {
               logs={logs}
               task={pendingComputerTask}
               onTaskHandled={handleComputerTaskHandled}
+              onWorkflowResult={handleComputerWorkflowResult}
+              browserRequest={pendingBrowserRequest}
+              onBrowserRequestHandled={handleBrowserRequestHandled}
             />
           )}
 
-          {activeTab === 'browser' && <BrowserResearchScreen tools={tools} logs={logs} />}
+          {activeTab === 'browser' && <BrowserResearchScreen requestedSelectionKey={searchSelection?.requestId} requestedRunId={searchSelection?.scope === 'research' ? searchSelection.recordId : undefined} onClearRequestedSelection={clearSearchSelection} tools={tools} logs={logs} onBrowserRequest={handleBrowserRequest} />}
 
           {activeTab === 'code' && (
             <CodeChatView
@@ -1110,11 +1173,11 @@ export default function App() {
             <AutomationsMissionScreen tools={tools} logs={logs} />
           )}
 
-          {activeTab === 'files' && <FilesScreen />}
+          {activeTab === 'files' && <FilesScreen onExplorerRequest={handleExplorerRequest} undoReceipt={explorerUndoReceipt} />}
 
           {activeTab === 'tools' && <ToolsRegistryScreen tools={tools} logs={logs} />}
 
-          {activeTab === 'voice' && <VoiceScreen onBack={() => setActiveTab('dashboard')} onNavigate={setActiveTab} />}
+          {activeTab === 'voice' && <VoiceScreen assistantProfile={activeAssistant} onBack={() => setActiveTab('dashboard')} onNavigate={setActiveTab} />}
 
           {activeTab === 'crypto' && <TradingScreen integrations={integrations} tools={tools} logs={logs} />}
 
@@ -1156,6 +1219,7 @@ export default function App() {
         onSwitchToGemini={() => updateSettings({ aiProvider: 'gemini' })}
       />
     </div>
+    </TaskActivityProvider>
     </AdvancedExperienceProvider>
   );
 }

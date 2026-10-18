@@ -31,7 +31,7 @@ function safeSegment(value: string): string {
 
 function redactJournalText(value: string): { text: string; redacted: boolean } {
   const sensitive = redactSensitiveString(value)
-    .replace(/(?:[A-Za-z]:[\\/]|\\\\|\/)(?:[^\s`"']+[\\/])+[^\s`"']*/g, '[REDACTED_LOCAL_PATH]');
+    .replace(/https?:\/\/[^\s`"']+|(?:[A-Za-z]:[\\/]|\\\\|\/)(?:[^\s`"']+[\\/])+[^\s`"']*/g, (match) => /^https?:\/\//i.test(match) ? match : '[REDACTED_LOCAL_PATH]');
   return { text: sensitive, redacted: sensitive !== value };
 }
 
@@ -66,9 +66,11 @@ export class SandboxVaultProvider implements ResearchJournalVaultProvider {
     const target = path.resolve(this.root, normalized);
     const relative = path.relative(this.root, target);
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('Sandbox research journal path escapes its root.');
-    let parent = path.dirname(target);
-    while (!fs.existsSync(parent) && parent !== this.root) parent = path.dirname(parent);
-    if (fs.existsSync(parent) && fs.lstatSync(parent).isSymbolicLink()) throw new Error('Sandbox research journal does not follow symbolic links.');
+    let parent = target;
+    while (parent !== this.root) {
+      if (fs.existsSync(parent) && fs.lstatSync(parent).isSymbolicLink()) throw new Error('Sandbox research journal does not follow symbolic links.');
+      parent = path.dirname(parent);
+    }
     return target;
   }
 }
@@ -84,9 +86,11 @@ export class ResearchJournalService {
     }
     const baseName = `${safeSegment(run.runId)}-${safeSegment(redactSensitiveString(run.query)).slice(0, 48)}`;
     let relativePath = `${RESEARCH_JOURNAL_FOLDER}/${baseName}.md`;
-    const existing = provider.read(relativePath);
-    if (existing && !existing.includes(RESEARCH_JOURNAL_MARKER)) {
-      relativePath = `${RESEARCH_JOURNAL_FOLDER}/${baseName}-edith.md`;
+    for (let suffix = 0; suffix < 32; suffix++) {
+      relativePath = `${RESEARCH_JOURNAL_FOLDER}/${baseName}${suffix ? `-edith${suffix === 1 ? '' : `-${suffix}`}` : ''}.md`;
+      const existing = provider.read(relativePath);
+      if (existing === undefined || (existing.includes(RESEARCH_JOURNAL_MARKER) && existing.includes(`edith_run_id: ${run.runId}\n`))) break;
+      if (suffix === 31) return { status: 'blocked', redacted: false, reason: 'Research journal filename collision limit reached.' };
     }
     const rendered = this.render(run);
     provider.write(relativePath, rendered.text);

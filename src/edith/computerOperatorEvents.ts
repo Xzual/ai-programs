@@ -50,8 +50,9 @@ function cleanMessage(value: string, maximum: number): string {
 }
 
 export function operatorStateForAction(action: string): ComputerOperatorState {
-  if (action === 'moveMouse') return 'moving';
-  if (action === 'clickMouse') return 'clicking';
+  if (action === 'moveMouse' || action === 'dragMouse') return 'moving';
+  if (action === 'focusApp') return 'moving';
+  if (action === 'clickMouse' || action === 'doubleClickMouse') return 'clicking';
   if (action === 'scroll') return 'scrolling';
   if (action === 'typeText' || action === 'pressKey' || action === 'hotkey') return 'typing';
   return 'planning';

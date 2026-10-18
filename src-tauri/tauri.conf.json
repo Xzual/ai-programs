@@ -38,7 +38,8 @@
     "resources": {
       "../dist/": "dist/",
       "../.edith-build/desktop/resources/crypto/": "crypto/",
-      "../.edith-build/desktop/resources/python/": "python/"
+      "../.edith-build/desktop/resources/python/": "python/",
+      "../.edith-build/desktop/resources/third-party/": "third-party/"
     },
     "icon": [
       "icons/32x32.png",

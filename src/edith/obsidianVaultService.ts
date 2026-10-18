@@ -281,7 +281,8 @@ export class ObsidianVaultService {
     const graph = knowledgeGraphService.snapshot({ limit: 5000 });
     const recentEvents = getEdithPersistenceStore().listKnowledgeSyncEvents?.(20) ?? [];
     const lastError = recentEvents.find((event) => event.status === 'error')?.message;
-    const activeIndex = index.filter((record) => !record.deletedAt);
+    const activeIndex = index.filter((record) => !record.deletedAt && vaultPathConfigured
+      && path.resolve(record.absolutePath) === path.resolve(this.settings.vaultPath, record.path));
     const connectionStatus = this.connectionStatus({
       vaultPathConfigured,
       vaultExists,
@@ -357,7 +358,12 @@ export class ObsidianVaultService {
     if (!this.canAccess(this.settings.vaultPath, fs.constants.R_OK)) {
       return { success: false, indexed: 0, errors: ['Obsidian vault is not readable.'], status: this.status() };
     }
-    const files = this.walkVault();
+    let files: string[];
+    try {
+      files = this.walkVault();
+    } catch (error) {
+      return { success: false, indexed: 0, errors: [error instanceof Error ? error.message : String(error)], status: this.status() };
+    }
     const errors: string[] = [];
     let indexed = 0;
     for (const file of files) {
@@ -1136,7 +1142,7 @@ export class ObsidianVaultService {
     return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
       if (entry.name === '.obsidian') return [];
       const relativePath = this.normalizeRelativePath(path.join(prefix, entry.name));
-      const absolutePath = path.join(this.settings.vaultPath, relativePath);
+      const absolutePath = this.absolutePathFor(relativePath);
       if (entry.isDirectory()) return this.walkVault(absolutePath, relativePath);
       return [relativePath];
     });
@@ -1147,6 +1153,9 @@ export class ObsidianVaultService {
     const vaultRoot = path.resolve(this.settings.vaultPath);
     const relative = path.relative(vaultRoot, absolutePath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error(`Path escapes Obsidian vault: ${relativePath}`);
+    const provider = this.providerConfig.provider();
+    if (!provider || provider.root !== this.settings.vaultPath) throw new Error('OBSIDIAN_VAULT_UNAVAILABLE');
+    provider.exists(relativePath); // Validates every existing path segment before traversal or IO.
     if (fs.existsSync(absolutePath) && fs.lstatSync(absolutePath).isSymbolicLink()) {
       throw new Error(`Symbolic-link note targets are not writable: ${relativePath}`);
     }

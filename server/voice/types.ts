@@ -1,4 +1,5 @@
 import type { RawData, WebSocket } from "ws";
+import type {VoiceTaskAdmittedV1, HudPresentationV1} from '../../src/edith/taskHudContracts';
 
 export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 export const GEMINI_LIVE_INPUT_MIME = "audio/pcm;rate=16000";
@@ -24,19 +25,22 @@ export type VoiceLiveErrorCode =
   | "connector_not_implemented";
 
 export type VoiceClientEvent =
-  | { type: "session:start" }
+  | { type: "session:start"; personaId?: string }
   | { type: "audio:chunk"; audio: string; mimeType?: string }
   | { type: "session:stop" }
   | { type: "interrupt" };
 
-export type VoiceServerEvent =
+export type VoiceServerEvent = ({ generation?: number } & (
+  | VoiceTaskAdmittedV1
+  | HudPresentationV1
   | { type: "status"; state: VoiceLiveState; sessionId?: string; safeMessage?: string }
-  | { type: "transcript:user"; text: string; partial: boolean }
+  | { type: "transcript:user"; text: string; partial: boolean; utteranceId?: string }
   | { type: "transcript:assistant"; text: string; partial: boolean }
   | { type: "audio:chunk"; audio: string; mimeType: typeof GEMINI_LIVE_OUTPUT_MIME }
   | { type: "error"; errorCode: VoiceLiveErrorCode; safeMessage: string }
-  | { type: "session:ready"; sessionId: string; model: typeof GEMINI_LIVE_MODEL }
-  | { type: "session:ended"; reason: string };
+  | { type: "session:ready"; sessionId: string; model: typeof GEMINI_LIVE_MODEL; personaId?: string }
+  | { type: "skill:result"; utteranceId: string; outcome: string; taskId?: string; skillId?: string; verificationStatus?: string; reasonCode?: string; idempotentReplay?: boolean }
+  | { type: "session:ended"; reason: string }));
 
 export interface VoiceLiveStatus {
   success: true;
@@ -65,7 +69,7 @@ export interface VoiceLiveStatus {
 export interface GeminiLiveCallbacks {
     onReady: (sessionId?: string) => void;
     onState: (state: VoiceLiveState, safeMessage?: string) => void;
-    onUserTranscript: (text: string, partial: boolean) => void;
+    onUserTranscript: (text: string, partial: boolean, utteranceId?: string) => void;
     onAssistantTranscript: (text: string, partial: boolean) => void;
     onAudio: (base64Audio: string, mimeType: typeof GEMINI_LIVE_OUTPUT_MIME) => void;
     onError: (errorCode: VoiceLiveErrorCode, safeMessage: string) => void;

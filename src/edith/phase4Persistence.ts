@@ -148,6 +148,7 @@ export class JsonPhase4Persistence extends BasePhase4Persistence {
   }
 
   private readRaw(): unknown {
-    try { return JSON.parse(fs.readFileSync(this.filePath, 'utf8')); } catch { return undefined; }
+    if (fs.statSync(this.filePath).size > 8 * 1024 * 1024) throw new Error('PHASE4_STORE_TOO_LARGE');
+    try { return JSON.parse(fs.readFileSync(this.filePath, 'utf8')); } catch { throw new Error('PHASE4_STORE_INVALID'); }
   }
 }

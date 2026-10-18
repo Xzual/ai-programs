@@ -41,7 +41,7 @@ import {
 import { ownerMutationFetch } from './ownerMutationClient';
 
 export interface AdvancedCapabilityStatus {
-  persistence: 'memory_only';
+  persistence: 'memory_only' | 'mission_metadata_durable';
   restartRecovery: 'partial';
   nativeExecution: string;
   scheduler: string;
@@ -114,7 +114,7 @@ function object(value: unknown): Record<string, unknown> | undefined {
 
 function capabilityStatus(value: unknown): AdvancedCapabilityStatus {
   const row = object(value);
-  if (!row || row.persistence !== 'memory_only' || row.restartRecovery !== 'partial' || row.secretsStored !== false) {
+  if (!row || !['memory_only', 'mission_metadata_durable'].includes(String(row.persistence)) || row.restartRecovery !== 'partial' || row.secretsStored !== false) {
     throw new AdvancedExperienceClientError('ADVANCED_STATUS_INVALID', 'Advanced capability truth could not be verified.');
   }
   const required = ['nativeExecution', 'scheduler', 'watcherObservation', 'watcherDelivery', 'mobileRead'] as const;

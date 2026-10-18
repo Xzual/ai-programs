@@ -1,8 +1,11 @@
 [[permission]]
 identifier = "edith-desktop-loopback"
-description = "Allows the packaged E.D.I.T.H. loopback UI to use its desktop shell, owner bootstrap, trusted producer bridge, and native Obsidian picker without enabling computer-control commands."
+description = "Allows the packaged E.D.I.T.H. loopback UI to use its desktop shell, owner bootstrap, trusted producer bridge, native Obsidian picker, and three original-browser opaque lookups guarded by the current managed main window."
 commands.allow = [
   "get_version",
+  "native_browser_resolve",
+  "native_browser_dispatch",
+  "native_browser_read_status",
   "desktop_shell_status",
   "backend_runtime_status",
   "desktop_owner_bootstrap_token",

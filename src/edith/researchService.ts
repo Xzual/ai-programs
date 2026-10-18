@@ -16,6 +16,8 @@ import type { Phase4Persistence } from './phase4Persistence';
 import type { ResearchJournalService, ResearchJournalWriteResult } from './researchJournalService';
 import { ResearchSsrfPolicy, type ResearchHostResolver } from './researchSsrfPolicy';
 import type { ResultCardProductionOptions, SharedResultCardProducerService } from './sharedResultCardProducer';
+import { killSwitchService } from './killSwitch';
+import { ownerSessionBindingActive } from '../../server/security/ownerSession';
 
 export type ResearchSpecialization = 'source_discovery' | 'browser_acquisition' | 'claim_synthesis' | 'corroboration' | 'citation_verification';
 
@@ -26,6 +28,7 @@ export type ResearchRequestV2_1 = Required<Pick<ResearchRunV2, 'query' | 'mode'>
   maxRetries?: number;
   workerTimeoutMs?: number;
   staleAfterMs?: number;
+  ownerSessionBindingId?: string;
 };
 
 export interface ResearchSourceCandidate extends Omit<ResearchSourceV2, 'safety'> {
@@ -66,6 +69,7 @@ export interface ResearchExecutionResult {
   reasonCodes: string[];
   journal?: ResearchJournalWriteResult;
   resultCard?: SharedResultCardV2;
+  measurements?: { acquisitionCalls: number; retrievedBytes: number; modelCalls: number; fixture: boolean };
 }
 
 export interface ResearchResultCardOutput {
@@ -98,16 +102,25 @@ function withWorkerTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   });
 }
 
-function freshnessForSources(sources: ResearchSourceV2[], checkedAt: Date, staleAfterMs: number): ResearchFreshnessV2 {
-  if (!sources.length) return { checkedAt: checkedAt.toISOString(), status: 'unknown' };
-  const times = sources.map((source) => Date.parse(source.publishedAt ?? source.retrievedAt)).filter(Number.isFinite).sort((a, b) => a - b);
-  if (!times.length) return { checkedAt: checkedAt.toISOString(), status: 'unknown' };
-  const statuses = times.map((time) => checkedAt.getTime() - time <= staleAfterMs ? 'fresh' : 'stale');
+export function freshnessForSources(sources: ResearchSourceV2[], checkedAt: Date, staleAfterMs: number): ResearchFreshnessV2 {
+  const checkedAtIso = checkedAt.toISOString();
+  if (!sources.length || !Number.isFinite(staleAfterMs) || staleAfterMs <= 0) {
+    return { checkedAt: checkedAtIso, status: 'unknown' };
+  }
+  // Publication time describes the age of the evidence; retrieval time is the
+  // fallback only when publication time is absent, not when it is invalid.
+  const times = sources.map((source) => Date.parse(source.publishedAt ?? source.retrievedAt)).sort((a, b) => a - b);
+  if (times.some((time) => !Number.isFinite(time) || time > checkedAt.getTime()
+    || !Number.isFinite(new Date(time + staleAfterMs).getTime()))) {
+    return { checkedAt: checkedAtIso, status: 'unknown' };
+  }
+  const statuses = times.map((time) => checkedAt.getTime() < time + staleAfterMs ? 'fresh' : 'stale');
   return {
-    checkedAt: checkedAt.toISOString(),
+    checkedAt: checkedAtIso,
     oldestSourceAt: new Date(times[0]).toISOString(),
     newestSourceAt: new Date(times[times.length - 1]).toISOString(),
-    staleAfter: new Date(checkedAt.getTime() - staleAfterMs).toISOString(),
+    // A multi-source set first loses its all-fresh status at its oldest expiry.
+    staleAfter: new Date(times[0] + staleAfterMs).toISOString(),
     status: statuses.every((status) => status === 'fresh') ? 'fresh' : statuses.every((status) => status === 'stale') ? 'stale' : 'mixed',
   };
 }
@@ -153,6 +166,7 @@ export class ResearchService {
   }
 
   async execute(request: ResearchRequestV2_1, resultOutput?: ResearchResultCardOutput): Promise<ResearchExecutionResult> {
+    this.assertAllowed(request);
     const startedAt = new Date().toISOString();
     const runId = `research-${randomUUID()}`;
     const plan = this.plan(request);
@@ -236,11 +250,13 @@ export class ResearchService {
     };
     const parsed = parseResearchRunV2(run);
     if (parsed.success === false) return this.finishFailure(initial, plan, 'failed', [parsed.errorCode], resultOutput);
+    this.assertAllowed(request);
     const journal = this.journal?.write(parsed.value);
     if (journal?.status === 'written' && journal.relativePath) parsed.value.artifactIds.push(`journal:${journal.relativePath}`);
     this.persistence.saveResearchRun(parsed.value);
     const resultCard = resultOutput?.producer.fromResearchRun(parsed.value, resultOutput.options);
-    return { outcome: 'completed', run: parsed.value, plan, reasonCodes: [], journal, resultCard };
+    const measured = this.workers.find((worker) => 'measurements' in worker) as (ResearchWorker & { measurements(request: ResearchRequestV2_1): { acquisitionCalls: number; retrievedBytes: number; modelCalls: number; fixture: boolean } }) | undefined;
+    return { outcome: 'completed', run: parsed.value, plan, reasonCodes: [], journal, resultCard, measurements: measured?.measurements(request) };
   }
 
   private async validateSeedUrls(urls: string[]): Promise<{ outcome: 'blocked' | 'configuration_required'; reasonCodes: string[] } | undefined> {
@@ -254,6 +270,7 @@ export class ResearchService {
   private async executeWorker(worker: ResearchWorker, specialization: ResearchSpecialization, request: ResearchRequestV2_1, maxRetries: number): Promise<ResearchWorkerOutput> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxRetries + 1; attempt += 1) {
+      this.assertAllowed(request);
       try {
         const timeoutMs = Math.max(1_000, Math.min(120_000, request.workerTimeoutMs ?? 30_000));
         return await withWorkerTimeout(
@@ -264,6 +281,11 @@ export class ResearchService {
       catch (error) { lastError = error; }
     }
     throw lastError instanceof Error ? lastError : new Error('Research worker failed.');
+  }
+
+  private assertAllowed(request: ResearchRequestV2_1): void {
+    killSwitchService.assertAllowed('tool_execution', 'edith-research');
+    if (request.ownerSessionBindingId && !ownerSessionBindingActive(request.ownerSessionBindingId)) throw new Error('OWNER_SESSION_REQUIRED');
   }
 
   private async merge(outputs: ResearchWorkerOutput[]): Promise<{ sources: ResearchSourceV2[]; citations: ResearchCitationV2[]; claims: ResearchClaimV2[]; blockedReasons: string[] }> {

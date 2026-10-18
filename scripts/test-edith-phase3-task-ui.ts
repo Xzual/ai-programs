@@ -53,7 +53,7 @@ const event = {
   payload: { stepId: 'step-ui', status: 'RUNNING', attempt: 1 },
   context: { correlationId: 'corr-phase3', idempotencyKey: 'idem-phase3' },
 };
-const envelope = (data: unknown) => ({ contract: { schema: 'edith.shared', version: 2 }, data });
+const envelope = (data: unknown) => ({ success: true, contract: { schema: 'edith.shared', version: 2 }, data });
 
 const tasks = parseTaskListV2(envelope({ tasks: [task] }));
 assert.equal(tasks.length, 1);
@@ -105,6 +105,17 @@ assert.throws(
   (error: unknown) => error instanceof TaskContractError && error.code === 'TASK_EVENT_AHEAD_OF_SNAPSHOT',
 );
 
+for (const data of [{ tasks: [task] }, { task: { ...task, progress: undefined }, progress, events: [event] }]) {
+  const parse = 'tasks' in data ? parseTaskListV2 : parseTaskActivityV2;
+  const { success: _success, ...missingSuccess } = envelope(data);
+  for (const invalidEnvelope of [missingSuccess, { ...envelope(data), success: false }]) {
+    assert.throws(
+      () => parse(invalidEnvelope),
+      (error: unknown) => error instanceof TaskContractError && error.code === 'TASK_V2_ENVELOPE_REQUIRED',
+    );
+  }
+}
+
 console.log(JSON.stringify({
   success: true,
   checks: [
@@ -118,3 +129,26 @@ console.log(JSON.stringify({
     'secret_material_rejected',
   ],
 }, null, 2));
+
+// Additive request-correlation coverage; all original parser assertions remain unchanged.
+import { fetchTaskActivityV2 } from '../src/edith/taskActivityClient';
+async function testActualTaskActivityRequest() {
+  const originalFetch=globalThis.fetch, requested='task/A?B#C', controller=new AbortController();
+  const payload=(id:string)=>envelope({task:{...task,id,progress:undefined},progress:{...progress,taskId:id},events:[{...event,taskId:id}]});
+  try {
+    globalThis.fetch=(async(input,options)=>{
+      assert.equal(input,`/api/edith/tasks/${encodeURIComponent(requested)}/activity`); assert.equal(options?.credentials,'include'); assert.equal(options?.signal,controller.signal);
+      return new Response(JSON.stringify(payload(requested)));
+    }) as typeof fetch;
+    assert.equal((await fetchTaskActivityV2(requested,controller.signal)).task.id,requested);
+    globalThis.fetch=(async()=>new Response(JSON.stringify(payload('task-B')))) as typeof fetch;
+    await assert.rejects(fetchTaskActivityV2(requested),(e:unknown)=>e instanceof TaskContractError && e.code==='TASK_ACTIVITY_REQUEST_MISMATCH');
+    assert.equal((await fetchTaskActivityV2('task-B')).task.id,'task-B');
+    globalThis.fetch=(async()=>new Response('not JSON')) as typeof fetch;
+    await assert.rejects(fetchTaskActivityV2(requested),(e:unknown)=>e instanceof TaskContractError && e.code==='TASK_RESPONSE_MALFORMED');
+    globalThis.fetch=(async()=>{throw new DOMException('Aborted','AbortError');}) as typeof fetch;
+    await assert.rejects(fetchTaskActivityV2(requested,controller.signal),{name:'AbortError'});
+    console.log(JSON.stringify({success:true,checks:['actual_fetch_b_for_a_rejected','requested_b_succeeds','encoded_id_credentials_signal','malformed_and_abort_preserved']}));
+  } finally { globalThis.fetch=originalFetch; }
+}
+testActualTaskActivityRequest().catch(e=>{console.error(e);process.exitCode=1;});

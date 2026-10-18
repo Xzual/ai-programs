@@ -49,6 +49,7 @@ function sendBinanceError(req: Request, res: Response, error: unknown, action: s
   res.setHeader("Cache-Control", "no-store");
   res.status(known ? error.status : 503).json({
     ok: false, success: false, errorCode: code,
+    mode: "DEMO_ONLY", realOrderSent: false, privateRequestsEnabled: false,
     safeMessage: known ? error.message : "Binance Spot request could not be verified.",
   });
 }
@@ -253,6 +254,13 @@ export function createCryptoRouter(): Router {
 
   for (const path of safeDashboardPostPaths) {
     router.post(path, ...requireProtectedMutation, async (req, res) => {
+      // Python rechecks the shared switch files at ledger commit after provider work.
+      // Completed idempotent requests must replay their original result even
+      // under a stop. Their fresh executions are guarded in the Python ledger.
+      if (!idempotentPaths.has(path) && path !== "/api/crypto/jev/loop/stop" && binanceSpotService.executionBlocked()) {
+        sendSafeError(res, 423, "risk_rejected");
+        return;
+      }
       const primaryId = req.body?.clientRequestId;
       const aliasId = req.body?.idempotencyKey;
       const clientRequestId = primaryId !== undefined ? primaryId : aliasId;

@@ -188,7 +188,7 @@ try {
   };
   const requested = pairing.request(pairingRequest);
   pairing.submitProof(requested.pairing.pairingId, signature(signingKeys.privateKey, requested.proofPayload));
-  pairing.approve(requested.pairing.pairingId, requested.code, undefined, { bindingId: ownerBindingId, expiresAt: new Date(clockMs + 60 * 60_000).toISOString() });
+  pairing.approve(requested.pairing.pairingId, requested.code, undefined, { bindingId: ownerBindingId, expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() });
   const consumed = pairing.consume(requested.pairing.pairingId, signature(signingKeys.privateKey, `${requested.proofPayload}\nconsume`));
   const context = pairing.authenticate(consumed.credential.token);
 

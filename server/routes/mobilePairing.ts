@@ -39,8 +39,29 @@ export function createMobilePairingRouter(options: { runtime?: MobileRuntime; pr
   const protectedMutation = options.protectedMutation ?? requireProtectedMutation;
   const deviceAuth = createDeviceAuth(runtime);
   const pairingAttempts = new Map<string, { windowStartedAt: number; count: number }>();
+  const reconnectAttempts = new Map<string, { started: number; count: number }>();
 
   router.use('/api/mobile', requireSecureMobileTransport);
+
+  router.post(['/api/mobile/session/reconnect/challenge', '/api/mobile/session/reconnect/:reconnectId/consume'], (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const now = Date.now(), peer = req.socket.remoteAddress ?? 'unknown';
+      for (const [key, row] of reconnectAttempts) if (now - row.started >= 300_000) reconnectAttempts.delete(key);
+      const attempt = reconnectAttempts.get(peer) ?? { started: now, count: 0 };
+      if (reconnectAttempts.size >= 2000 && !reconnectAttempts.has(peer)) throw new Error('RECONNECT_CAPACITY');
+      reconnectAttempts.set(peer, attempt);
+      if (++attempt.count > 20) throw new Error('RECONNECT_RATE_LIMITED');
+      if (req.params.reconnectId) return res.json(runtime.pairing.consumeReconnect(req.params.reconnectId, req.body));
+      return res.status(201).json(runtime.pairing.beginReconnect(req.body));
+    } catch (error) {
+      const safe = error instanceof Error && /^(?:RECONNECT|DEVICE|SESSION_CRYPTO|MOBILE|PAIRING)_[A-Z0-9_]+$/.test(error.message) ? error : new Error('RECONNECT_REQUEST_FAILED');
+      const mapped = publicError(safe);
+      const code = safe.message;
+      const status = /RATE_LIMIT|CAPACITY/.test(code) ? 429 : /EXPIRED/.test(code) ? 410 : /ALREADY|REPLAY|CHANGED|CONFLICT/.test(code) ? 409 : /REQUIRED/.test(code) ? 428 : /PROOF_INVALID|TRUST_INVALID|CREDENTIAL_INVALID/.test(code) ? 401 : 400;
+      res.status(status).json(mapped.body);
+    }
+  });
 
   router.post('/api/mobile/pairing/request', (req, res) => {
     try {

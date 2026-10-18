@@ -62,6 +62,32 @@ function extractAudio(message: LiveServerMessage): string | undefined {
   return inlinePart?.inlineData?.data;
 }
 
+/** SDK transcript chunks are partial until finished; IDs survive repeated final callbacks. */
+export class VoiceTranscriptAccumulator {
+  private sequence = 1;
+  private confirmed = '';
+  private finalized: { text: string; utteranceId: string; lastChunk: string } | null = null;
+  read(chunk: { text?: string; finished?: boolean }, interim = false): { text: string; partial: boolean; utteranceId: string } | undefined {
+    const text = chunk.text ?? '';
+    if (!text && !chunk.finished) return undefined;
+    if (this.finalized) {
+      if (!interim && chunk.finished && (!text || text === this.finalized.lastChunk || text.trim() === this.finalized.text)) return { text: this.finalized.text, partial: false, utteranceId: this.finalized.utteranceId };
+      this.sequence++; this.confirmed = ''; this.finalized = null;
+    }
+    const utteranceId = `utterance-${this.sequence}`;
+    if (interim) return { text, partial: true, utteranceId };
+    this.confirmed += text;
+    const finished = chunk.finished === true;
+    if (finished) this.finalized = { text: this.confirmed.trim(), utteranceId, lastChunk: text };
+    return { text: this.confirmed.trim(), partial: !finished, utteranceId };
+  }
+  nextTurn(): void {
+    // Preserve the final ID across trailing/repeated turn-complete notifications.
+    // A new partial/interim or different final starts the next utterance.
+    if (!this.finalized) { this.sequence++; this.confirmed = ''; }
+  }
+}
+
 export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
   private readonly apiKey: string;
 
@@ -75,6 +101,7 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
   ): Promise<GeminiLiveSession> {
     const ai = new GoogleGenAI({ apiKey: this.apiKey });
     let sdkSession: Session | undefined;
+    const transcripts = new VoiceTranscriptAccumulator();
 
     try {
       callbacks.onState("connecting", "Connecting to Gemini Live.");
@@ -91,7 +118,7 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
         },
         callbacks: {
           onopen: () => {
-            callbacks.onState("listening", "Gemini Live session opened.");
+            callbacks.onState("connecting", "Gemini Live transport opened; awaiting setup.");
           },
           onmessage: (message) => {
             if (message.setupComplete) {
@@ -99,9 +126,10 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
               callbacks.onState("listening");
             }
 
-            const inputTranscript = message.serverContent?.interimInputTranscription?.text ?? message.serverContent?.inputTranscription?.text;
-            if (inputTranscript) {
-              callbacks.onUserTranscript(inputTranscript, Boolean(message.serverContent?.interimInputTranscription));
+            const transcription = message.serverContent?.interimInputTranscription ?? message.serverContent?.inputTranscription;
+            const inputTranscript = transcription && transcripts.read(transcription, Boolean(message.serverContent?.interimInputTranscription));
+            if (inputTranscript?.text) {
+              callbacks.onUserTranscript(inputTranscript.text, inputTranscript.partial, inputTranscript.utteranceId);
               callbacks.onState("thinking");
             }
 
@@ -122,6 +150,7 @@ export class GoogleGeminiLiveProvider implements GeminiLiveProvider {
             }
 
             if (message.serverContent?.turnComplete || message.serverContent?.waitingForInput) {
+              transcripts.nextTurn();
               callbacks.onState("idle");
             }
           },

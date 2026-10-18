@@ -25,6 +25,9 @@ export interface SupabaseSession {
 }
 
 export interface RegistryService {
+  pushStatus?(): { configured: boolean; status: 'CONFIGURATION_REQUIRED' | 'UNVERIFIED'; transportBound: boolean };
+  sendPush?(token: string, input: { deviceId: string; eventId: string; kind: 'task' | 'transfer'; resourceId: string }): Promise<{ accepted: true; receiptId: string }>;
+  registerPush?(token: string, input: { action: 'register' | 'revoke'; deviceId: string; registrationToken?: string; consent?: true }): Promise<{ registered: boolean; revoked: boolean }>;
   status(): Promise<CloudRegistryStatus>;
   signIn(email: string, password: string): Promise<SupabaseSession>;
   refreshSession(refreshToken: string): Promise<SupabaseSession>;

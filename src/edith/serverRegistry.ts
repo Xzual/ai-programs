@@ -20,11 +20,176 @@ import { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS, permissionService } f
 import { visionObservationService } from './visionService';
 import { computerActionService } from './computerActionService';
 import { browserWorkflowService } from './browserWorkflowService';
+import { BROWSER_TOOL_POLICY, BROWSER_TOOL_IDS, BROWSER_ACTIONS, type BrowserToolId } from './browserOperatorContract';
+import { normalizeRegisteredBrowserArgs } from '../../server/browser/browserRegisteredArgs';
+import { ownerSessionBindingActive } from '../../server/security/ownerSession';
 import { sensitiveIntegrationService } from './sensitiveIntegrationService';
 import { registerAwesomeAgentSkillTools } from './awesomeAgentSkills';
 import { redactSensitiveString, sanitizeSensitiveValue } from './securityRedaction';
+import { isReaSafeReport, type ReaSafeReport } from './reaAnalysisService';
+import type { ReaProfile } from './reaContract';
+import type { ReaIntegrationService, ReaIntegrationStatus } from './reaIntegrationService';
+import { parseReaExecutionReceipt, parseReaPlannedCall, reaProjectionDigest } from './reaIntegrationContract';
+import type { ReaExecutionCapabilityV1, ReaExecutionReceiptV1, ReaReceiptCorrelationV1, ReaSafeResultProjectionV1,
+  ReaSafeTechnicalFactV1, ReaSafeStructuralRelationshipV1, ReaSafeTechnicalOmissionV1 } from './reaIntegrationContract';
+import { createReaReceiptObservedMetrics } from './reaTools';
 
 export const edithToolRegistry = new EdithToolRegistry();
+
+export interface ReaReceiptLocator {
+  toolRunId: string; auditEventId: string; finishedAt: string; receiptObservedAt: string; receiptDigest: string;
+}
+export interface ReaRegistryExecution {
+  assertCurrent(cap: ReaExecutionCapabilityV1): void;
+  revoke(cap: ReaExecutionCapabilityV1): void;
+  status(profile: ReaProfile): ReaIntegrationStatus;
+  execute(cap: ReaExecutionCapabilityV1): Promise<{ toolResult: EdithToolResult; receipt: ReaExecutionReceiptV1 }>;
+}
+const reaPorts = new WeakSet<object>();
+let boundReaPort: ReaRegistryExecution | undefined;
+export function bindReaRegistryExecution(port: ReaRegistryExecution): void {
+  if (!reaPorts.has(port) || boundReaPort) throw new Error('REA_REGISTRY_BINDING_INVALID');
+  boundReaPort = port;
+}
+export function readReaRegistryStatus(profile: ReaProfile): ReaIntegrationStatus {
+  return boundReaPort?.status(profile) ?? { schemaVersion: 1, runtimeReady: false, outcome: 'configuration_required',
+    reasons: [{ kind: 'missing_code', code: 'REA_REGISTRY_NOT_BOUND' }] };
+}
+const reaDirectDenied = (): EdithToolResult => ({ success: false, toolId: 'rea_analysis',
+  errorCode: 'PERMISSION_DENIED', error: 'REA_PRIVATE_CAPABILITY_REQUIRED' });
+
+/** This port alone owns receipt production. Public tool arguments cannot carry its capability. */
+export function createReaRegistryExecution(deps: {
+  integration: ReaIntegrationService;
+  bindReceipt(cap: ReaExecutionCapabilityV1, locator: ReaReceiptLocator): void;
+  readExpected(taskId: string, auditEventId: string): ReaReceiptCorrelationV1 | undefined;
+}): ReaRegistryExecution {
+  const winners = new WeakMap<object, Promise<{ toolResult: EdithToolResult; receipt: ReaExecutionReceiptV1 }>>();
+  const guard = (cap: ReaExecutionCapabilityV1) => deps.integration.assertCapability(cap);
+  async function produce(cap: ReaExecutionCapabilityV1) {
+    guard(cap);
+    const binding = deps.integration.readCapabilityBinding(cap);
+    const call = parseReaPlannedCall(cap.call);
+    if (reaProjectionDigest(call) !== binding.inputDigest
+      || reaProjectionDigest(call) !== reaProjectionDigest(binding.call)) throw new Error('REA_CANONICAL_PLAN_MISMATCH');
+    const store = getEdithPersistenceStore();
+    if (!store.recordToolRun || !store.listToolRuns) throw new Error('REA_RECEIPT_STORE_UNAVAILABLE');
+    guard(cap);
+    const toolRunId = normalizeToolRunId('rea_analysis');
+    const result = await deps.integration.consume(cap);
+    const finishedAt = new Date().toISOString();
+    guard(cap);
+    const receiptObservedAt = new Date().toISOString();
+    const successful = result.outcome === 'completed' && result.cleanup.closed && !result.cleanup.unknownEffect;
+    const audit = createAuditEvent({ actor: 'rea-canonical-task', taskId: binding.identity.taskId, toolId: 'rea_analysis',
+      action: 'tool.execute', authorization: 'allowed', riskLevel: 4, result: successful ? 'success' : 'error',
+      message: 'REA_CANONICAL_RECEIPT' });
+    const correlation: ReaReceiptCorrelationV1 = { identity: binding.identity, toolRunId, auditEventId: audit.id,
+      selectionRef: binding.selection.selectionRef, selectionRevision: binding.selection.revision, inputDigest: binding.inputDigest };
+    const report = result.report;
+    if (report && !isReaSafeReport(report)) throw new Error('REA_REPORT_UNTRUSTED');
+    if (report && report.profile !== call.args.profile) throw new Error('REA_REPORT_PROFILE_MISMATCH');
+    const evidenceIndex = report ? report.evidenceRefs.map((originalEvidenceId, i) => ({ ref: `evidence_${i + 1}`, originalEvidenceId })) : [];
+    const envelope = { schemaVersion: 1 as const, toolId: 'rea_analysis' as const, ...correlation,
+      finishedAt, receiptObservedAt, outcome: result.outcome, reasonCode: result.reasonCode, cleanup: result.cleanup, evidenceIndex };
+    let projected: ReaSafeResultProjectionV1 | undefined;
+    if (report) {
+      projected = projectReaReceiptReport(report, candidate => parseReaExecutionReceipt({ ...envelope,
+        report: candidate, reportDigest: reaProjectionDigest(candidate) }, correlation).report! , evidenceIndex);
+    }
+    if (result.outcome === 'completed' && projected
+      && !projected.technicalFacts?.length && !projected.structuralRelationships?.length) {
+      throw new Error('REA_SAFE_TECHNICAL_CONTENT_REQUIRED');
+    }
+    const observedMetrics = report ? createReaReceiptObservedMetrics(report, {
+      attempt: binding.identity.attempt, stepId: binding.identity.stepId, targetRefId: binding.selection.selectionRef,
+      finishedAt, receiptObservedAt, evidenceIndex, assertCurrent: () => guard(cap),
+    }) : undefined;
+    const receipt = parseReaExecutionReceipt({ ...envelope,
+      ...(projected ? { report: projected, reportDigest: reaProjectionDigest(projected) } : {}),
+      ...(observedMetrics ? { observedMetrics } : {}),
+    }, correlation);
+    guard(cap);
+    const receiptDigest = reaProjectionDigest(receipt);
+    deps.bindReceipt(cap, { toolRunId, auditEventId: audit.id, finishedAt, receiptObservedAt, receiptDigest });
+    guard(cap);
+    const expected = deps.readExpected(binding.identity.taskId, audit.id);
+    if (!expected) throw new Error('REA_RECEIPT_CROSSWALK_REQUIRED');
+    parseReaExecutionReceipt(receipt, expected);
+    guard(cap);
+    store.recordToolRun({ id: toolRunId, toolId: 'rea_analysis', toolName: 'REA analysis',
+      args: { schemaVersion: 1, toolId: 'rea_analysis' }, result: JSON.stringify(receipt),
+      timestamp: Date.parse(finishedAt), status: successful ? 'success' : 'error' });
+    guard(cap);
+    appendAuditEvent(audit);
+    guard(cap);
+    const toolResult: EdithToolResult = { success: successful, toolId: 'rea_analysis', toolRunId, auditEventId: audit.id,
+      finishedAt, result: result.outcome + ': ' + receipt.reasonCode,
+      structuredOutput: { outcome: result.outcome, reasonCode: receipt.reasonCode,
+        locator: { toolRunId, auditEventId: audit.id, finishedAt, receiptObservedAt, receiptDigest } },
+      ...(successful ? {} : { errorCode: 'TOOL_ERROR' as const }) };
+    return Object.freeze({ toolResult, receipt });
+  }
+  const port: ReaRegistryExecution = Object.freeze({ assertCurrent: guard,
+    revoke: (cap: ReaExecutionCapabilityV1) => deps.integration.revokeCapability(cap),
+    status: (profile: ReaProfile) => deps.integration.status(profile),
+    execute(cap: ReaExecutionCapabilityV1) {
+      // Admission is checked before consulting cached receipts, including replays.
+      try { guard(cap); } catch (error) { return Promise.reject(error); }
+      let promise = winners.get(cap);
+      if (!promise) { promise = Promise.resolve().then(() => produce(cap)); winners.set(cap, promise); }
+      return promise.then(value => { guard(cap); return value; });
+    },
+  });
+  reaPorts.add(port);
+  return port;
+}
+
+function projectReaReceiptReport(report: ReaSafeReport,
+  validate: (candidate: ReaSafeResultProjectionV1) => ReaSafeResultProjectionV1,
+  index: readonly { ref: string; originalEvidenceId: string }[]): ReaSafeResultProjectionV1 {
+  if (!isReaSafeReport(report)) throw new Error('REA_REPORT_UNTRUSTED');
+  const refs = new Map(index.map(row => [row.originalEvidenceId, row.ref]));
+  const base: ReaSafeResultProjectionV1 = { profile: report.profile, sourceProjectionDigest: report.projectionDigest,
+    coverage: 'unverified', summary: 'Selected evidence only; whole-target coverage unverified.',
+    spokenSummary: 'Selected evidence only. Coverage unverified.', knowledgeMarkdown: 'Selected evidence only; coverage unverified.' };
+  const facts: ReaSafeTechnicalFactV1[] = [], relationships: ReaSafeStructuralRelationshipV1[] = [];
+  const omissions = new Set<ReaSafeTechnicalOmissionV1>();
+  for (const fact of report.technicalFacts) {
+    const candidate = { key: fact.key, label: fact.label, value: fact.value, scope: fact.scope,
+      confidence: fact.confidence, limitation: fact.limitation,
+      provenance: { evidenceRef: refs.get(fact.provenance.evidenceId)!, originalEvidenceId: fact.provenance.evidenceId,
+        validatedJSONPointer: fact.provenance.validatedJSONPointer, observedAt: fact.provenance.observedAt,
+        producerVersion: fact.provenance.producerVersion as 'rea-agents@6.5.0' } };
+    try { facts.push(validate({ ...base, technicalFacts: [candidate] }).technicalFacts![0]); }
+    catch { omissions.add(typeof fact.value === 'string' ? 'source_fact_omitted_unsafe_text' : 'source_fact_omitted_unsupported_value'); }
+  }
+  for (const row of report.relationships) {
+    const candidate = { id: row.id, sourceId: row.sourceId, targetId: row.targetId, relation: row.relation,
+      scope: 'producer-returned' as const, confidence: row.confidence, limitation: row.limitation,
+      provenance: { evidenceRef: refs.get(row.evidenceId)!, originalEvidenceId: row.evidenceId, validatedJSONPointer: row.jsonPointer } };
+    try { relationships.push(validate({ ...base, structuralRelationships: [candidate] }).structuralRelationships![0]); }
+    catch { omissions.add('source_relationship_omitted_unsafe_text'); }
+  }
+  const excerpt = facts.slice(0, 3).map(fact => `${fact.label}: ${fact.value}`).join('; ');
+  return validate({ ...base, summary: excerpt ? `${excerpt}. Whole-target coverage remains unverified.` : base.summary,
+    spokenSummary: facts.length ? `${facts[0].label}: ${facts[0].value}. Selected evidence only.` : base.spokenSummary,
+    knowledgeMarkdown: ['# REA selected evidence', base.summary,
+      ...facts.map(fact => `${fact.label}: ${fact.value}. ${fact.limitation} Evidence: ${fact.provenance.evidenceRef} ${fact.provenance.validatedJSONPointer}`),
+      ...relationships.map(row => `${row.sourceId} ${row.relation} ${row.targetId}. ${row.limitation}`),
+      ...omissions].join('\n\n'), technicalFacts: facts, structuralRelationships: relationships, technicalLimitations: [...omissions] });
+}
+
+edithToolRegistry.register({ id: 'rea_analysis', metadata: {
+  name: 'REA analysis', version: '1.0.0', description: 'Private canonical task capability only; runtime qualification required.',
+  category: 'code', inputSchema: {
+    schemaVersion: { type: 'number', required: true }, selectionRef: { type: 'string', required: true },
+    profile: { type: 'string', required: true }, objective: { type: 'string', required: true },
+    profileOptions: { type: 'object' }, featureQuery: { type: 'object' },
+  }, outputSchema: {}, requiredPermissions: ['rea:analyze'], riskLevel: 4,
+  timeoutMs: 120000, retryLimit: 0, supportsDryRun: false, supportsRollback: false,
+  platforms: ['win32', 'darwin', 'linux'], dependencies: ['rea-agents@6.5.0', 'canonical-task-authority', 'qualified-profile'],
+}, handler: reaDirectDenied });
 
 export { DEFAULT_LOCAL_PERMISSIONS, HIGH_RISK_PERMISSIONS };
 
@@ -71,6 +236,14 @@ function recordToolRun(params: {
   timestamp: number;
   status: 'success' | 'error' | 'denied';
 }): void {
+  if ((BROWSER_TOOL_IDS as readonly string[]).includes(params.toolId)) {
+    const action = typeof params.args.action === 'string' && (BROWSER_ACTIONS as readonly string[]).includes(params.args.action) ? params.args.action : 'unknown';
+    getEdithPersistenceStore().recordToolRun?.({ ...params,
+      args: { schema: 'edith.browser.operator', action },
+      result: JSON.stringify({ schema: 'edith.browser.operator', status: params.status }),
+    });
+    return;
+  }
   getEdithPersistenceStore().recordToolRun?.({
     ...params,
     args: sanitizeSensitiveValue(params.args),
@@ -94,6 +267,14 @@ export function riskLabelForLevel(level: number): EdithToolRisk {
 
 export function getEdithToolHealth(): EdithToolHealth[] {
   return edithToolRegistry.list().map(({ id, metadata }) => {
+    if (id === 'rea_analysis') {
+      const status = readReaRegistryStatus('static-managed');
+      return { toolId: id, state: status.runtimeReady ? 'DEGRADED' : 'UNAVAILABLE', enabled: false,
+        highRisk: true, risk: 'HIGH', riskLevel: metadata.riskLevel, missingPermissions: [],
+        dependencies: metadata.dependencies, message: status.runtimeReady === false
+          ? status.reasons.map(reason => reason.code).join(', ')
+          : 'REA_PRIVATE_CAPABILITY_REQUIRED; readiness applies only to the qualified selected profile.' } as EdithToolHealth;
+    }
     const registeredTool = edithToolRegistry.get(id);
     const decision = registeredTool
       ? permissionService.decideToolExecution({ tool: registeredTool, actor: 'edith-tool-health' })
@@ -423,42 +604,19 @@ edithToolRegistry.register({
 
 edithToolRegistry.register({
   id: 'browser_workflow',
-  metadata: {
-    name: 'Browser Workflow',
-    version: '0.1.0',
-    description: 'Structured browser workflow adapter using safe search or permission-gated Playwright automation.',
-    category: 'browser',
+  metadata: { name: 'browser_workflow', version: '1.0.0', description: 'Owned headed browser with exact action readback; no native physical proof.', category: 'browser',
     inputSchema: {
-      action: { type: 'string', required: true, description: 'search, navigate, extract, screenshot, download_pdf, read_pdf, upload_file, fill_form.' },
-      query: { type: 'string', required: false },
-      url: { type: 'string', required: false },
-      selectors: { type: 'object', required: false },
-      filePath: { type: 'string', required: false },
-      verificationGoal: { type: 'string', required: true },
-      dryRun: { type: 'boolean', required: false },
+      action: { type: 'string', required: false }, query: { type: 'string', required: false }, url: { type: 'string', required: false },
+      selectors: { type: 'object', required: false }, fieldValues: { type: 'object', required: false }, filePath: { type: 'string', required: false },
+      verificationGoal: { type: 'string', required: false }, sessionId: { type: 'string', required: false }, pageId: { type: 'string', required: false },
+      scrollDeltaY: { type: 'number', required: false }, dryRun: { type: 'boolean', required: false }, approvalGranted: { type: 'boolean', required: false },
     },
-    outputSchema: {
-      request: { type: 'object' },
-      verification: { type: 'string' },
-    },
-    requiredPermissions: ['network:read'],
-    riskLevel: 2,
-    timeoutMs: 30000,
-    retryLimit: 0,
-    supportsDryRun: true,
-    supportsRollback: false,
-    platforms: ['win32', 'darwin', 'linux'],
-    dependencies: ['playwright for browser-control actions'],
+    outputSchema: { browser: { type: 'object' }, taskId: { type: 'string' } },
+    requiredPermissions: [...BROWSER_TOOL_POLICY.requiredPermissions], riskLevel: BROWSER_TOOL_POLICY.riskLevel,
+    timeoutMs: 31000, retryLimit: 0, supportsDryRun: true, supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'], dependencies: ['playwright', 'owned browser pinned egress'],
   },
-  handler: (args, context): Promise<EdithToolResult> => browserWorkflowService.run({
-    action: getStringArg(args, 'action') as any,
-    query: getStringArg(args, 'query'),
-    url: getStringArg(args, 'url'),
-    selectors: typeof args.selectors === 'object' && args.selectors !== null && !Array.isArray(args.selectors) ? args.selectors as Record<string, string> : undefined,
-    filePath: getStringArg(args, 'filePath'),
-    verificationGoal: getStringArg(args, 'verificationGoal') ?? 'Verify workflow completion.',
-    dryRun: Boolean(args.dryRun),
-  }, context.actor),
+  handler: (args, context) => browserWorkflowService.executeRegistered(args, context, 'browser_workflow'),
 });
 
 edithToolRegistry.register({
@@ -864,60 +1022,19 @@ edithToolRegistry.register({
 
 edithToolRegistry.register({
   id: 'playwright_browser_agent',
-  metadata: {
-    name: 'Playwright Browser Agent',
-    version: '0.1.0',
-    description: 'Foundation adapter for deterministic Playwright browser automation.',
-    category: 'web',
+  metadata: { name: 'playwright_browser_agent', version: '1.0.0', description: 'Owned headed browser with exact action readback; no native physical proof.', category: 'browser',
     inputSchema: {
-      url: { type: 'string', required: true, description: 'URL to inspect or open with Playwright.' },
-      action: { type: 'string', required: false, description: 'open, title, or screenshot.' },
+      action: { type: 'string', required: false }, query: { type: 'string', required: false }, url: { type: 'string', required: false },
+      selectors: { type: 'object', required: false }, fieldValues: { type: 'object', required: false }, filePath: { type: 'string', required: false },
+      verificationGoal: { type: 'string', required: false }, sessionId: { type: 'string', required: false }, pageId: { type: 'string', required: false },
+      scrollDeltaY: { type: 'number', required: false }, dryRun: { type: 'boolean', required: false }, approvalGranted: { type: 'boolean', required: false },
     },
-    outputSchema: {
-      url: { type: 'string' },
-      title: { type: 'string' },
-      capability: { type: 'string' },
-    },
-    requiredPermissions: ['network:read', 'browser:control'],
-    riskLevel: 3,
-    timeoutMs: 30000,
-    retryLimit: 0,
-    supportsDryRun: true,
-    supportsRollback: false,
-    platforms: ['win32', 'darwin', 'linux'],
-    dependencies: ['playwright'],
+    outputSchema: { browser: { type: 'object' }, taskId: { type: 'string' } },
+    requiredPermissions: [...BROWSER_TOOL_POLICY.requiredPermissions], riskLevel: BROWSER_TOOL_POLICY.riskLevel,
+    timeoutMs: 31000, retryLimit: 0, supportsDryRun: true, supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'], dependencies: ['playwright', 'owned browser pinned egress'],
   },
-  handler: async (args, context): Promise<EdithToolResult> => {
-    const unavailable = highRiskUnavailable('playwright_browser_agent', context);
-    if (unavailable) return unavailable;
-    const rawUrl = getStringArg(args, 'url');
-    if (!rawUrl) return { success: false, toolId: 'playwright_browser_agent', error: 'url is required.' };
-    const url = normalizeHttpUrl(rawUrl);
-    try {
-      const importDependency = new Function('specifier', 'return import(specifier)') as (
-        specifier: string
-      ) => Promise<any>;
-      const playwright = await importDependency('playwright');
-      const browser = await playwright.chromium.launch({ headless: false });
-      const page = await browser.newPage();
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-      const title = await page.title();
-      await browser.close();
-      return {
-        success: true,
-        toolId: 'playwright_browser_agent',
-        result: `Playwright opened ${url}\nTitle: ${title}`,
-        structuredOutput: { url, title },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        toolId: 'playwright_browser_agent',
-        error: error instanceof Error ? error.message : String(error),
-        structuredOutput: { capability: 'CONFIGURATION_REQUIRED', dependency: 'playwright' },
-      };
-    }
-  },
+  handler: (args, context) => browserWorkflowService.executeRegistered({ ...args, action: args.action === 'open' ? 'navigate' : args.action ?? 'title', verificationGoal: args.verificationGoal ?? 'Verify requested browser action.' }, context, 'playwright_browser_agent'),
 });
 
 edithToolRegistry.register({
@@ -968,79 +1085,36 @@ edithToolRegistry.register({
 
 edithToolRegistry.register({
   id: 'browser_open',
-  metadata: {
-    name: 'Browser Open',
-    version: '1.0.0',
-    description: 'Opens a validated http/https URL in the default browser.',
-    category: 'web',
+  metadata: { name: 'browser_open', version: '1.0.0', description: 'Owned headed browser with exact action readback; no native physical proof.', category: 'browser',
     inputSchema: {
-      url: { type: 'string', required: true, description: 'The http/https URL to open.' },
+      action: { type: 'string', required: false }, query: { type: 'string', required: false }, url: { type: 'string', required: false },
+      selectors: { type: 'object', required: false }, fieldValues: { type: 'object', required: false }, filePath: { type: 'string', required: false },
+      verificationGoal: { type: 'string', required: false }, sessionId: { type: 'string', required: false }, pageId: { type: 'string', required: false },
+      scrollDeltaY: { type: 'number', required: false }, dryRun: { type: 'boolean', required: false }, approvalGranted: { type: 'boolean', required: false },
     },
-    outputSchema: {
-      url: { type: 'string' },
-    },
-    requiredPermissions: ['network:read'],
-    riskLevel: 1,
-    timeoutMs: 2000,
-    retryLimit: 0,
-    supportsDryRun: true,
-    supportsRollback: false,
-    platforms: ['win32', 'darwin', 'linux'],
-    dependencies: [],
+    outputSchema: { browser: { type: 'object' }, taskId: { type: 'string' } },
+    requiredPermissions: [...BROWSER_TOOL_POLICY.requiredPermissions], riskLevel: BROWSER_TOOL_POLICY.riskLevel,
+    timeoutMs: 31000, retryLimit: 0, supportsDryRun: true, supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'], dependencies: ['playwright', 'owned browser pinned egress'],
   },
-  handler: (args): EdithToolResult => {
-    const rawUrl = getStringArg(args, 'url');
-    if (!rawUrl) {
-      return { success: false, toolId: 'browser_open', error: 'url is required.' };
-    }
-    const url = normalizeHttpUrl(rawUrl);
-    openUrl(url);
-    return {
-      success: true,
-      toolId: 'browser_open',
-      result: `Opened browser URL: ${url}`,
-      structuredOutput: { url },
-    };
-  },
+  handler: (args, context) => browserWorkflowService.executeRegistered({ ...args, action: 'navigate', verificationGoal: args.verificationGoal ?? 'Verify actual page navigation.' }, context, 'browser_open'),
 });
 
 edithToolRegistry.register({
   id: 'browser_search',
-  metadata: {
-    name: 'Browser Search',
-    version: '1.0.0',
-    description: 'Opens a web search for the provided query in the default browser.',
-    category: 'web',
+  metadata: { name: 'browser_search', version: '1.0.0', description: 'Owned headed browser with exact action readback; no native physical proof.', category: 'browser',
     inputSchema: {
-      query: { type: 'string', required: true, description: 'Search query.' },
+      action: { type: 'string', required: false }, query: { type: 'string', required: false }, url: { type: 'string', required: false },
+      selectors: { type: 'object', required: false }, fieldValues: { type: 'object', required: false }, filePath: { type: 'string', required: false },
+      verificationGoal: { type: 'string', required: false }, sessionId: { type: 'string', required: false }, pageId: { type: 'string', required: false },
+      scrollDeltaY: { type: 'number', required: false }, dryRun: { type: 'boolean', required: false }, approvalGranted: { type: 'boolean', required: false },
     },
-    outputSchema: {
-      url: { type: 'string' },
-      query: { type: 'string' },
-    },
-    requiredPermissions: ['network:read'],
-    riskLevel: 1,
-    timeoutMs: 2000,
-    retryLimit: 0,
-    supportsDryRun: true,
-    supportsRollback: false,
-    platforms: ['win32', 'darwin', 'linux'],
-    dependencies: [],
+    outputSchema: { browser: { type: 'object' }, taskId: { type: 'string' } },
+    requiredPermissions: [...BROWSER_TOOL_POLICY.requiredPermissions], riskLevel: BROWSER_TOOL_POLICY.riskLevel,
+    timeoutMs: 31000, retryLimit: 0, supportsDryRun: true, supportsRollback: false,
+    platforms: ['win32', 'darwin', 'linux'], dependencies: ['playwright', 'owned browser pinned egress'],
   },
-  handler: (args): EdithToolResult => {
-    const query = getStringArg(args, 'query');
-    if (!query) {
-      return { success: false, toolId: 'browser_search', error: 'query is required.' };
-    }
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    openUrl(url);
-    return {
-      success: true,
-      toolId: 'browser_search',
-      result: `Opened browser search: ${query}`,
-      structuredOutput: { query, url },
-    };
-  },
+  handler: (args, context) => browserWorkflowService.executeRegistered({ ...args, action: 'search', verificationGoal: args.verificationGoal ?? 'Observe actual search results.' }, context, 'browser_search'),
 });
 
 edithToolRegistry.register({
@@ -1115,6 +1189,7 @@ export async function executeEdithTool(
   args: Record<string, unknown>,
   context: Partial<EdithToolExecutionContext> = {}
 ): Promise<EdithToolResult> {
+  if (toolId === 'rea_analysis') return reaDirectDenied();
   const tool = edithToolRegistry.get(toolId);
   const executionContext: EdithToolExecutionContext = {
     actor: context.actor ?? 'local-user',
@@ -1129,6 +1204,42 @@ export async function executeEdithTool(
     return { success: false, toolId, error: `Unknown EDITH tool: ${toolId}`, errorCode: 'UNKNOWN_TOOL' };
   }
 
+  const browserTool = (BROWSER_TOOL_IDS as readonly string[]).includes(toolId);
+  if (browserTool) {
+    const parsed = normalizeRegisteredBrowserArgs(toolId as BrowserToolId, args, Boolean(executionContext.dryRun));
+    if (parsed.success === false) {
+      const audit = createAuditEvent({ actor: executionContext.actor, taskId: executionContext.taskId,
+        action: 'tool.browser_schema_denied', toolId, authorization: 'denied', riskLevel: 4, result: 'denied', message: 'BROWSER_VALIDATION_ERROR' });
+      appendAuditEvent(audit);
+      recordToolRun({ id: normalizeToolRunId(toolId), toolId, toolName: tool.metadata.name, args: {}, result: '', timestamp: Date.now(), status: 'denied' });
+      return { success: false, toolId, errorCode: 'VALIDATION_ERROR', error: 'BROWSER_VALIDATION_ERROR', auditEventId: audit.id };
+    }
+    args = parsed.value as unknown as Record<string, unknown>;
+    executionContext.dryRun = false;
+    if (parsed.value.dryRun || ['download_pdf', 'read_pdf', 'upload_file'].includes(parsed.value.action)) {
+      const result = await browserWorkflowService.run(parsed.value, executionContext.actor);
+      const audit = createAuditEvent({ actor: executionContext.actor, action: parsed.value.dryRun ? 'tool.dry_run' : 'tool.execute',
+        toolId, authorization: 'allowed', riskLevel: BROWSER_TOOL_POLICY.riskLevel, result: result.success ? 'success' : 'error',
+        message: parsed.value.dryRun ? 'BROWSER_SCHEMA_ONLY' : 'BROWSER_UNSUPPORTED_ACTION' });
+      appendAuditEvent(audit);
+      recordToolRun({ id: normalizeToolRunId(toolId), toolId, toolName: tool.metadata.name, args, result: '', timestamp: Date.now(), status: result.success ? 'success' : 'error' });
+      return { ...result, toolId, auditEventId: audit.id };
+    }
+    if (ownerSessionBindingActive(executionContext.actor)) {
+      const permission = permissionService.decideToolExecution({ tool, actor: 'owner' });
+      executionContext.authorizedPermissions = permission.authorizedPermissions;
+    }
+    if (!executionContext.taskId && !parsed.value.dryRun) {
+      // The service owns the sole Task lifecycle and audits its single leaf dispatch.
+      const result = await browserWorkflowService.runRegistered(parsed.value, executionContext.actor, toolId as BrowserToolId);
+      if (result.auditEventId) return result;
+      const audit = createAuditEvent({ actor: executionContext.actor, toolId, action: 'tool.execute', authorization: 'denied',
+        riskLevel: BROWSER_TOOL_POLICY.riskLevel, result: 'denied', message: 'BROWSER_PERMISSION_DENIED' });
+      appendAuditEvent(audit);
+      recordToolRun({ id: normalizeToolRunId(toolId), toolId, toolName: tool.metadata.name, args, result: '', timestamp: Date.now(), status: 'denied' });
+      return { ...result, auditEventId: audit.id };
+    }
+  }
   const startedAtMs = Date.now();
   const startedAt = new Date(startedAtMs).toISOString();
   const toolRunId = normalizeToolRunId(toolId);
@@ -1147,13 +1258,13 @@ export async function executeEdithTool(
       authorization: 'denied',
       riskLevel: tool.metadata.riskLevel,
       result: 'denied',
-      message: error.message,
+      message: browserTool ? 'BROWSER_KILL_SWITCH_ACTIVE' : error.message,
     });
     appendAuditEvent(audit);
     const result: EdithToolResult = {
       success: false,
       toolId,
-      error: error.message,
+      error: browserTool ? 'BROWSER_KILL_SWITCH_ACTIVE' : error.message,
       auditEventId: audit.id,
       startedAt,
       finishedAt,
@@ -1195,7 +1306,7 @@ export async function executeEdithTool(
       authorization: 'allowed',
       riskLevel: tool.metadata.riskLevel,
       result: normalizedResult.success ? 'success' : 'error',
-      message: safeResultText(normalizedResult).slice(0, 500),
+      message: browserTool ? (normalizedResult.success ? 'BROWSER_SUCCESS' : 'BROWSER_FAILED') : safeResultText(normalizedResult).slice(0, 500),
     });
     appendAuditEvent(audit);
     const withAudit = { ...normalizedResult, auditEventId: audit.id };
@@ -1230,7 +1341,7 @@ export async function executeEdithTool(
       authorization: denied ? 'denied' : 'allowed',
       riskLevel: denied ? error.riskLevel : tool.metadata.riskLevel,
       result: denied ? 'denied' : 'error',
-      message: error instanceof Error ? error.message : String(error),
+      message: browserTool ? (denied ? 'BROWSER_PERMISSION_DENIED' : invalid ? 'BROWSER_VALIDATION_ERROR' : timedOut ? 'BROWSER_TIMEOUT' : 'BROWSER_FAILED') : error instanceof Error ? error.message : String(error),
     });
     appendAuditEvent(audit);
     const result: EdithToolResult = {
@@ -1248,7 +1359,9 @@ export async function executeEdithTool(
         : timedOut
         ? 'TIMEOUT'
         : 'TOOL_ERROR',
-      structuredOutput: denied
+      structuredOutput: browserTool
+        ? undefined
+        : denied
         ? { missingPermissions: error.missingPermissions, permissionDecision }
         : invalid
         ? { validationErrors: error.validationErrors }

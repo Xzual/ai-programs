@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -9,9 +10,11 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from uuid import uuid4
+from pathlib import Path
 
 from config import CONFIG
 from demo_migration import migrate
+from demo_safety import kill_reason
 from price_freshness import number, price_status, utc_now
 
 DEMO_INITIAL_BALANCE = float(CONFIG.DEMO_INITIAL_BALANCE)
@@ -50,16 +53,63 @@ class Rejected(Exception):
         self.code, self.reason = code, reason or code
 
 
+class IsolatedDemoProfile:
+    """Explicit in-process capability for one newly owned virtual-USD test DB.
+
+    Reusing this object may reopen its own session. A new profile always refuses
+    an existing DB; there is no environment/HTTP switch or cross-process resume.
+    """
+
+    def __init__(self, owned_root):
+        root = Path(owned_root).absolute()
+        if not root.is_dir() or root.resolve() != root:
+            raise ValueError('Isolated test root must be an existing literal directory')
+        self._path = root / 'demo.sqlite3'
+        if self._path.exists() or self._path.is_symlink():
+            raise ValueError('Isolated profile requires a fresh DB path')
+        self._session_id = None
+        self._lock = threading.RLock()
+
+    def _attach(self, engine):
+        if Path(engine.db_path).absolute() != self._path:
+            raise ValueError('Isolated profile does not own this DB path')
+        with self._lock:
+            if self._session_id is None:
+                # Exclusive creation refuses existing files without opening their data.
+                try:
+                    handle = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+                except FileExistsError as exc:
+                    raise ValueError('Isolated DB path already exists') from exc
+                os.close(handle)
+                migrate(str(self._path), 1.0, test_only_import_legacy_fixture=True)
+            elif self._path.is_symlink() or self._path.resolve() != self._path:
+                raise ValueError('Isolated DB path changed')
+            with engine._db() as conn:
+                state = engine._state(conn)
+            if state['initial_balance'] != 1.0 or (
+                self._session_id is not None and state['session_id'] != self._session_id
+            ):
+                raise ValueError('Isolated session identity or initial balance changed')
+            self._session_id = state['session_id']
+
+
 class DemoPortfolioEngine:
-    def __init__(self, db_path=CONFIG.DB_PATH, *, test_only_import_legacy_fixture=False):
+    def __init__(self, db_path=CONFIG.DB_PATH, *, test_only_import_legacy_fixture=False,
+                 isolated_test_profile=None):
         self.db_path = db_path
         self.lifecycle_lock = threading.RLock()
         self.loop_running = lambda: False
-        migrate(
-            db_path,
-            DEMO_INITIAL_BALANCE,
-            test_only_import_legacy_fixture=test_only_import_legacy_fixture,
-        )
+        self._isolated_test_profile = isolated_test_profile
+        if isolated_test_profile is not None:
+            if type(isolated_test_profile) is not IsolatedDemoProfile or test_only_import_legacy_fixture:
+                raise ValueError('An explicit isolated test profile is required')
+            isolated_test_profile._attach(self)
+        else:
+            migrate(
+                db_path,
+                DEMO_INITIAL_BALANCE,
+                test_only_import_legacy_fixture=test_only_import_legacy_fixture,
+            )
 
     @contextmanager
     def _db(self, write=False):
@@ -153,7 +203,7 @@ class DemoPortfolioEngine:
         count = conn.execute('SELECT COUNT(*) FROM crypto_demo_trades_v2 WHERE session_id=?', (s['session_id'],)).fetchone()[0]
         statuses = [p['marketDataStatus'] for p in positions]
         valuation = 'unavailable' if 'unavailable' in statuses else 'stale' if 'stale' in statuses else 'fresh'
-        return {'mode': 'DEMO', 'currency': 'CREDITS', 'portfolioSessionId': s['session_id'],
+        return {'mode': 'DEMO', 'currency': 'VIRTUAL_USD' if self._isolated_test_profile else 'CREDITS', 'portfolioSessionId': s['session_id'],
                 'initialBalance': s['initial_balance'], 'currentCash': round(s['cash'], 8),
                 'currentEquity': round(equity, 8) if equity is not None else None, 'openPositions': positions,
                 'unrealizedPnl': sum(p['unrealizedPnl'] or 0 for p in positions) if known else None,
@@ -215,6 +265,8 @@ class DemoPortfolioEngine:
             self._complete(conn, op, {'decision': decision, 'tradeExecuted': False}, 'operation_expired', 'failed', 409)
 
     def reserve(self, request_id, operation, payload):
+        if self._isolated_test_profile is not None and operation == 'reset':
+            return None, (envelope({}, code='reset_not_allowed'), 409)
         if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,128}', request_id):
             return None, (envelope({}, code='invalid_request'), 400)
         try:
@@ -399,6 +451,9 @@ class DemoPortfolioEngine:
         return self._complete(conn, op, data, events=events)
 
     def _trade(self, conn, op, state, symbol, action, source, decision, payload, markets, freshness):
+        reason = kill_reason()
+        if reason:
+            raise Rejected('risk_rejected', reason)
         positions = state['positions']
         index = next((i for i, p in enumerate(positions) if p['symbol'] == symbol), None)
         price = freshness['currentPrice']
@@ -468,6 +523,9 @@ class DemoPortfolioEngine:
                  'createdAt': op['created_at'], 'executedAt': now, 'timestamp': now,
                  'marketPriceTimestamp': freshness['marketPriceTimestamp'], 'marketDataAgeMs': freshness['marketDataAgeMs'],
                  'riskResult': 'approved', 'price': price, 'amount': quantity, 'cost': quote, 'pnl': pnl, 'mode': 'DEMO'}
+        reason = kill_reason()
+        if reason:
+            raise Rejected('risk_rejected', reason)
         conn.execute('UPDATE crypto_demo_sessions SET cash=?, positions_json=?, realized_pnl=?, updated_at=? WHERE session_id=?',
                      (cash, json.dumps(positions, allow_nan=False), realized, now, state['session_id']))
         self._record_trade(conn, trade)

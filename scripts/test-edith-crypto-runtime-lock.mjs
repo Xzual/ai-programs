@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { readExactRequirementsLock } from './desktop-python-lock.mjs';
 import { resolveEdithCryptoPython } from './edith-crypto-python.mjs';
 
@@ -23,12 +25,16 @@ for name,expected in pins:
     if actual != expected: errors.append({'name':name,'expected':expected,'actual':actual})
 if errors: raise SystemExit(json.dumps(errors))
 `;
-const versions = spawnSync(python, ['-I', '-c', verification, lock], {
+const versions = spawnSync(python, ['-I', '-B', '-c', verification, lock], {
   cwd: root, windowsHide: true, encoding: 'utf8',
 });
 assert.equal(versions.status, 0, versions.stderr || versions.stdout);
-const imports = spawnSync(python, [path.join(root, 'crypto', 'test_packaged_import_closure.py')], {
-  cwd: root, windowsHide: true, encoding: 'utf8',
-});
-assert.equal(imports.status, 0, imports.stderr || imports.stdout);
+const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-crypto-lock-cache-'));
+try {
+  const imports = spawnSync(python, ['-I', '-B', path.join(root, 'crypto', 'test_packaged_import_closure.py')], {
+    cwd: root, windowsHide: true, encoding: 'utf8',
+    env: { ...process.env, NUMBA_CACHE_DIR: cache, PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  assert.equal(imports.status, 0, imports.stderr || imports.stdout);
+} finally { fs.rmSync(cache, { recursive: true, force: true }); }
 console.log(JSON.stringify({ pass: true, exactPins: pins.length, importClosure: true }, null, 2));

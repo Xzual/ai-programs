@@ -40,6 +40,7 @@ export interface MobilePairingRecord {
 }
 
 export interface MobileDeviceRecord {
+  sessionGeneration?: number;
   device: DeviceIdentityV2;
   trust: DeviceTrustV2;
   ownerBinding: OwnerSessionBindingV2;
@@ -69,6 +70,7 @@ export interface MobileCredentialRecord {
 }
 
 export interface MobileTransferRecord {
+  nativeTransfer?: import('./nativeProducerContract').NativeTransferState;
   descriptor: FileTransferDescriptorV2;
   deviceId: string;
   sessionId: string;

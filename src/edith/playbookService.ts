@@ -21,7 +21,8 @@ export interface PlaybookStepExecutionResult {
 export interface PlaybookExecutionAdapter {
   readonly adapterId: string;
   readonly available: boolean;
-  execute(step: PlaybookStepV2, input: Record<string, unknown>, context: { runId: string; attempt: number }): Promise<PlaybookStepExecutionResult>;
+  preflight?(step: PlaybookStepV2): string[];
+  execute(step: PlaybookStepV2, input: Record<string, unknown>, context: { runId: string; attempt: number; ownerSessionBindingId?: string }): Promise<PlaybookStepExecutionResult>;
   undo?(step: PlaybookStepV2, run: PlaybookRunV2): Promise<{ success: boolean; errorCode?: string }>;
 }
 
@@ -80,7 +81,8 @@ export class PlaybookService {
     if (!parsed.value.steps?.length) return { valid: false, outcome: 'invalid', steps: [], errors: ['PLAYBOOK_STEPS_REQUIRED'] };
     const steps = parsed.value.steps.map((step): PlaybookDryRunStep => {
       const reasons: string[] = [];
-      if (step.approval === 'owner' && !approvals.has(step.stepId)) reasons.push('APPROVAL_REQUIRED');
+      if (step.approval === 'owner' && !approvals.has(step.stepId) && this.approvalEvaluator?.evaluate(step) !== 'approved') reasons.push('APPROVAL_REQUIRED');
+      reasons.push(...(this.adapter?.preflight?.(step) ?? []));
       if (step.approval === 'policy') {
         const decision = this.approvalEvaluator?.evaluate(step) ?? 'configuration_required';
         if (decision === 'denied') reasons.push('POLICY_APPROVAL_DENIED');
@@ -101,7 +103,7 @@ export class PlaybookService {
     return { valid: true, outcome, steps, errors: [] };
   }
 
-  async run(playbookId: string, options: { version?: string; taskId?: string; input?: Record<string, unknown>; approvedStepIds?: string[] } = {}): Promise<PlaybookRunResult> {
+  async run(playbookId: string, options: { version?: string; taskId?: string; input?: Record<string, unknown>; approvedStepIds?: string[]; ownerSessionBindingId?: string } = {}): Promise<PlaybookRunResult> {
     const definition = this.persistence.getPlaybookDefinition(playbookId, options.version);
     if (!definition) return this.missingDefinition(playbookId, options.version);
     const approvals = new Set(options.approvedStepIds ?? []);
@@ -133,21 +135,23 @@ export class PlaybookService {
     }
 
     const completed = new Set<string>();
+    this.persistence.savePlaybookRun(run);
     for (const step of definition.steps) {
       if (step.dependsOn.some((dependency) => !completed.has(dependency))) {
         run.stepRuns?.push({ stepId: step.stepId, status: 'skipped', attempt: 1, errorCode: 'DEPENDENCY_NOT_COMPLETED' });
         return this.failRun(run, definition, ['DEPENDENCY_NOT_COMPLETED']);
       }
       run.currentStepId = step.stepId;
+      this.persistence.savePlaybookRun(run);
       const maxAttempts = Math.min(MAX_ATTEMPTS, step.retry.maxAttempts);
       let finalResult: PlaybookStepExecutionResult | undefined;
       let attempt = 0;
       for (attempt = 1; attempt <= maxAttempts; attempt += 1) {
         const startedAt = new Date().toISOString();
         try {
-          finalResult = await withTimeout(this.adapter.execute(step, options.input ?? {}, { runId: run.runId, attempt }), step.timeoutMs);
+          finalResult = await withTimeout(this.adapter.execute(step, options.input ?? {}, { runId: run.runId, attempt, ownerSessionBindingId: options.ownerSessionBindingId }), step.timeoutMs);
         } catch (error) {
-          finalResult = { success: false, retryable: true, errorCode: error instanceof Error ? error.message : 'PLAYBOOK_STEP_ERROR' };
+          finalResult = { success: false, retryable: false, errorCode: error instanceof Error ? error.message : 'PLAYBOOK_STEP_ERROR' };
         }
         const verified = !step.verification.required || finalResult.verificationStatus === 'PASS';
         if (finalResult.success && verified) {
@@ -162,6 +166,7 @@ export class PlaybookService {
             undoStatus: step.undo.supported ? 'available' : 'not_required',
           });
           completed.add(step.stepId);
+          this.persistence.savePlaybookRun(run);
           break;
         }
         const errorCode = finalResult.errorCode ?? (verified ? 'PLAYBOOK_STEP_FAILED' : 'VERIFICATION_FAILED');

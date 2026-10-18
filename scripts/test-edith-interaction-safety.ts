@@ -57,8 +57,11 @@ try {
   assert.equal(snapshot.classifications.some((item) => item.id === 'voice_pipeline' && item.notes.includes('Wake word is blocked')), true);
 
   const capabilities = browserWorkflowService.capabilities();
-  assert.equal(capabilities.find((item) => item.action === 'fill_form')?.runtimeStatus, 'CONFIGURATION_REQUIRED');
-  assert.equal(capabilities.find((item) => item.action === 'download_pdf')?.requiredPermissions.includes('file:write'), true);
+  assert.ok(['AVAILABLE', 'CONFIGURATION_REQUIRED'].includes(capabilities.find((item) => item.action === 'fill_form')!.runtimeStatus));
+  assert.equal(capabilities.find((item) => item.action === 'download_pdf')?.runtimeStatus, 'BLOCKED');
+  assert.equal(capabilities.find((item) => item.action === 'read_pdf')?.runtimeStatus, 'BLOCKED');
+  assert.equal(capabilities.find((item) => item.action === 'upload_file')?.runtimeStatus, 'BLOCKED');
+  assert.equal(capabilities.find((item) => item.action === 'download_pdf')?.verification.startsWith('UNSUPPORTED_ACTION'), true);
   assert.equal(capabilities.every((item) => item.requiresApproval), true);
 
   const invalid = await browserWorkflowService.run({
@@ -73,11 +76,20 @@ try {
     query: 'edith browser safety',
     verificationGoal: 'Search requires approval.',
   }, 'interaction-safety-test');
-  if (unapprovedSearch.success) {
-    assert.equal(unapprovedSearch.toolId, 'browser_search');
-  } else {
-    assert.equal(unapprovedSearch.errorCode, 'PERMISSION_DENIED');
-  }
+  assert.equal(unapprovedSearch.success, false);
+  assert.equal(unapprovedSearch.errorCode, 'PERMISSION_DENIED');
+
+  const browserDryRun = await browserWorkflowService.run({
+    action: 'navigate', url: 'https://example.com', dryRun: true,
+    verificationGoal: 'Validate schema without browser effects.',
+  }, 'interaction-safety-test');
+  assert.equal(browserDryRun.success, true);
+  const dryReceipt = browserDryRun.structuredOutput?.browser as Record<string, unknown>;
+  assert.equal(dryReceipt.status, 'schema_only');
+  assert.equal(dryReceipt.nativePhysicalProof, false);
+  assert.equal(dryReceipt.inputDispatches, 0);
+  assert.equal(dryReceipt.inputProvenance, 'none');
+  assert.deepEqual(dryReceipt.artifacts, []);
 
   const approvedNavigate = await browserWorkflowService.run({
     action: 'navigate',
@@ -91,14 +103,11 @@ try {
   const approvedExtract = await browserWorkflowService.run({
     action: 'extract',
     url: 'https://example.com',
-    verificationGoal: 'Extraction has no bound runtime.',
+    verificationGoal: 'Actual extraction requires a current owner and server grant.',
     approvalGranted: true,
   }, 'interaction-safety-test');
   assert.equal(approvedExtract.success, false);
-  assert.ok(approvedExtract.errorCode === 'TOOL_ERROR' || approvedExtract.errorCode === 'PERMISSION_DENIED');
-  if (approvedExtract.errorCode === 'TOOL_ERROR') {
-    assert.equal(approvedExtract.structuredOutput?.honestStatus, 'No browser action, form action, upload, download, OCR, or extraction was executed.');
-  }
+  assert.equal(approvedExtract.errorCode, 'PERMISSION_DENIED');
 
   const computerPhases = computerActionService.phases();
   assert.equal(computerPhases.some((phase) => phase.name === 'ACT' && phase.status === 'configuration_required'), true);
@@ -131,7 +140,8 @@ try {
       'browser_invalid_action_fails_closed',
       'browser_unapproved_action_denied',
       'browser_permission_service_still_blocks_navigation',
-      'browser_unbound_extract_reports_configuration_required',
+      'browser_schema_only_has_no_effect_or_native_proof',
+      'browser_extract_requires_actual_owner_and_grant',
       'mark_l_adapter_only',
     ],
   }, null, 2));

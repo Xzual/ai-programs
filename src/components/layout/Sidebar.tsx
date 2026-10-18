@@ -134,6 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         key={item.id}
         onClick={() => setActiveTab(item.id)}
         title={item.label}
+        aria-label={item.label}
         className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-lg px-3 py-2.5 text-xs font-medium transition-all duration-200 ${
           isActive
             ? 'border border-[var(--assistant-primary)]/34 bg-[var(--assistant-primary)]/14 text-slate-100 shadow-[0_0_28px_var(--assistant-glow),inset_0_1px_0_rgba(255,255,255,0.06)]'
@@ -150,7 +151,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   return (
-    <aside className="relative top-0 z-30 flex h-full w-[var(--edith-sidebar-compact)] shrink-0 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-3 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 md:w-[var(--edith-sidebar-wide)] md:px-3 md:py-4">
+    <aside className="relative top-0 z-30 flex h-full min-w-0 w-[var(--edith-sidebar-compact)] shrink-0 flex-col border-r border-white/10 bg-slate-950/58 px-2 py-3 shadow-[inset_-1px_0_0_rgba(255,255,255,0.04),0_0_44px_rgba(0,0,0,0.28)] backdrop-blur-2xl transition-all duration-300 md:w-[var(--edith-sidebar-wide)] md:px-3 md:py-4">
       {/* Top Brand Logo */}
       <div className="min-h-0 flex-1 overflow-y-auto custom-scrollbar pr-1">
         <div className="flex items-center gap-3 px-2 py-3 mb-6">
@@ -182,6 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => setAdvancedOpen((open) => !open)}
             className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-medium text-slate-500 transition hover:bg-white/[0.035] hover:text-slate-300"
             aria-expanded={advancedOpen}
+            aria-label="Gelişmiş / Geliştirici"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.025]"><SlidersHorizontal className="h-4 w-4" /></span>
             <span className="hidden min-w-0 flex-1 text-left md:inline">Gelişmiş / Geliştirici</span>

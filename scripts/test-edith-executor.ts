@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {projectTaskEventsV2} from '../src/edith/contracts';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-executor-test-'));
 const originalCwd = process.cwd();
@@ -71,7 +72,7 @@ try {
   assert.equal(reloaded?.status, 'COMPLETED');
   assert.equal(reloaded?.plan?.steps.every((step) => step.status === 'COMPLETED'), true);
   assert.equal(reloaded?.verification?.status, 'PASS');
-  assert.equal(reloaded?.timeline.some((event) => event.type === 'verification'), true);
+  assert.equal(projectTaskEventsV2(reloaded!).events.some((event) => event.type === 'task.verification_completed'&&event.taskId===task.id&&event.payload.verificationId===reloaded!.verification!.id), true);
   assert.equal(reloaded?.agentActivity.some((activity) => activity.agentId === 'executor' && activity.status === 'COMPLETED'), true);
   assert.equal(reloaded?.observations.some((observation) => observation.includes('Executor preflight READY')), true);
   assert.equal(reloaded?.observations.some((observation) => observation.includes('Executor tool system_monitor succeeded')), true);

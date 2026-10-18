@@ -4,6 +4,7 @@ import { interruptService } from './interruptService';
 import { killSwitchService } from './killSwitch';
 import { getEdithPersistenceStore } from './persistence';
 import { getAdvancedPriorityPolicy } from '../../server/advanced/priorityRegistry';
+import {taskService,isNativeBoundTask,controlNativeTask} from './taskService';
 
 export interface TaskQueueSnapshot {
   queued: EdithTask[];
@@ -30,6 +31,7 @@ export class TaskQueueService {
   }
 
   enqueue(taskId: string): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))throw new Error('NATIVE_TASK_NO_AUTO_REPLAY');
     killSwitchService.assertAllowed('task_creation', 'edith-task-queue');
     return this.update(taskId, 'task.queue.enqueue', (task) => ({
       ...task,
@@ -45,6 +47,7 @@ export class TaskQueueService {
   }
 
   markRunning(taskId: string): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))throw new Error('NATIVE_TASK_AUTHORITY_REQUIRED');
     killSwitchService.assertAllowed('tool_execution', 'edith-task-queue');
     return this.update(taskId, 'task.queue.running', (task) => ({
       ...task,
@@ -60,6 +63,7 @@ export class TaskQueueService {
   }
 
   pause(taskId: string, reason: string): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))return controlNativeTask(taskId,'pause',reason);
     return this.update(taskId, 'task.queue.pause', (task) => ({
       ...task,
       status: 'BLOCKED',
@@ -71,23 +75,11 @@ export class TaskQueueService {
         resumeFromStepId: this.nextPendingStepId(task),
       },
       checkpoints: [...task.checkpoints, `Paused at ${now()}: ${reason}`],
-      timeline: [
-        ...(task.timeline ?? []),
-        {
-          id: `timeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          taskId,
-          type: 'status',
-          actor: 'edith-task-queue',
-          message: reason,
-          createdAt: now(),
-          status: 'BLOCKED',
-          riskLevel: task.riskLevel,
-        },
-      ],
     }));
   }
 
   resume(taskId: string): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))throw new Error('NATIVE_TASK_NO_AUTO_REPLAY');
     killSwitchService.assertAllowed('task_creation', 'edith-task-queue');
     return this.update(taskId, 'task.queue.resume', (task) => ({
       ...task,
@@ -103,6 +95,7 @@ export class TaskQueueService {
   }
 
   cancel(taskId: string, reason: string, requestedBy = 'edith-task-queue'): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))return controlNativeTask(taskId,'cancel',reason);
     interruptService.request({ taskId, reason, requestedBy });
     return this.update(taskId, 'task.queue.cancel', (task) => ({
       ...task,
@@ -119,6 +112,7 @@ export class TaskQueueService {
   }
 
   complete(taskId: string, result: string): EdithTask | undefined {
+    if(isNativeBoundTask(taskService.getTask(taskId)))throw new Error('NATIVE_TASK_AUTHORITY_REQUIRED');
     return this.update(taskId, 'task.queue.complete', (task) => ({
       ...task,
       status: 'COMPLETED',
@@ -132,7 +126,7 @@ export class TaskQueueService {
   }
 
   next(): EdithTask | undefined {
-    const queued = this.snapshot().queued;
+    const queued = this.snapshot().queued.filter(task=>!isNativeBoundTask(task));
     const tasks = getEdithPersistenceStore().listTasks();
     const taskById = new Map(tasks.map((task) => [task.id, task]));
     const protectedRunActive = this.snapshot().running.some((task) => {
@@ -174,7 +168,7 @@ export class TaskQueueService {
     const store = getEdithPersistenceStore();
     const task = store.listTasks().find((candidate) => candidate.id === taskId);
     if (!task) return undefined;
-    const updated = store.updateTask(mutator(task));
+    const updated = taskService.updateGenericTask(taskId, action, mutator)!;
     appendAuditEvent(createAuditEvent({
       actor: 'edith-task-queue',
       taskId,

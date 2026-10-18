@@ -5,7 +5,8 @@ import { providerRegistry } from '../../server/providers/registry';
 import { voiceSessionManager } from '../../server/voice/voiceSessionManager';
 import { computerUseStatus } from '../../server/routes/computerUse';
 import { cryptoService, type CryptoAgentStatus } from './cryptoService';
-import { edithToolRegistry } from './serverRegistry';
+import { edithToolRegistry, readReaRegistryStatus } from './serverRegistry';
+import type { ReaIntegrationStatus } from './reaIntegrationService';
 import { obsidianVaultService, type ObsidianStatus } from './obsidianVaultService';
 import { workspaceManager, type WorkspaceStatus } from './workspaceManager';
 
@@ -33,6 +34,7 @@ export type EdithSkillId =
   | 'browser_research'
   | 'system_status'
   | 'control_center'
+  | 'rea_analysis'
   | 'release_builder';
 
 export interface SkillReadiness {
@@ -97,6 +99,7 @@ export interface SkillRegistrySources {
   applicationPath: string;
   toolIds: Set<string>;
   releaseArtifactsPresent: boolean;
+  reaStatus?: ReaIntegrationStatus;
 }
 
 const CACHE_MS = 5_000;
@@ -233,6 +236,7 @@ async function collectSources(): Promise<SkillRegistrySources> {
     applicationPath,
     toolIds: new Set(edithToolRegistry.list().map((tool) => tool.id)),
     releaseArtifactsPresent,
+    reaStatus: readReaRegistryStatus('static-managed'),
   };
 }
 
@@ -436,6 +440,23 @@ export function buildSkillRegistry(sources: SkillRegistrySources): SkillRegistry
       relatedEndpoints: [], relatedScreens: ['settings'], safetyNotes: ['Build çıktısı test ve imza olmadan production-ready sayılmaz.'],
       examples: ['Full EXE sürümü hazır mı?'], sourceOfTruth: ['package.json#tauri:build', 'src-tauri/target/release artifact audit'],
       details: { artifactsDetected: sources.releaseArtifactsPresent },
+    }),
+    skill(checkedAt, {
+      id: 'rea_analysis', name: 'REA selected analysis', category: 'analysis', riskLevel: 'high',
+      description: 'Canonical task authority and qualified profile required for selected evidence analysis.',
+      status: sources.reaStatus?.runtimeReady ? 'degraded' : 'config_required',
+      readinessReason: sources.reaStatus?.runtimeReady === false
+        ? sources.reaStatus.reasons.map(reason => reason.code).join(', ')
+        : sources.reaStatus ? 'One profile is qualified; execution still requires a current canonical task capability.' : 'REA_REGISTRY_NOT_BOUND',
+      capabilities: ['selected evidence projection', 'bounded technical facts', 'verified evidence record count'],
+      limitations: ['Whole-target coverage unverified.', 'Registration does not qualify engines or authorize execution.',
+        'Remote selection producers and production runtime qualification remain unavailable.'],
+      requiredPermissions: ['rea:analyze'], requiredConfig: ['qualified REA profile', 'canonical task capability'],
+      relatedEndpoints: ['/api/edith/tools', '/api/edith/skills'], relatedScreens: ['tools'],
+      safetyNotes: ['Public and direct tool calls are denied.', 'Persisted receipts cannot restore execution authority.'],
+      examples: ['Analyze the explicitly selected artifact'],
+      sourceOfTruth: ['src/edith/reaIntegrationService.ts', 'src/edith/serverRegistry.ts'],
+      details: { runtimeReady: sources.reaStatus?.runtimeReady ?? false, publicExecutionAllowed: false },
     }),
   ];
 

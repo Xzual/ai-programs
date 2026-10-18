@@ -3,6 +3,7 @@ import {
   type VoiceRoomRuntimeStatus,
   type VoiceRoomState,
 } from './voiceRoomService';
+import {hudSafeId,hudPositiveInteger,isVoiceTaskAdmittedV1,isHudPresentationV1,type VoiceTaskAdmittedV1,type HudPresentationV1} from './taskHudContracts';
 
 export const VOICE_LIVE_INPUT_MIME = 'audio/pcm;rate=16000';
 export const VOICE_LIVE_OUTPUT_MIME = 'audio/pcm;rate=24000';
@@ -24,19 +25,22 @@ export type VoiceLiveErrorCode =
   | 'gemini_live_unavailable';
 
 export type VoiceLiveClientEvent =
-  | { type: 'session:start' }
+  | { type: 'session:start'; personaId?: string }
   | { type: 'audio:chunk'; audio: string; mimeType: typeof VOICE_LIVE_INPUT_MIME }
   | { type: 'session:stop' }
   | { type: 'interrupt' };
 
-export type VoiceLiveServerEvent =
+export type VoiceLiveServerEvent = ({ generation?: number } & (
   | { type: 'status'; state: VoiceRoomState; sessionId?: string; safeMessage?: string }
-  | { type: 'transcript:user'; text: string; partial: boolean }
+  | { type: 'transcript:user'; text: string; partial: boolean; utteranceId?: string }
   | { type: 'transcript:assistant'; text: string; partial: boolean }
   | { type: 'audio:chunk'; audio: string; mimeType: typeof VOICE_LIVE_OUTPUT_MIME }
   | { type: 'error'; errorCode: VoiceLiveErrorCode; safeMessage: string }
-  | { type: 'session:ready'; sessionId: string; model: typeof EDITH_VOICE_ROOM_MODEL }
-  | { type: 'session:ended'; reason: string };
+  | { type: 'session:ready'; sessionId: string; model: typeof EDITH_VOICE_ROOM_MODEL; personaId?: string }
+  | { type: 'skill:result'; utteranceId: string; outcome: string; taskId?: string; skillId?: string; verificationStatus?: string; reasonCode?: string; idempotentReplay?: boolean }
+  | VoiceTaskAdmittedV1
+  | HudPresentationV1
+  | { type: 'session:ended'; reason: string }));
 
 export function voiceLiveSocketUrl(locationLike: Pick<Location, 'protocol' | 'host'> = window.location): string {
   const protocol = locationLike.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -86,16 +90,53 @@ export function parseVoiceLiveServerEvent(raw: string): VoiceLiveServerEvent | u
   try {
     const event = JSON.parse(raw) as Partial<VoiceLiveServerEvent>;
     if (!event || typeof event !== 'object' || typeof event.type !== 'string') return undefined;
+    if (event.type === 'skill:task_admitted') return isVoiceTaskAdmittedV1(event) ? event : undefined;
+    if (event.type === 'hud:presentation') return isHudPresentationV1(event) ? event : undefined;
 
     if (event.type === 'status' && typeof event.state === 'string') return event as VoiceLiveServerEvent;
     if ((event.type === 'transcript:user' || event.type === 'transcript:assistant') && typeof event.text === 'string') return event as VoiceLiveServerEvent;
     if (event.type === 'audio:chunk' && typeof event.audio === 'string') return event as VoiceLiveServerEvent;
     if (event.type === 'error' && typeof event.errorCode === 'string') return event as VoiceLiveServerEvent;
     if (event.type === 'session:ready' && typeof event.sessionId === 'string') return event as VoiceLiveServerEvent;
+    if (event.type === 'skill:result' && typeof event.utteranceId === 'string' && ['configuration_required', 'completed', 'attention_required'].includes(String(event.outcome))) {
+      if (event.outcome === 'completed' && (!event.taskId || event.verificationStatus !== 'PASS')) return undefined;
+      return event as VoiceLiveServerEvent;
+    }
     if (event.type === 'session:ended' && typeof event.reason === 'string') return event as VoiceLiveServerEvent;
     return undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** Hints are canonical-fetch locators, never task/read authority or progress snapshots.
+ * Bind only after accepting the real session:ready; clear on stop, close or owner change.
+ */
+export class VoiceHudEventReceiver {
+  private session: {voiceSessionId:string; generation:number} | null = null;
+  private commandSequence = 0;
+  constructor(private readonly callbacks: {
+    onTaskAdmitted?:(event:Readonly<VoiceTaskAdmittedV1>)=>void;
+    onPresentation?:(event:Readonly<HudPresentationV1>)=>void;
+  } = {}) {}
+  bindSession(voiceSessionId:string,generation:number):boolean {
+    if (!hudSafeId(voiceSessionId) || !hudPositiveInteger(generation)) return false;
+    if (this.session?.voiceSessionId === voiceSessionId && this.session.generation === generation) return true;
+    this.session = {voiceSessionId,generation};
+    this.commandSequence = 0;
+    return true;
+  }
+  clear():void { this.session = null; this.commandSequence = 0; }
+  receive(value:unknown):boolean {
+    let event:unknown = value;
+    if (typeof value === 'string') { try { event = JSON.parse(value); } catch { return false; } }
+    if (!isVoiceTaskAdmittedV1(event) && !isHudPresentationV1(event)) return false;
+    if (!this.session || event.voiceSessionId !== this.session.voiceSessionId || event.generation !== this.session.generation || event.commandSequence <= this.commandSequence) return false;
+    this.commandSequence = event.commandSequence;
+    const delivered = Object.freeze({...event});
+    if (delivered.type === 'skill:task_admitted') this.callbacks.onTaskAdmitted?.(delivered);
+    else this.callbacks.onPresentation?.(delivered);
+    return true;
   }
 }
 
@@ -109,12 +150,46 @@ export function voiceRoomStateAfterServerStatus(
 export function voiceRoomRuntimeStatusAfterServerState(
   state: VoiceRoomState,
   current: VoiceRoomRuntimeStatus,
+  localReady = false,
 ): VoiceRoomRuntimeStatus {
   if (state === 'connecting') return 'connecting';
   if (state === 'disconnected') return 'offline';
   if (state === 'error') return 'error';
   if (state === 'idle' && current === 'connecting') return current;
-  return 'connected';
+  return localReady ? 'connected' : current === 'connecting' ? 'connecting' : 'offline';
+}
+
+/** Local truth only: backend status and socket open never grant microphone readiness. */
+export class LocalVoiceSessionGate {
+  private generation = 0;
+  private sessionId: string | null = null;
+  private serverGeneration = -1;
+  private microphoneActive = false;
+  begin(): number { this.stop(); return this.generation; }
+  current(generation: number): boolean { return generation === this.generation; }
+  acceptReady(generation: number, sessionId: string, serverGeneration: number): boolean {
+    if (!this.current(generation) || !sessionId || !Number.isSafeInteger(serverGeneration) || serverGeneration < 1 || serverGeneration <= this.serverGeneration) return false;
+    this.sessionId = sessionId; this.serverGeneration = serverGeneration; this.microphoneActive = false;
+    return true;
+  }
+  activateMicrophone(generation: number, active: boolean): boolean {
+    if (!this.current(generation) || !this.sessionId) return false;
+    this.microphoneActive = active;
+    return this.ready;
+  }
+  acceptsEvent(generation: number, serverGeneration: number | undefined): boolean {
+    return this.current(generation) && this.ready && serverGeneration === this.serverGeneration;
+  }
+  ownsReady(generation: number, serverGeneration: number): boolean { return this.current(generation) && Boolean(this.sessionId) && serverGeneration === this.serverGeneration; }
+  staleServerEvent(serverGeneration: number | undefined): boolean { return serverGeneration !== undefined && serverGeneration < this.serverGeneration; }
+  stop(): void { this.generation++; this.sessionId = null; this.serverGeneration = -1; this.microphoneActive = false; }
+  pauseMicrophone(): void { this.microphoneActive = false; }
+  get ready(): boolean { return Boolean(this.sessionId && this.microphoneActive); }
+}
+
+export function voiceSocketProtocols(csrfToken: string): string[] {
+  if (!/^[A-Za-z0-9_-]{16,256}$/.test(csrfToken)) throw new Error('owner_session_required');
+  return ['edith.voice.v1', `csrf.${csrfToken}`];
 }
 
 export function int16PcmToBase64(samples: Int16Array): string {

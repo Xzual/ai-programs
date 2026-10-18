@@ -16,6 +16,14 @@ use tauri_plugin_shell::ShellExt;
 
 mod advanced;
 mod computer;
+mod native_browser_control;
+mod native_overlay;
+mod native_app_operators;
+mod native_app_workflows;
+mod native_uia;
+mod native_calculator_identity;
+mod native_ocr;
+mod native_ocr_targets;
 mod cross_device;
 mod obsidian_picker;
 
@@ -74,6 +82,156 @@ fn desktop_owner_bootstrap_token(
         .map_err(|_| "Owner bootstrap state unavailable".to_string())?
         .take()
         .ok_or_else(|| "Owner bootstrap is unavailable or already consumed".to_string())
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeBrowserResolveLookup { attempt_wire_ref: String, local_session_ref: String }
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NativeBrowserOperationLookup { operation_wire_ref: String }
+
+fn native_browser_lookup<T: serde::de::DeserializeOwned>(request: &tauri::ipc::Request<'_>) -> Result<T, String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone()).map_err(|_| "NATIVE_BROWSER_INVALID_LOOKUP".into()),
+        _ => Err("NATIVE_BROWSER_INVALID_LOOKUP".into()),
+    }
+}
+
+struct ManagedBrowserHost<'a> {
+    computer: &'a computer::ComputerState,
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    generation: u64,
+    port: u16,
+    root: isize,
+}
+
+impl ManagedBrowserHost<'_> {
+    fn check(&self) -> Result<(), native_browser_control::ControllerError> {
+        use native_browser_control::ControllerError;
+        let runtime = self.app.state::<BackendRuntime>();
+        let url = self.window.url().map_err(|_| ControllerError::HostUnavailable)?;
+        if self.window.label() != "main" || self.port == 0
+            || runtime.port.load(Ordering::Acquire) != self.port
+            || runtime.generation.load(Ordering::Acquire) != self.generation
+            || runtime.shutting_down.load(Ordering::Acquire)
+            || url.scheme() != "http" || url.host_str() != Some("127.0.0.1")
+            || url.port_or_known_default() != Some(self.port) || url.path() != "/"
+            || url.query().is_some() || url.fragment().is_some() || !url.username().is_empty() || url.password().is_some()
+        { return Err(ControllerError::HostUnavailable); }
+        #[cfg(windows)]
+        if self.window.hwnd().map_err(|_| ControllerError::HostUnavailable)?.0 as isize != self.root || self.root == 0 {
+            return Err(ControllerError::HostUnavailable);
+        }
+        #[cfg(not(windows))]
+        return Err(ControllerError::HostUnavailable);
+        #[cfg(windows)]
+        Ok(())
+    }
+}
+
+impl native_browser_control::BrowserHost for ManagedBrowserHost<'_> {
+    fn check_managed(&self) -> Result<(), native_browser_control::ControllerError> { self.check() }
+    fn dispatch_lock(&self) -> Result<Box<dyn native_browser_control::BrowserDispatchGuard + '_>, native_browser_control::ControllerError> {
+        self.check()?;
+        let guard = self.computer.browser_dispatch_lock().map_err(|_| native_browser_control::ControllerError::HostUnavailable)?;
+        self.check()?;
+        Ok(Box::new(guard))
+    }
+    fn local_facts(&self, session: &str, operation: Option<&str>) -> Result<native_browser_control::BrowserLocalFacts, native_browser_control::ControllerError> {
+        self.check()?;
+        let result = self.computer.browser_local_facts(session, operation)?;
+        self.check()?;
+        Ok(result)
+    }
+    fn managed_root(&self) -> Result<isize, native_browser_control::ControllerError> { self.check()?; Ok(self.root) }
+    fn private_bridge(&self) -> Result<native_browser_control::PrivateBridge, native_browser_control::ControllerError> {
+        self.check()?;
+        self.computer.browser_private_bridge(self.port)
+    }
+    fn confirm_scoped(&self, description: &str) -> Result<bool, native_browser_control::ControllerError> {
+        use native_browser_control::ControllerError;
+        self.check()?;
+        if description.is_empty() || description.len() > 2048 || description.chars().any(|ch| ch == '\0' || (ch.is_control() && ch != '\n')) {
+            return Err(ControllerError::HostUnavailable);
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, IDYES, IDNO, MB_YESNO, MB_ICONWARNING, MB_DEFBUTTON2};
+            let message: Vec<u16> = description.encode_utf16().chain(std::iter::once(0)).collect();
+            let title: Vec<u16> = "E.D.I.T.H. Original browser approval".encode_utf16().chain(std::iter::once(0)).collect();
+            let response = unsafe { MessageBoxW(self.root as _, message.as_ptr(), title.as_ptr(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) };
+            self.check()?;
+            match response { IDYES => Ok(true), IDNO => Ok(false), _ => Err(ControllerError::HostUnavailable) }
+        }
+        #[cfg(not(windows))]
+        Err(ControllerError::HostUnavailable)
+    }
+    fn now_ms(&self) -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64 }
+}
+
+enum NativeBrowserLookup { Resolve(NativeBrowserResolveLookup), Dispatch(NativeBrowserOperationLookup), ReadStatus(NativeBrowserOperationLookup) }
+
+fn schedule_native_browser_boot(window: tauri::WebviewWindow, app: tauri::AppHandle) {
+    let Some(runtime) = app.try_state::<BackendRuntime>() else { return; };
+    let generation = runtime.generation.load(Ordering::Acquire);
+    let port = runtime.port.load(Ordering::Acquire);
+    if port == 0 || runtime.shutting_down.load(Ordering::Acquire) { return; }
+    #[cfg(windows)]
+    let root = match window.hwnd() { Ok(value) => value.0 as isize, Err(_) => return };
+    #[cfg(not(windows))]
+    let root = 0;
+    drop(runtime);
+    tauri::async_runtime::spawn_blocking(move || {
+        let computer = app.state::<computer::ComputerState>();
+        let controller = computer.browser_controller();
+        let host = ManagedBrowserHost { computer: &computer, window, app: app.clone(), generation, port, root };
+        if host.check().is_ok() { let _ = controller.register_boot(&host); }
+        // Registration is private boot readiness only. Failure creates no owner
+        // session, consent, reservation, operation or automatic effect retry.
+    });
+}
+
+async fn run_native_browser_lookup(window: tauri::WebviewWindow, app: tauri::AppHandle, lookup: NativeBrowserLookup)
+    -> Result<native_browser_control::SafeStatus, String>
+{
+    let runtime = app.state::<BackendRuntime>();
+    let generation = runtime.generation.load(Ordering::Acquire);
+    let port = runtime.port.load(Ordering::Acquire);
+    #[cfg(windows)]
+    let root = window.hwnd().map_err(|_| "NATIVE_BROWSER_UNAVAILABLE")?.0 as isize;
+    #[cfg(not(windows))]
+    let root = 0;
+    drop(runtime);
+    tauri::async_runtime::spawn_blocking(move || {
+        let computer = app.state::<computer::ComputerState>();
+        let controller = computer.browser_controller();
+        let host = ManagedBrowserHost { computer: &computer, window, app: app.clone(), generation, port, root };
+        host.check().map_err(|_| "NATIVE_BROWSER_UNAVAILABLE".to_string())?;
+        let result = match lookup {
+            NativeBrowserLookup::Resolve(value) => controller.resolve(&host, &value.attempt_wire_ref, &value.local_session_ref),
+            NativeBrowserLookup::Dispatch(value) => controller.dispatch(&host, &value.operation_wire_ref),
+            NativeBrowserLookup::ReadStatus(value) => controller.read_status(&host, &value.operation_wire_ref),
+        };
+        result.map_err(|_| "NATIVE_BROWSER_UNAVAILABLE".to_string())
+    }).await.map_err(|_| "NATIVE_BROWSER_OUTCOME_UNKNOWN".to_string())?
+}
+
+#[tauri::command]
+async fn native_browser_resolve(request: tauri::ipc::Request<'_>, window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<native_browser_control::SafeStatus, String> {
+    let lookup = native_browser_lookup(&request)?;
+    run_native_browser_lookup(window, app, NativeBrowserLookup::Resolve(lookup)).await
+}
+#[tauri::command]
+async fn native_browser_dispatch(request: tauri::ipc::Request<'_>, window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<native_browser_control::SafeStatus, String> {
+    let lookup = native_browser_lookup(&request)?;
+    run_native_browser_lookup(window, app, NativeBrowserLookup::Dispatch(lookup)).await
+}
+#[tauri::command]
+async fn native_browser_read_status(request: tauri::ipc::Request<'_>, window: tauri::WebviewWindow, app: tauri::AppHandle) -> Result<native_browser_control::SafeStatus, String> {
+    let lookup = native_browser_lookup(&request)?;
+    run_native_browser_lookup(window, app, NativeBrowserLookup::ReadStatus(lookup)).await
 }
 
 impl BackendRuntime {
@@ -582,6 +740,12 @@ pub fn run() {
         .manage(computer::ComputerState::default())
         .manage(cross_device::CrossDeviceState::default())
         .manage(obsidian_picker::ObsidianVaultPickerState::default())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && payload.event() == tauri::webview::PageLoadEvent::Finished {
+                let app = webview.app_handle().clone();
+                if let Some(window) = app.get_webview_window("main") { schedule_native_browser_boot(window, app); }
+            }
+        })
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -606,6 +770,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_version,
+            native_browser_resolve,
+            native_browser_dispatch,
+            native_browser_read_status,
             desktop_shell_status,
             backend_runtime_status,
             desktop_owner_bootstrap_token,
@@ -615,6 +782,28 @@ pub fn run() {
             minimize_window,
             close_window,
             computer::computer_status,
+            computer::computer_monitors,
+            computer::computer_app_windows,
+            computer::computer_focus_target,
+            computer::computer_app_open,
+            computer::computer_workflow_reserve,
+            computer::computer_workflow_release,
+            computer::computer_app_snapshot,
+            computer::computer_steam_diagnostic_capture,
+            computer::computer_app_volume,
+            computer::computer_explorer_claim,
+            computer::computer_explorer_exchange,
+            computer::computer_explorer_text,
+            computer::computer_task_register,
+            computer::computer_task_bind,
+            computer::computer_task_finish,
+            computer::computer_task_cancel,
+            computer::computer_file_open_pending,
+            computer::computer_locate,
+            computer::computer_read_text,
+            computer::computer_ocr,
+            computer::computer_locate_ocr,
+            computer::computer_ocr_readback,
             computer::computer_begin,
             computer::computer_observe,
             computer::computer_screenshot,

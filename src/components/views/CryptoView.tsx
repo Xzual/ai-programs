@@ -90,7 +90,10 @@ export const CryptoView: React.FC = () => {
     try {
       const response = await fetch('/api/edith/crypto/status');
       const data = await response.json();
-      if (data.success) setStatus(data.status);
+      if (!response.ok || data.success !== true || !data.status || typeof data.status.healthy !== 'boolean') {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Crypto status unavailable');
+      }
+      setStatus(data.status);
       const [obsidianStatus, learningNotes, overview, observations, markets, risk] = await Promise.all([
         readOptionalEndpoint('/api/obsidian-status'),
         readOptionalEndpoint('/api/learning-notes'),
@@ -101,9 +104,10 @@ export const CryptoView: React.FC = () => {
       ]);
       setProxyData({ obsidianStatus, learningNotes, overview, observations, markets, risk });
     } catch (error) {
+      setProxyData({});
       setStatus({
         dashboardUrl: 'http://localhost:5000',
-        projectPath: 'C:\\Users\\arday\\Desktop\\ai programs\\crypto',
+        projectPath: '',
         healthy: false,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -246,10 +250,9 @@ export const CryptoView: React.FC = () => {
               <Terminal className="w-4 h-4 text-amber-300" />
               Başlatma
             </div>
-            <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-slate-800 bg-slate-950 p-3 text-[11px] text-slate-300 font-mono">
-{`cd "C:\\Users\\arday\\Desktop\\ai programs\\crypto"
-.\\.venv\\Scripts\\python.exe run_agent.py`}
-            </pre>
+            <p className="mt-3 text-xs text-slate-300 leading-relaxed">
+              Start Market Observer düğmesini kullanın; servis ve observer durumunu Durum bölümünden izleyin.
+            </p>
             <p className="mt-3 text-[11px] text-slate-500 leading-relaxed">
               Sistem OBSERVER_ONLY modundadır; gerçek veya sanal al/sat işlemi yapmaz. Paper trading disabled, live trading locked. EDITH Ollama server başlatmaz.
             </p>
@@ -262,6 +265,7 @@ export const CryptoView: React.FC = () => {
               <StatusLine label="Stopped" value={runtime?.lastStoppedAt ? new Date(runtime.lastStoppedAt).toLocaleString() : '-'} />
               <StatusLine label="Observed" value={runtime?.lastObservationAt ? new Date(runtime.lastObservationAt).toLocaleString() : '-'} />
               <StatusLine label="Last Exit" value={status?.lastExit ? `${status.lastExit.code ?? status.lastExit.signal ?? 'unknown'}` : '-'} />
+              <StatusLine label="Project" value={typeof status?.projectPath === 'string' && status.projectPath.trim() ? status.projectPath : 'Unavailable'} />
               <StatusLine label="Log" value={status?.logPath ?? '-'} />
             </div>
           </div>

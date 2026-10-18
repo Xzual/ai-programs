@@ -47,6 +47,48 @@ function copyPackagedResources(source, destination) {
   visit(sourceRoot);
 }
 
+function assertJsonHasNoEmbeddedSecrets(content, relative) {
+  try { JSON.parse(content); } catch {
+    // Parser messages may contain the rejected input. Keep diagnostics value-free.
+    throw new Error(`Malformed packaged JSON rejected: ${relative}`);
+  }
+  const credentialKeys = new Set([
+    'apikey', 'apisecret', 'secret', 'secretkey', 'credential', 'credentials',
+    'accesstoken', 'refreshtoken', 'authtoken', 'bearertoken', 'token',
+    'privatekey', 'password', 'passwd', 'pwd', 'clientsecret', 'authorization',
+    'accesskey', 'accesskeyid', 'secretaccesskey',
+  ]);
+  // Inspect validated JSON tokens rather than the parsed object: JSON.parse discards
+  // earlier duplicate keys, whose credential bytes would otherwise still ship.
+  const tokens = content.match(/"(?:\\[\s\S]|[^"\\])*"|[{}\[\]:,]|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null/g);
+  let index = 0;
+  const reject = () => { throw new Error(`Embedded credential-like JSON literal rejected: ${relative} (credential-bearing field)`); };
+  const visit = (credential = false, depth = 0) => {
+    if (depth > 256) throw new Error(`Packaged JSON nesting limit exceeded: ${relative}`);
+    const token = tokens[index++];
+    if (token === '{') {
+      while (tokens[index] !== '}') {
+        const key = JSON.parse(tokens[index++]).replace(/[^a-z0-9]/gi, '').toLowerCase();
+        index++; // colon; syntax was already validated
+        visit(credential || credentialKeys.has(key), depth + 1);
+        if (tokens[index] !== ',') break;
+        index++;
+      }
+      index++; // closing brace
+    } else if (token === '[') {
+      while (tokens[index] !== ']') {
+        visit(credential, depth + 1);
+        if (tokens[index] !== ',') break;
+        index++;
+      }
+      index++;
+    } else if (credential && token !== 'null') {
+      if (!token.startsWith('"') || JSON.parse(token).length > 0) reject();
+    }
+  };
+  visit();
+}
+
 function assertNoEmbeddedSecrets(directory) {
   for (const { absolute, relative } of listFilesStrict(directory)) {
     const content = fs.readFileSync(absolute, 'utf8');
@@ -56,6 +98,7 @@ function assertNoEmbeddedSecrets(directory) {
     if (/^[ \t]*(?:self\.)?_?(?:api_?key|secret|credential|access_?token|private_?key|password)\b\s*(?::[^=\r\n]+)?=\s*[rubf]*["'][^"'\r\n]{8,}["']/im.test(content)) {
       throw new Error(`Embedded secret-like assignment rejected: ${relative}`);
     }
+    if (/\.json$/i.test(relative)) assertJsonHasNoEmbeddedSecrets(content, relative);
   }
 }
 

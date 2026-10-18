@@ -1,3 +1,4 @@
+import {getMobileOwnerSessionFixture} from './helpers/mobile-owner-session-fixture';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,6 +20,8 @@ import { createMobileTasksRouter } from '../server/routes/mobileTasks';
 import { createMobileTransfersRouter } from '../server/routes/mobileTransfers';
 import { createMobileCrossDeviceRouter } from '../server/routes/mobileCrossDevice';
 
+const mobileOwnerFixture=await getMobileOwnerSessionFixture();
+await mobileOwnerFixture.close(); // Owner session remains active; only the fixture listener closes.
 function signature(privateKey: ReturnType<typeof generateKeyPairSync>['privateKey'], payload: string): string {
   return sign(null, Buffer.from(payload, 'utf8'), privateKey).toString('base64url');
 }
@@ -94,12 +97,12 @@ try {
   };
 
   const requested = pairing.request(request);
-  const ownerSession = { bindingId: 'owner-session-test', expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() };
+  const ownerSession = mobileOwnerFixture.pairingOwnerFor(60 * 60_000);
   assert.equal(requested.pairing.status, 'requested');
   const normalizedCommands = store.getPairing(requested.pairing.pairingId)!.requestedCommands;
-  assert.equal(normalizedCommands.includes('live_view.start'), false);
+  assert.equal(normalizedCommands.includes('live_view.start'), true);
   assert.equal(normalizedCommands.includes('wake.request'), false);
-  assert.equal(normalizedCommands.includes('file.download'), false);
+  assert.equal(normalizedCommands.includes('file.download'), true);
   assert.equal(requested.server.capabilities.crossDevice?.liveView, 'configuration_required');
   assert.equal(requested.pairing.device.capabilities?.computerControl, false);
   assert.equal(requested.pairing.device.capabilities?.browserControl, false);
@@ -151,16 +154,16 @@ try {
     },
   });
   const completed = runtime.transfers.acceptChunk(context, descriptor.transferId, 0, content.toString('base64'));
-  assert.equal(completed.status, 'completed');
+  assert.equal(completed.status, 'transferring');
   const completedCrossDevice = runtime.crossDevice.syncMobileTransfer(context, completed);
   assert.equal(completedCrossDevice.progress.bytesTransferred, content.length);
   assert.equal(completedCrossDevice.progress.percent, 100);
-  assert.equal(completedCrossDevice.progress.integrity, 'verified');
+  assert.equal(completedCrossDevice.progress.integrity, 'pending');
   assert.equal(JSON.stringify(completed).includes(tempRoot), false);
   const transferRegistry = fs.readFileSync(store.filePath, 'utf8');
   assert.equal(transferRegistry.includes(tempRoot), false);
   assert.equal(transferRegistry.includes('internalDirectory'), false);
-  expectError(() => runtime.transfers.acceptChunk(context, descriptor.transferId, 0, content.toString('base64')), 'TRANSFER_ALREADY_COMPLETED');
+  expectError(() => runtime.transfers.acceptChunk(context, descriptor.transferId, 0, content.toString('base64')), 'TRANSFER_CHUNK_REPLAYED');
   expectError(() => runtime.transfers.create(context, { fileName: '../escape.txt', mediaType: 'text/plain', sizeBytes: 1, sha256: sha256('x'), keyFingerprint: consumed.keyFingerprint, manifest: { contractVersion: 2, amendment: EDITH_CONTRACT_AMENDMENT, sizeBytes: 1, chunkSizeBytes: 1, totalChunks: 1, fileSha256: sha256('x'), chunks: [{ index: 0, offsetBytes: 0, sizeBytes: 1, sha256: sha256('x') }] } }), 'TRANSFER_FILENAME_INVALID');
   const checksumDescriptor = runtime.transfers.create(context, { fileName: 'checksum.txt', mediaType: 'text/plain', sizeBytes: 1, sha256: sha256('x'), keyFingerprint: consumed.keyFingerprint, manifest: { contractVersion: 2, amendment: EDITH_CONTRACT_AMENDMENT, sizeBytes: 1, chunkSizeBytes: 1, totalChunks: 1, fileSha256: sha256('x'), chunks: [{ index: 0, offsetBytes: 0, sizeBytes: 1, sha256: sha256('x') }] } });
   expectError(() => runtime.transfers.acceptChunk(context, checksumDescriptor.transferId, 0, Buffer.from('y').toString('base64')), 'TRANSFER_CHUNK_CHECKSUM_MISMATCH');

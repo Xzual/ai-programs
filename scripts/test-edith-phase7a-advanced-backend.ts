@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { EdithTask } from '../src/edith/core';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-phase7a-'));
 const originalCwd = process.cwd();
@@ -16,16 +15,22 @@ try {
   const { taskQueueService } = await import('../src/edith/taskQueueService');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
 
-  const fakeTask = { id: 'verified-task', status: 'COMPLETED', verification: { status: 'PASS' } } as EdithTask;
-  const runtime = new AdvancedExperienceRuntime((id) => id === fakeTask.id ? fakeTask : undefined);
+  const { plannerService } = await import('../src/edith/planner');
+  const { executorService } = await import('../src/edith/executor');
+  const created = taskService.createTask({ title: 'Verified mission source', objective: 'Read system health status and verify the report.', originalUserRequest: 'Read system health status and verify the report.', toolsRequired: ['system_monitor'], permissionsRequired: ['system:read'] });
+  assert.equal(plannerService.planTask(created.id).success, true);
+  const executed = await executorService.executeTask(created.id);
+  assert.equal(executed.task?.status, 'COMPLETED');
+  assert.equal(executed.task?.verification?.status, 'PASS');
+  const runtime = new AdvancedExperienceRuntime((id) => taskService.getTask(id));
   const now = new Date().toISOString();
   const later = new Date(Date.now() + 60_000).toISOString();
   const base = { contractVersion: 2 as const, amendment: '2.1' as const, ownerSessionBindingId: 'owner-1', workspaceId: 'workspace-1', revision: 1, createdAt: now, updatedAt: now };
 
-  runtime.put('mission-memories', { ...base, memoryId: 'memory-1', sourceTaskId: 'verified-task', verificationStatus: 'verified', routeSummary: 'Verified execution route.', avoidRouteCodes: [], currentStateReverificationRequired: true });
+  runtime.put('mission-memories', { ...base, memoryId: 'memory-1', sourceTaskId: created.id, verificationStatus: 'verified', routeSummary: 'Verified execution route.', avoidRouteCodes: [], currentStateReverificationRequired: true });
   assert.equal(runtime.list('mission-memories', 'owner-1', 'workspace-1').length, 1);
   assert.equal(runtime.list('mission-memories', 'owner-2', 'workspace-1').length, 0);
-  assert.throws(() => runtime.put('mission-memories', { ...base, revision: 3, updatedAt: later, memoryId: 'memory-1', sourceTaskId: 'verified-task', verificationStatus: 'verified', routeSummary: 'Updated route.', avoidRouteCodes: [], currentStateReverificationRequired: true }), /REVISION_CONFLICT/);
+  assert.throws(() => runtime.put('mission-memories', { ...base, revision: 3, updatedAt: later, memoryId: 'memory-1', sourceTaskId: created.id, verificationStatus: 'verified', routeSummary: 'Updated route.', avoidRouteCodes: [], currentStateReverificationRequired: true }), /REVISION_CONFLICT/);
   assert.throws(() => runtime.put('restore-plans', { ...base, planId: 'restore-1', snapshotId: 'snapshot-1', steps: [], requiresVerification: true, secretsExcluded: true, dangerousTransactionsExcluded: true, status: 'planned' }), /CONFIGURATION_REQUIRED/);
   assert.throws(() => runtime.put('orchestration', { ...base, planId: 'plan-1', kind: 'outcome_mode', objective: 'Verified outcome', references: [], steps: [{ stepId: 'step-1', referenceId: 'verified-task', status: 'verified' }], arbitraryShell: false, status: 'completed', verifiedDownstreamResultIds: ['result-1'] }), /SERVER_VERIFIED_COMPLETION_REQUIRED/);
 

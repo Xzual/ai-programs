@@ -49,12 +49,14 @@ export function ownerSessionBindingActive(bindingId: string): boolean {
   return false;
 }
 
-function invalidateSession(session: StoredOwnerSession, reason: OwnerSessionInvalidationEvent["reason"]): void {
+function invalidateSession(session: StoredOwnerSession, reason: OwnerSessionInvalidationEvent["reason"]): boolean {
   sessions.delete(session.sessionHash);
   const event = { bindingId: session.bindingId, reason, occurredAt: new Date().toISOString() };
+  let complete = true;
   for (const listener of invalidationListeners) {
-    try { listener(event); } catch { /* Session invalidation must remain fail-closed even if a listener fails. */ }
+    try { listener(event); } catch { complete = false; }
   }
+  return complete;
 }
 
 function ttlMs(): number {
@@ -241,7 +243,15 @@ export function createOwnerSessionRouter(): Router {
     }
 
     // Rotate every successful login so old browser sessions cannot be replayed.
-    for (const session of [...sessions.values()]) invalidateSession(session, "rotated");
+    let invalidationComplete = true;
+    for (const session of [...sessions.values()]) {
+      if (!invalidateSession(session, "rotated")) invalidationComplete = false;
+    }
+    if (!invalidationComplete) {
+      clearSessionCookie(req, res);
+      reject(req, res, 503, "owner_invalidation_incomplete", "Owner session removed; mobile authority cleanup is incomplete.");
+      return;
+    }
     const sessionId = crypto.randomBytes(32).toString("base64url");
     const now = Date.now();
     const stored: StoredOwnerSession = {
@@ -292,11 +302,16 @@ export function createOwnerSessionRouter(): Router {
 
   router.delete("/api/security/session", ...requireProtectedMutation, (req, res) => {
     const raw = cookieValue(req);
+    let invalidationComplete = true;
     if (raw) {
       const session = sessions.get(hash(raw));
-      if (session) invalidateSession(session, "logout");
+      if (session) invalidationComplete = invalidateSession(session, "logout");
     }
     clearSessionCookie(req, res);
+    if (!invalidationComplete) {
+      reject(req, res, 503, "owner_invalidation_incomplete", "Owner session removed; mobile authority cleanup is incomplete.");
+      return;
+    }
     res.json({ success: true });
   });
 

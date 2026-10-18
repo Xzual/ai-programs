@@ -32,6 +32,10 @@ try {
     forwardedInternalToken = req.get("x-edith-internal-token");
     res.json({ success: true, ok: true, data: { action: "HOLD" } });
   });
+  dashboard.post("/api/crypto/demo/buy", (_req, res) => {
+    // Route fixture only; Python tests separately prove real ledger replay.
+    res.json({ success: true, ok: true, data: { replayFixture: true } });
+  });
   const dashboardServer = await listen(dashboard);
   const dashboardAddress = dashboardServer.address();
   assert(dashboardAddress && typeof dashboardAddress === "object");
@@ -122,6 +126,31 @@ try {
   assert.notEqual(forwardedInternalToken, "browser-spoof", "browser internal-token spoof must not be forwarded");
   response = await binanceKillSwitch({ cookie, "x-edith-csrf-token": session.session.csrfToken });
   assert.equal(response.status, 200, "authenticated owner may operate the Binance kill switch");
+  response = await fetch(`${base}/api/crypto/demo/buy`, {
+    method: "POST", headers: { origin, cookie, "x-edith-csrf-token": session.session.csrfToken, "content-type": "application/json" },
+    body: JSON.stringify({ clientRequestId: "route-security-buy-replay", symbol: "BTCUSDT", quoteAmount: 100 }),
+  });
+  assert.equal(response.status, 200, "idempotent paths must reach ledger replay even under stop; Python guards fresh execution");
+  process.env.BINANCE_SPOT_ENABLED = "true";
+  process.env.BINANCE_SPOT_LIVE_ENABLED = "true";
+  process.env.BINANCE_API_KEY = "fixture-key";
+  process.env.BINANCE_API_SECRET = "fixture-secret";
+  const ownerHeaders = { origin, cookie, "x-edith-csrf-token": session.session.csrfToken, "content-type": "application/json" };
+  response = await fetch(`${base}/api/crypto/binance/status`);
+  assert.equal((await response.json()).status.liveEnabled, false);
+  response = await fetch(`${base}/api/crypto/binance/account`, { headers: ownerHeaders });
+  assert.equal(response.status, 200);
+  const account = (await response.json()).account;
+  assert.equal(account.mode, "DEMO_ONLY");
+  assert.equal(account.canTrade, false);
+  for (const endpoint of ["proposals", "proposals/legacy-id/approve"]) {
+    response = await fetch(`${base}/api/crypto/binance/${endpoint}`, { method: "POST", headers: ownerHeaders, body: "{}" });
+    assert.equal(response.status, 423);
+    const disabled = await response.json();
+    assert.equal(disabled.errorCode, "demo_only");
+    assert.equal(disabled.realOrderSent, false);
+    assert.equal(disabled.privateRequestsEnabled, false);
+  }
   response = await voiceCryptoCommand({ cookie, "x-edith-csrf-token": session.session.csrfToken });
   assert.equal(response.status, 200, "authenticated same-origin owner may use the voice crypto router");
   const voicePayload = await response.json();

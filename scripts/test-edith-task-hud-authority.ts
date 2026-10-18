@@ -1,0 +1,131 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+// The confinement runner supplies a wholly synthetic workspace before these dynamic imports.
+assert.equal(process.env.EDITH_TEST_MODE,'true');
+const root=process.env.EDITH_TEST_DATA_DIR!;
+const {TaskService,taskService,registerGenericTaskPublisher}=await import('../src/edith/taskService');
+const {TaskContinuationAdapter}=await import('../src/edith/taskContinuationAdapter');
+const {DurableStateStore}=await import('../server/advanced/durableStateStore');
+const {appendAuditEvent,createAuditEvent}=await import('../src/edith/audit');
+const {projectTaskEventsV2}=await import('../src/edith/contracts');
+const task=taskService.createTask({title:'Synthetic HUD authority',objective:'Synthetic receipt checks',originalUserRequest:'fixture'});
+const second=taskService.createTask({title:'Second fixture',objective:'Replay checks',originalUserRequest:'fixture'});
+let ownerActive=true,workspace='workspace-fixture';
+const adapter=new TaskContinuationAdapter(new DurableStateStore(path.join(root,'hud-fixture.db')),id=>ownerActive&&['owner-fixture','other-owner'].includes(id),()=>workspace);
+const context={workspaceId:workspace,voiceSessionId:'voice-fixture',utteranceId:'utterance-fixture',commandSequence:1,skillId:'fixture-skill'};
+const admitted=adapter.bind(task.id,'owner-fixture',context)!;
+assert.equal(admitted.taskId,task.id);assert.equal(admitted.revision,task.revision);
+assert.deepEqual(adapter.bind(task.id,'owner-fixture',context),admitted);
+assert.doesNotThrow(()=>adapter.assertHudRead(task.id,'owner-fixture',workspace));
+assert.throws(()=>adapter.assertHudRead(task.id,'other-owner',workspace),/FORBIDDEN/);
+assert.throws(()=>adapter.bind(second.id,'owner-fixture',context),/CONFLICT/);
+assert.throws(()=>adapter.bind(task.id,'other-owner',context),/CONFLICT/);
+assert.throws(()=>adapter.bind(task.id,'owner-fixture',{...context,workspaceId:'foreign'}),/BINDING_REQUIRED/);
+assert.throws(()=>adapter.bind(task.id,'owner-fixture',{...context,utteranceId:'changed'}),/CONFLICT/);
+adapter.bind(task.id,'owner-fixture');assert.doesNotThrow(()=>adapter.assertHudRead(task.id,'owner-fixture',workspace));
+workspace='different';assert.throws(()=>adapter.assertHudRead(task.id,'owner-fixture','workspace-fixture'),/FORBIDDEN/);workspace='workspace-fixture';
+ownerActive=false;assert.throws(()=>adapter.assertHudRead(task.id,'owner-fixture',workspace),/OWNER_SESSION/);ownerActive=true;
+adapter.bind(second.id,'owner-fixture');adapter.bind(second.id,'other-owner'); // Legacy continuation still permits authenticated owner rebinding.
+assert.throws(()=>adapter.assertHudRead(second.id,'other-owner',workspace),/BINDING_REQUIRED/);
+const audit=createAuditEvent({actor:'fixture-tool',taskId:task.id,action:'tool.execute',toolId:'fixture_tool',authorization:'allowed',riskLevel:1,result:'success'});appendAuditEvent(audit);
+const finishedAt=audit.timestamp;
+const metric={schemaVersion:1,attempt:2,observedAt:finishedAt,clock:'adapter_receipt',source:'tool_result',coverage:'partial',scope:{kind:'tool_run',targetRefId:'target-fixture'},evidenceRefs:['evidence-fixture'],values:[{name:'items_examined',unit:'count',value:0}]};
+// Source resolver reads persisted fixture records; API caller supplies only task/run locators.
+const receiptFile=path.join(root,'producer-receipt.json'),evidenceFile=path.join(root,'producer-evidence.json');
+const receipt={taskId:task.id,runId:audit.id,toolId:audit.toolId,attempt:2,finishedAt,success:true,observedMetrics:metric};
+const evidence={taskId:task.id,runId:audit.id,toolId:audit.toolId,attempt:2,targetRefId:'target-fixture'};
+fs.writeFileSync(receiptFile,JSON.stringify(receipt));fs.writeFileSync(evidenceFile,JSON.stringify(evidence));
+const published:unknown[]=[];registerGenericTaskPublisher(event=>published.push(event));
+let permissionAllowed=true,targetAllowed=true;
+const source={toolId:'fixture_tool',rules:[{name:'items_examined',unit:'count' as const}],assertAuthority:(id:string)=>{adapter.assertHudRead(id,'owner-fixture',workspace);if(!permissionAllowed)throw new Error('PERMISSION_DENIED');if(!targetAllowed)throw new Error('TARGET_REVOKED');},readReceipt:()=>JSON.parse(fs.readFileSync(receiptFile,'utf8')),readEvidence:(ref:string)=>ref==='evidence-fixture'?JSON.parse(fs.readFileSync(evidenceFile,'utf8')):undefined};
+const service=new TaskService([source]);
+assert.throws(()=>new TaskService().recordToolObservation(task.id,audit.id),/UNSUPPORTED/);
+assert.throws(()=>service.recordToolObservation(task.id,'invented-audit'),/PROVENANCE/);
+permissionAllowed=false;assert.throws(()=>service.recordToolObservation(task.id,audit.id),/PERMISSION_DENIED/);permissionAllowed=true;
+targetAllowed=false;assert.throws(()=>service.recordToolObservation(task.id,audit.id),/TARGET_REVOKED/);targetAllowed=true;
+ownerActive=false;assert.throws(()=>service.recordToolObservation(task.id,audit.id),/OWNER_SESSION/);ownerActive=true;
+fs.writeFileSync(evidenceFile,JSON.stringify({...evidence,attempt:1}));assert.throws(()=>service.recordToolObservation(task.id,audit.id),/PROVENANCE/);
+fs.writeFileSync(evidenceFile,JSON.stringify(evidence));
+fs.writeFileSync(receiptFile,JSON.stringify({...receipt,attempt:1}));assert.throws(()=>service.recordToolObservation(task.id,audit.id),/PROVENANCE/);
+fs.writeFileSync(receiptFile,JSON.stringify(receipt));
+fs.writeFileSync(receiptFile,JSON.stringify({...receipt,observedMetrics:{...metric,observedAt:'2099-01-01T00:00:00.000Z'}}));assert.throws(()=>service.recordToolObservation(task.id,audit.id),/PROVENANCE/);
+fs.writeFileSync(receiptFile,JSON.stringify({...receipt,observedMetrics:{...metric,values:[{name:'unapproved',unit:'count',value:0}]}}));assert.throws(()=>service.recordToolObservation(task.id,audit.id),/METRIC_INVALID/);
+fs.writeFileSync(receiptFile,JSON.stringify(receipt));
+const stored=service.recordToolObservation(task.id,audit.id);
+const completed=projectTaskEventsV2(stored).events.filter(e=>e.type==='task.tool_completed');
+assert.equal(completed.length,1);assert.equal(completed[0].payload.observedMetrics?.values[0].value,0);assert.equal(completed[0].payload.observedMetrics?.coverage,'partial');
+assert.equal(JSON.stringify(published).includes('observedMetrics'),false);
+assert.equal(service.recordToolObservation(task.id,audit.id).eventSequence,stored.eventSequence);
+fs.writeFileSync(receiptFile,JSON.stringify({...receipt,observedMetrics:{...metric,values:[{name:'items_examined',unit:'count',value:1}]}}));assert.throws(()=>service.recordToolObservation(task.id,audit.id),/CONFLICT/);
+fs.writeFileSync(receiptFile,JSON.stringify(receipt));
+const denied=createAuditEvent({actor:'fixture-tool',taskId:task.id,action:'tool.execute',toolId:'fixture_tool',riskLevel:1,result:'denied',authorization:'denied'});appendAuditEvent(denied);assert.throws(()=>service.recordToolObservation(task.id,denied.id),/PROVENANCE/);
+const before=service.getTask(task.id)!.eventSequence;
+service.recordTimeline({taskId:task.id,type:'tool',actor:'fixture',message:'legacy completion',toolId:audit.toolId,auditEventId:audit.id,metadata:{observedMetrics:metric}});
+assert.equal(projectTaskEventsV2(service.getTask(task.id)!).events.filter(e=>e.type==='task.tool_completed').length,1);
+assert.equal(service.getTask(task.id)!.eventSequence,before);
+const failedAudit=createAuditEvent({actor:'fixture-tool',taskId:task.id,action:'tool.execute',toolId:'fixture_tool',riskLevel:1,result:'error',authorization:'allowed'});appendAuditEvent(failedAudit);
+const partialMetric={...metric,attempt:3,observedAt:failedAudit.timestamp,values:[{name:'items_examined',unit:'count',value:1}]};
+const failedReceipt={...receipt,runId:failedAudit.id,attempt:3,finishedAt:failedAudit.timestamp,success:false,observedMetrics:partialMetric};
+fs.writeFileSync(evidenceFile,JSON.stringify({...evidence,runId:failedAudit.id,attempt:3}));
+fs.writeFileSync(receiptFile,JSON.stringify({...failedReceipt,observedMetrics:{...partialMetric,coverage:'complete'}}));assert.throws(()=>service.recordToolObservation(task.id,failedAudit.id),/PROVENANCE/);
+fs.writeFileSync(receiptFile,JSON.stringify(failedReceipt));
+const retried=service.recordToolObservation(task.id,failedAudit.id);
+const runs=projectTaskEventsV2(retried).events.filter(e=>e.type==='task.tool_completed');
+assert.equal(runs.length,2);assert.deepEqual(runs.map(e=>e.payload.observedMetrics?.values[0].value),[0,1]);assert.equal(runs[1].payload.outcome,'failure');assert.equal(runs[1].payload.observedMetrics?.attempt,3);assert.notEqual(retried.status,'COMPLETED');
+registerGenericTaskPublisher(undefined);
+console.log('task HUD synthetic persistence, authority, replay, receipt and publisher checks passed');
+
+const {captureTaskHudAdmissionContext}=await import('../src/edith/taskHudContracts');
+const third=taskService.createTask({title:'Admission seam fixture',objective:'Bind before callback',originalUserRequest:'fixture'});
+let liveContext={ownerSessionBindingId:'owner-fixture',workspaceId:workspace,voiceSessionId:'voice-context-fixture',utteranceId:'utterance-context-fixture',commandSequence:4};
+let currentAllowed=true;
+const authority={assertCurrent:()=>{if(!currentAllowed)throw new Error('OWNER_SESSION_REQUIRED');return liveContext;}};
+const captured=captureTaskHudAdmissionContext(authority);assert.equal(Object.isFrozen(captured),true);
+liveContext={...liveContext,commandSequence:5};assert.throws(()=>adapter.admitHudTask(third.id,'fixture-skill',authority,captured),/STALE_SCOPE/);
+assert.throws(()=>adapter.assertHudRead(third.id,'owner-fixture',workspace),/BINDING_REQUIRED/);
+liveContext={...liveContext,commandSequence:4};currentAllowed=false;assert.throws(()=>adapter.admitHudTask(third.id,'fixture-skill',authority,captured),/OWNER_SESSION/);currentAllowed=true;
+const contextAdmission=adapter.admitHudTask(third.id,'fixture-skill',authority,captured);
+assert.equal(contextAdmission.taskId,third.id);assert.doesNotThrow(()=>adapter.assertHudRead(third.id,'owner-fixture',workspace));
+const failingNotification=()=>{adapter.assertHudRead(third.id,'owner-fixture',workspace);throw new Error('delivery failed');};
+try{failingNotification();}catch{}assert.doesNotThrow(()=>adapter.assertHudRead(third.id,'owner-fixture',workspace));
+assert.throws(()=>captureTaskHudAdmissionContext({assertCurrent:()=>({...liveContext,commandSequence:0})}),/BINDING_REQUIRED/);
+assert.throws(()=>captureTaskHudAdmissionContext({assertCurrent:()=>({...liveContext,workspaceId:''})}),/BINDING_REQUIRED/);
+console.log('trusted admission context capture, stale/revoked refusal, durable pre-notification binding checks passed');
+
+// Execute actual canonical GET handler expressions without importing runtime composition/producer singletons.
+const ts=(await import('typescript')).default;
+const vm=await import('node:vm');
+const {normalizeLegacyTask,deriveTaskProgress,EDITH_CONTRACT}=await import('../src/edith/contracts');
+const {hudSafeId,withoutTaskObservedMetrics}=await import('../src/edith/taskHudContracts');
+const {parseTaskHudListV1,parseTaskHudActivityV1}=await import('../src/edith/taskActivityClient');
+const routeSource=fs.readFileSync(new URL('../server/routes/tasks.ts',import.meta.url),'utf8');
+const ast=ts.createSourceFile('tasks.ts',routeSource,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+const pieces:Record<string,string>={};
+function visit(node:import('typescript').Node):void {
+ if(ts.isVariableStatement(node))for(const declaration of node.declarationList.declarations)if(ts.isIdentifier(declaration.name)&&['hudScope','hudError'].includes(declaration.name.text))pieces[declaration.name.text]=node.getText(ast);
+ if(ts.isFunctionDeclaration(node)&&node.name?.text==='taskView')pieces.taskView=node.getText(ast);
+ if(ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)&&node.arguments[0]&&ts.isStringLiteral(node.arguments[0])){
+  const url=node.arguments[0].text;
+  if(node.expression.name.text==='get'&&['/api/edith/tasks','/api/edith/tasks/:id/activity'].includes(url))pieces[url=== '/api/edith/tasks'?'list':'activity']='const '+(url==='/api/edith/tasks'?'list':'activity')+'='+node.arguments.at(-1)!.getText(ast)+';';
+  if(node.expression.name.text==='use'&&url==='/api/edith/tasks')pieces.redact='const redact='+node.arguments.at(-1)!.getText(ast)+';';
+ }
+ ts.forEachChild(node,visit);
+}visit(ast);assert.deepEqual(Object.keys(pieces).sort(),['activity','hudError','hudScope','list','redact','taskView'].sort());
+let serverWorkspace:string|undefined=workspace,listReads=0;
+const compiled=ts.transpileModule(Object.values(pieces).join('\n')+'\n({list,activity,redact});',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText;
+const routes=vm.runInNewContext(compiled,{Error,hudSafeId,withoutTaskObservedMetrics,normalizeLegacyTask,deriveTaskProgress,projectTaskEventsV2,EDITH_CONTRACT,
+ getOwnerSession:(req:any)=>req.syntheticOwner?{bindingId:req.syntheticOwner}:undefined,
+ hudRead:{workspaceId:()=>serverWorkspace,assertTaskRead:(id:string,owner:string,ws:string)=>adapter.assertHudRead(id,owner,ws)},
+ listTasks:()=>{listReads++;return taskService.listTasks();},taskService});
+const respond=()=>{const res:any={locals:{},headers:{},statusCode:200,body:undefined,json:(value:unknown)=>{res.body=value;return res;},status:(code:number)=>{res.statusCode=code;return res;},setHeader:(key:string,value:string)=>{res.headers[key]=value;}};routes.redact({},res,()=>{});return res;};
+let res=respond();routes.list({query:{view:'hud-v1'}},res);assert.equal(res.statusCode,401);assert.equal(listReads,0);
+serverWorkspace=undefined;res=respond();routes.list({query:{view:'hud-v1'},syntheticOwner:'owner-fixture'},res);assert.equal(res.statusCode,403);assert.equal(listReads,0);serverWorkspace=workspace;
+res=respond();routes.list({query:{view:'hud-v1',workspaceId:'caller-spoof'},syntheticOwner:'owner-fixture'},res);assert.equal(res.statusCode,200);assert.equal(res.headers['Cache-Control'],'no-store');
+assert.equal(res.body.hud.workspaceId,workspace);assert.equal(res.body.tasks.some((t:any)=>t.id===second.id),false);assert.equal(res.body.tasks.some((t:any)=>t.id===task.id),true);assert.equal(parseTaskHudListV1(res.body,workspace).length,res.body.tasks.length);
+res=respond();routes.activity({query:{view:'hud-v1'},syntheticOwner:'other-owner',params:{id:task.id}},res);assert.equal(res.statusCode,403);
+res=respond();routes.activity({query:{view:'hud-v1'},syntheticOwner:'owner-fixture',params:{id:task.id}},res);assert.equal(res.statusCode,200);assert.equal(parseTaskHudActivityV1(res.body,workspace).events.some(e=>e.type==='task.tool_completed'&&!!e.payload.observedMetrics),true);
+res=respond();routes.activity({query:{},params:{id:task.id}},res);assert.equal(res.statusCode,200);assert.equal(JSON.stringify(res.body).includes('observedMetrics'),false);assert.equal(res.body.data.task.id,task.id);
+res=respond();routes.list({query:{}},res);assert.equal(res.statusCode,200);assert.equal(JSON.stringify(res.body).includes('observedMetrics'),false);assert.equal(res.body.tasks.length,taskService.listTasks().length);
+ownerActive=false;res=respond();routes.activity({query:{view:'hud-v1'},syntheticOwner:'owner-fixture',params:{id:task.id}},res);assert.equal(res.statusCode,401);ownerActive=true;
+console.log('production canonical GET handler synthetic scope, authorization, duplicate redaction and client roundtrip checks passed; HTTP/session establishment NOT_EXERCISED');

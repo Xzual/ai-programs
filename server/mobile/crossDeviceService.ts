@@ -32,6 +32,7 @@ import {
   type SharedResultCardV2,
 } from '../../src/edith/contracts';
 import type { MobileSessionContext } from './types';
+import type { MobileTransferService } from './transferService';
 import { sha256 } from './crypto';
 
 const MAX_RECORDS = 1_000;
@@ -85,8 +86,12 @@ export class CrossDeviceService {
   private readonly pcStatuses = new Map<string, CrossDevicePcStatusV2>();
   private readonly quietHours = new Map<string, CrossDeviceQuietHoursV2>();
   private readonly liveViewFrameSequence = new Map<string, number>();
+  private readonly privacyGenerations = new Map<string, number>();
+  private readonly filteredFreshUntil = new Map<string, number>();
+  private transferAuthority?: MobileTransferService;
 
   constructor(private readonly serverId: string) {}
+  setTransferAuthority(transfers:MobileTransferService):void {this.transferAuthority=transfers;}
 
   invalidateOwnerBinding(bindingId: string): void {
     for (const [id, value] of this.transfers) if (value.ownerSessionBindingId === bindingId && ['pending', 'transferring'].includes(value.status)) this.transfers.set(id, { ...value, status: 'cancelled', updatedAt: new Date().toISOString(), errorCode: 'OWNER_SESSION_REVOKED' });
@@ -111,6 +116,10 @@ export class CrossDeviceService {
   }
 
   putTransfer(context: MobileSessionContext, transfer: CrossDeviceTransferV2): CrossDeviceTransferV2 {
+    return this.recordTransfer(context,transfer,false);
+  }
+
+  private recordTransfer(context:MobileSessionContext,transfer:CrossDeviceTransferV2,byteBacked:boolean):CrossDeviceTransferV2 {
     this.cleanup();
     const parsed = parseCrossDeviceTransferV2(transfer);
     if (parsed.success === false) throw new Error(parsed.errorCode);
@@ -119,9 +128,9 @@ export class CrossDeviceService {
     const prior = this.transfers.get(parsed.value.transferId);
     if (prior && prior.sha256 !== parsed.value.sha256) throw new Error('TRANSFER_IDEMPOTENCY_CONFLICT');
     if (prior && (parsed.value.progress.bytesTransferred < prior.progress.bytesTransferred || prior.status === 'completed' && parsed.value.status !== 'completed')) throw new Error('TRANSFER_PROGRESS_ROLLBACK');
-    const honest = parsed.value.direction === 'pc_to_mobile'
+    const honest = parsed.value.direction === 'pc_to_mobile' && !byteBacked
       ? { ...parsed.value, status: 'configuration_required' as const, capabilities: { open: false, export: false, share: false, openLocation: false }, errorCode: 'NATIVE_PC_TO_MOBILE_TRANSFER_ADAPTER_CONFIGURATION_REQUIRED' }
-      : parsed.value;
+      : !byteBacked && parsed.value.status==='completed' ? {...parsed.value,status:'transferring' as const,progress:{...parsed.value.progress,integrity:'pending' as const},capabilities:{open:false,export:false,share:false,openLocation:false},errorCode:'TRANSFER_RECEIVER_COMMIT_REQUIRED'} : parsed.value;
     boundedSet(this.transfers, honest.transferId, honest);
     return honest;
   }
@@ -136,19 +145,22 @@ export class CrossDeviceService {
   syncMobileTransfer(context: MobileSessionContext, descriptor: FileTransferDescriptorV2): CrossDeviceTransferV2 {
     const createdAt = descriptor.createdAt ?? new Date().toISOString();
     const bytesTransferred = descriptor.resume?.acknowledgedBytes ?? 0;
-    const status = descriptor.status;
+    const authority=this.transferAuthority?.readAuthorityRecord(descriptor.transferId);
+    const byteBacked=!!authority&&authority.deviceId===context.credential.deviceId&&authority.sessionId===context.credential.sessionId&&JSON.stringify(authority.descriptor)===JSON.stringify(descriptor);
+    const status = descriptor.status==='completed' && (!byteBacked||!authority?.nativeTransfer?.receiverCommit) ? 'transferring' : descriptor.status;
+    const outbound=descriptor.direction==='download';
     const category: CrossDeviceTransferV2['category'] = descriptor.mediaType === 'application/pdf' ? 'pdf' : descriptor.mediaType.startsWith('image/') ? 'image' : descriptor.mediaType.startsWith('text/') || descriptor.mediaType === 'application/json' ? 'document' : 'other';
-    return this.putTransfer(context, {
-      ...this.lineage(context, context.credential.deviceId, this.serverId), transferId: descriptor.transferId, direction: 'mobile_to_pc', category,
+    return this.recordTransfer(context, {
+      ...this.lineage(context, outbound?this.serverId:context.credential.deviceId, outbound?context.credential.deviceId:this.serverId), transferId: descriptor.transferId, direction: outbound?'pc_to_mobile':'mobile_to_pc', category,
       fileName: descriptor.fileName, mediaType: descriptor.mediaType, sourceComputerLabel: context.device.device.displayName,
       sizeBytes: descriptor.sizeBytes, sha256: descriptor.sha256, status,
       progress: { bytesTransferred, totalBytes: descriptor.sizeBytes, percent: Number(((bytesTransferred / descriptor.sizeBytes) * 100).toFixed(2)), integrity: status === 'completed' ? 'verified' : status === 'failed' ? 'failed' : 'pending' },
-      destination: { kind: 'approved_folder', opaqueHandle: descriptor.destination?.handle ?? `transfer-${descriptor.transferId}`, displaySummary: 'E.D.I.T.H. mobile inbox', conflictPolicy: 'reject', collisionDetected: false },
+      destination: { kind: outbound?'mobile_inbox':'approved_folder', opaqueHandle: authority?.nativeTransfer?.receiverCommit?.destinationHandle ?? authority?.nativeTransfer?.destinationHandle ?? descriptor.destination?.handle ?? `transfer-${descriptor.transferId}`, displaySummary: 'E.D.I.T.H. receiver inbox', conflictPolicy: 'reject', collisionDetected: false },
       resume: descriptor.resume ?? { contractVersion: TASK_CONTRACT_VERSION, amendment: EDITH_CONTRACT_AMENDMENT, resumable: true, nextChunkIndex: 0, completedChunkIndexes: [], retryCount: 0, maxRetries: 5, acknowledgedBytes: bytesTransferred },
       capabilities: { open: false, export: false, share: false, openLocation: false },
       candidateEvidence: { candidateId: `candidate-${descriptor.transferId}`, source: 'explicit_selection', verified: true, evidenceSummary: 'Authenticated mobile upload descriptor and chunk manifest.' },
-      createdAt, updatedAt: descriptor.updatedAt ?? createdAt, expiresAt: new Date(Date.parse(createdAt) + 23 * 60 * 60_000).toISOString(),
-    });
+      createdAt, updatedAt: descriptor.updatedAt ?? createdAt, expiresAt: authority?.nativeTransfer?.expiresAt??new Date(Math.min(Date.parse(createdAt)+3600_000,Date.parse(context.device.ownerBinding.expiresAt))).toISOString(),
+    },byteBacked);
   }
 
   cancelTransfer(context: MobileSessionContext, transferId: string): CrossDeviceTransferV2 {
@@ -156,6 +168,7 @@ export class CrossDeviceService {
     if (!value) throw new Error('CROSS_DEVICE_TRANSFER_NOT_FOUND');
     this.assertLineage(context, value);
     if (!['pending', 'transferring', 'configuration_required'].includes(value.status)) throw new Error('CROSS_DEVICE_TRANSFER_NOT_CANCELLABLE');
+    if(this.transferAuthority?.readAuthorityRecord(transferId))this.transferAuthority.cancel(context,transferId);
     const next = { ...value, status: 'cancelled' as const, updatedAt: new Date().toISOString() };
     this.transfers.set(transferId, next);
     return next;
@@ -197,6 +210,7 @@ export class CrossDeviceService {
 
   requestLiveView(context: MobileSessionContext, input: { liveViewId?: string; expiresAt?: string }): CrossDeviceLiveViewSessionV2 {
     this.cleanup();
+    if(input.liveViewId&&this.liveViews.has(input.liveViewId))throw Error('LIVE_VIEW_ALREADY_EXISTS');
     const now = new Date();
     const value: CrossDeviceLiveViewSessionV2 = {
       ...this.lineage(context, context.credential.deviceId, this.serverId),
@@ -204,11 +218,12 @@ export class CrossDeviceService {
       status: 'requested', ownerApproved: false, continuousAutoStream: false, controlAuthority: false,
       framePolicy: { maxFramesPerSecond: 2, maxWidth: 1280, maxHeight: 720 },
       overlayCapabilities: { cursor: true, click: true, target: true, operatorState: true },
-      expiresAt: input.expiresAt ?? new Date(now.getTime() + LIVE_VIEW_TTL_MS).toISOString(),
+      expiresAt: new Date(Math.min(input.expiresAt?Date.parse(input.expiresAt):Infinity,now.getTime()+300_000,Date.parse(context.device.ownerBinding.expiresAt),Date.parse(context.device.trust.expiresAt??context.device.ownerBinding.expiresAt),Date.parse(context.credential.expiresAt))).toISOString(),
     };
     const parsed = parseCrossDeviceLiveViewSessionV2(value);
     if (parsed.success === false) throw new Error(parsed.errorCode);
     boundedSet(this.liveViews, value.liveViewId, parsed.value);
+    this.privacyGenerations.set(value.liveViewId,1);
     return parsed.value;
   }
 
@@ -248,9 +263,20 @@ export class CrossDeviceService {
     const previous = this.liveViewFrameSequence.get(frame.liveViewId) ?? 0;
     if (frame.sequence !== previous + 1) throw new Error('LIVE_VIEW_FRAME_SEQUENCE_INVALID');
     this.liveViewFrameSequence.set(frame.liveViewId, frame.sequence);
-    const next: CrossDeviceLiveViewSessionV2 = { ...liveView, status: 'streaming', startedAt: liveView.startedAt ?? frame.observedAt, errorCode: undefined };
+    const next: CrossDeviceLiveViewSessionV2 = { ...liveView, status: 'configuration_required', errorCode: 'LIVE_VIEW_PRIVACY_FILTER_REQUIRED' };
     this.liveViews.set(frame.liveViewId, next);
     return next;
+  }
+
+  getLiveView(context:MobileSessionContext,id:string):{view:CrossDeviceLiveViewSessionV2;generation:number} {
+    this.cleanup();const view=this.liveViews.get(id);if(!view)throw Error('LIVE_VIEW_NOT_FOUND');this.assertLineage(context,view);
+    if(!view.ownerApproved||!['approved','configuration_required','streaming'].includes(view.status)||Date.parse(view.expiresAt)<=Date.now())throw Error('LIVE_VIEW_SCOPE_EXPIRED');
+    return {view:structuredClone(view),generation:this.privacyGenerations.get(id)??1};
+  }
+
+  markFilteredFrame(context:MobileSessionContext,id:string,generation:number,observedAt:string):CrossDeviceLiveViewSessionV2 {
+    const current=this.getLiveView(context,id);if(current.generation!==generation)throw Error('LIVE_VIEW_SCOPE_GENERATION_INVALID');
+    const next={...current.view,status:'streaming' as const,startedAt:current.view.startedAt??observedAt,errorCode:undefined};this.liveViews.set(id,next);this.filteredFreshUntil.set(id,Math.min(Date.parse(observedAt)+2000,Date.parse(current.view.expiresAt)));return structuredClone(next);
   }
 
   requestWake(context: MobileSessionContext): CrossDeviceWakeReadyV2 {
@@ -482,6 +508,7 @@ export class CrossDeviceService {
     const now = Date.now();
     for (const [id, value] of this.clipboards) if (Date.parse(value.metadata.expiresAt) <= now) this.clipboards.delete(id);
     for (const [id, value] of this.liveViews) if (Date.parse(value.expiresAt) <= now && !['stopped', 'expired'].includes(value.status)) this.liveViews.set(id, { ...value, status: 'expired' });
+    for(const[id,value]of this.liveViews)if(value.status==='streaming'&&(this.filteredFreshUntil.get(id)??0)<=now)this.liveViews.set(id,{...value,status:'configuration_required',errorCode:'LIVE_VIEW_FRESH_FRAME_REQUIRED'});
     for (const [id, value] of this.handoffs) if (Date.parse(value.expiresAt) <= now && value.status === 'requested') this.handoffs.set(id, { ...value, status: 'expired' });
     for (const [id, record] of this.queue) if (Date.parse(record.view.expiresAt) <= now && ['pending', 'dispatching'].includes(record.view.status)) record.view = { ...record.view, status: 'expired', errorCode: 'OFFLINE_QUEUE_EXPIRED' };
     for (const [workspaceId, value] of this.audioLeases) if (Date.parse(value.expiresAt) <= now && !['released', 'expired', 'rejected'].includes(value.status)) this.audioLeases.set(workspaceId, { ...value, status: 'expired' });

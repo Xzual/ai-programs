@@ -1,4 +1,6 @@
-import type { EdithPlan, EdithPlanStep, EdithRiskLevel, EdithTask } from './core';
+import type { EdithPlan, EdithPlanStep, EdithRiskLevel, EdithTask, EdithReaPlannedCall } from './core';
+import {randomUUID} from 'node:crypto';
+import {parseReaPlannedCall} from './reaIntegrationContract';
 import { capabilityService } from './capabilityService';
 import { contextService } from './contextService';
 import { taskService } from './taskService';
@@ -76,6 +78,18 @@ function inferTools(objective: string): string[] {
 }
 
 export class PlannerService {
+  /** Finite canonical REA plan. No objective inference or unrelated discovery tools. */
+  createReaPlan(task:EdithTask,existing?:EdithPlan,call?:EdithReaPlannedCall):EdithPlan {
+    if(existing&&(existing.taskId!==task.id||existing.steps.length!==1||existing.requiredTools.join(',')!=='rea_analysis'))throw Error('REA_PLAN_MISMATCH');
+    const captured=call===undefined?undefined:parseReaPlannedCall(call);
+    return {id:existing?.id??'rea_plan_'+randomUUID(),taskId:task.id,objective:'Inspect the explicitly selected artifact',
+      createdAt:existing?.createdAt??new Date().toISOString(),planner:'heuristic-v1',status:captured?'READY':'DRAFT',
+      steps:[{id:existing?.steps[0].id??'rea_step_'+randomUUID(),title:'Analyze selected artifact',objective:'Retain validated scoped REA evidence',
+        status:'READY',dependsOn:[],suggestedTools:['rea_analysis'],requiredPermissions:['file:read','rea:analyze'],validationCriteria:['Original branded report and persisted receipt match canonical execution.'],riskLevel:4,
+        ...(captured?{reaCall:captured}:{})}],requiredTools:['rea_analysis'],requiredPermissions:['file:read','rea:analyze'],requiredAgents:[],
+      validationCriteria:['Actual outcome and cleanup govern completion.'],stopConditions:['Authority changed','Unknown effect','Unqualified runtime'],
+      maxIterations:1,maxRetries:0,maxToolCalls:1,taskTimeoutMs:120000};
+  }
   planTask(taskId: string): PlanTaskResult {
     const task = taskService.getTask(taskId);
     if (!task) return { success: false, error: 'Task not found.' };
@@ -86,6 +100,7 @@ export class PlannerService {
   }
 
   createPlan(task: EdithTask): EdithPlan {
+    if(task.toolsRequired.includes('rea_analysis')||task.plan?.steps.some(s=>s.reaCall))throw Error('REA_CANONICAL_BRIDGE_REQUIRED');
     const contextSnapshot = contextService.build({
       query: `${task.objective} ${task.originalUserRequest}`,
       taskId: task.id,

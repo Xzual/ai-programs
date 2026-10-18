@@ -1,3 +1,5 @@
+import { getAssistantProfile, isAssistantPersona } from '../config/assistantProfileRegistry';
+
 export const EDITH_CORE_PROTOCOL_VERSION = '1.0.0';
 
 export type EdithAssistantChannel = 'text' | 'voice';
@@ -41,11 +43,14 @@ function bounded(value: string | undefined, maxChars: number): string {
 export function buildEdithCoreBehaviorContext(input: {
   channel: EdithAssistantChannel;
   runtimeContext?: string;
+  personaId?: string;
 }): string {
-  const runtimeContext = bounded(input.runtimeContext, 4_800);
+  const persona = input.personaId && isAssistantPersona(input.personaId) ? getAssistantProfile(input.personaId) : undefined;
+  const runtimeContext = bounded(input.runtimeContext, 4_800).replace(/active persona=[^;\n]+; channel=/g, persona ? `active persona=${persona.name}; channel=` : '$&');
   return [
     EDITH_CORE_BEHAVIOR_PROTOCOL,
     `ACTIVE CHANNEL\n- Channel: ${input.channel}\n- Apply the same capability and safety truth in this channel.`,
+    persona ? `SELECTED PERSONA (tone only; core policy above remains authoritative)\n- Identity: ${persona.name}\n- Style: ${bounded(persona.systemPrompt, 1_200)}\n- Speaking style: ${bounded(persona.speakingStyle, 300)}\n- Persona does not select the model/provider or grant tools, permissions, or readiness.` : '',
     runtimeContext,
   ].filter(Boolean).join('\n\n');
 }

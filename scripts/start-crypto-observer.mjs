@@ -32,12 +32,28 @@ function configuredVaultPath() {
 
 const vaultPath = configuredVaultPath();
 
+function persistenceDataRoot() {
+  if (process.env.EDITH_TEST_MODE === 'true' && process.env.EDITH_TEST_DATA_DIR) return path.resolve(process.env.EDITH_TEST_DATA_DIR);
+  try {
+    const config = JSON.parse(fs.readFileSync(process.env.EDITH_WORKSPACE_CONFIG_PATH || path.join(root, '.edith', 'workspace.json'), 'utf8'));
+    const workspaceRoot = path.resolve(root, config.workspaceRoot);
+    if (typeof config.dataPath !== 'string' || !config.dataPath) throw new Error('Missing persistence path');
+    return path.resolve(workspaceRoot, config.dataPath);
+  } catch { return path.join(root, '.edith'); }
+}
+
+const dataRoot = persistenceDataRoot();
+const cryptoKillRoot = path.resolve(process.env.EDITH_CRYPTO_RUNTIME_DATA_DIR || path.join(dataRoot, 'crypto'));
+
 const child = spawn(pythonPath, [scriptPath], {
   cwd: cryptoDir,
   stdio: 'inherit',
-  windowsHide: false,
+  windowsHide: true,
   env: {
     ...process.env,
+    PYTHONDONTWRITEBYTECODE: '1',
+    EDITH_CRYPTO_GLOBAL_KILL_SWITCH_PATH: path.join(dataRoot, 'kill-switch.json'),
+    EDITH_CRYPTO_LOCAL_KILL_SWITCH_PATH: path.join(cryptoKillRoot, 'kill-switch.json'),
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
     CRYPTO_MODE: 'OBSERVER_ONLY',

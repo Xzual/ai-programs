@@ -1,6 +1,7 @@
 export type SafeDesktopApp = 'notepad' | 'calculator';
 
 export type ComputerCommandTask =
+  | { id:string;kind:'app_workflow';request:ComputerAppWorkflowRequest;label:string }
   | { id: string; kind: 'open_panel'; label: string }
   | { id: string; kind: 'blocked'; errorCode: 'critical_action_blocked'; label: string }
   | { id: string; kind: 'observe'; label: string }
@@ -20,7 +21,7 @@ export function parseComputerCommand(message: string): ComputerCommandTask | nul
   const text = message.toLocaleLowerCase('tr-TR').trim();
   if (!text || /(?:çalışıyor mu|hazır mı|durumu ne|hangi yetenek|neler yapabiliyor|what can|status)/i.test(text)) return null;
 
-  const computerContext = /(?:computer use|bilgisayar|masaüstü|tarayıcı|browser|notepad|not defteri|hesap makinesi|kill switch)/i.test(text);
+  const computerContext = /(?:computer use|bilgisayar|masaüstü|tarayıcı|browser|notepad|not defteri|hesap makinesi|kill switch|spotify|steam|explorer|dosya gezgini)/i.test(text);
   const criticalAction = /(?:satın al|purchase|\bbuy\b|ödeme|payment|para transfer|havale|trade|trading|gerçek alım satım|mail gönder|e-?posta gönder|mesaj gönder|send (?:an )?(?:email|message)|kalıcı.{0,12}sil|delete|format(?:la| drive)?|şifre|parola|password|credential|api key|secret|kill switch.{0,20}(?:kapat|devre dışı|disable)|(?:powershell|cmd|terminal).{0,16}(?:çalıştır|run|aç))/i.test(text);
   if (computerContext && criticalAction) {
     return task({
@@ -33,6 +34,8 @@ export function parseComputerCommand(message: string): ComputerCommandTask | nul
   if (/(?:computer use|bilgisayar kullanımı|masaüstü kontrol).{0,24}(?:durdur|kapat|stop|interrupt)|(?:durdur|stop).{0,24}(?:computer use|bilgisayar kullanım)/i.test(text)) {
     return task({ kind: 'stop', label: 'Computer Use oturumunu durdur.' });
   }
+  const workflow=parseComputerAppWorkflowCommand(message);
+  if(workflow)return task({kind:'app_workflow',request:workflow,label:`${workflow.app}: ${workflow.workflow}`});
   if (/(?:notepad|not defteri)/i.test(text) && /(?:aç|başlat|open|launch)/i.test(text)) {
     return task({ kind: 'open_app', app: 'notepad', label: 'Not Defteri uygulamasını güvenli izin listesi üzerinden aç.' });
   }
@@ -63,9 +66,28 @@ export function parseComputerCommand(message: string): ComputerCommandTask | nul
   return null;
 }
 
+export function parseComputerAppWorkflowCommand(message:string):ComputerAppWorkflowRequest|null{
+  if(message.length>512)return null;
+  const match=/^(spotify|steam)\s+(aç|open|odaklan|focus|oynat|play|duraklat|pause|sonraki|next|önceki|previous|kitaplık|library|indirmeler|downloads|ara|search|ses|volume)(?:\s+(.+))?$/i.exec(message.trim());
+  if(!match)return null;
+  const app=match[1].toLowerCase() as 'spotify'|'steam';
+  const aliases:Record<string,string>={aç:'open',odaklan:'focus',oynat:'play',duraklat:'pause',sonraki:'next',önceki:'previous',kitaplık:'library',indirmeler:'downloads',ara:'search',ses:'volume'};
+  const workflow=aliases[match[2].toLocaleLowerCase('tr-TR')]??match[2].toLowerCase(),argument=match[3];
+  if(workflow==='search'){
+    if(!argument||Array.from(argument).length>160||/[\u0000-\u001f\u007f]/.test(argument))return null;
+    return {app,workflow:'search',query:argument};
+  }
+  if(workflow==='volume')return app==='spotify'&&argument!==undefined&&/^\d{1,3}$/.test(argument)&&Number(argument)<=100?{app,workflow:'volume',volume:Number(argument)}:null;
+  if(argument)return null;
+  if(app==='steam'&&['open','focus','library','downloads'].includes(workflow))return {app,workflow:workflow as 'open'|'focus'|'library'|'downloads'};
+  if(app==='spotify'&&['open','focus','play','pause','next','previous','library'].includes(workflow))return {app,workflow:workflow as 'open'|'focus'|'play'|'pause'|'next'|'previous'|'library'};
+  return null;
+}
+
 export function computerTaskAcknowledgement(value: ComputerCommandTask): string {
   if (value.kind === 'stop') return 'Computer Use durdurma isteği güvenli yerel kanala iletildi.';
   if (value.kind === 'open_panel') return 'Computer Use denetim ekranını açıyorum. Yerel kontroller varsayılan olarak kapalı kalır.';
   if (value.kind === 'blocked') return `Computer Use isteği engellendi (${value.errorCode}). ${value.label}`;
   return `Computer Use görevi hazır: ${value.label} Yerel eylem yalnızca Tauri masaüstünde, aktif olmayan kill switch ve Windows sahibi onayıyla çalışır.`;
 }
+import type {ComputerAppWorkflowRequest} from './computerAppWorkflows';

@@ -12,16 +12,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function removeTempRoot(): Promise<void> {
+  const target=path.resolve(tempRoot),relative=path.relative(path.resolve(os.tmpdir()),target);
+  if(!relative||relative.startsWith('..')||path.isAbsolute(relative)||!path.basename(target).startsWith('edith-verifier-test-'))throw Error('OWNED_TEMP_CLEANUP_PATH_INVALID');
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      if(fs.existsSync(target)){const actualRelative=path.relative(path.resolve(os.tmpdir()),fs.realpathSync(target));if(!actualRelative||actualRelative.startsWith('..')||path.isAbsolute(actualRelative))throw Error('OWNED_TEMP_CLEANUP_RESOLVED_PATH_INVALID');}
+      fs.rmSync(target, { recursive: true, force: true });
       return;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;
-      if (attempt === 4) {
-        console.warn(`Temp cleanup skipped because Windows still holds a SQLite handle: ${tempRoot}`);
-        return;
-      }
+      if (!['EBUSY','EPERM'].includes((error as NodeJS.ErrnoException).code??'')) throw error;
+      if (attempt === 4) throw error;
       await sleep(200 * (attempt + 1));
     }
   }
@@ -38,6 +38,7 @@ try {
   const { verificationService } = await import('../src/edith/verifier');
   const { getEdithPersistenceStore } = await import('../src/edith/persistence');
   const { readRecentAuditEvents } = await import('../src/edith/audit');
+  const { projectTaskEventsV2 } = await import('../src/edith/contracts');
   closePersistence = () => { getEdithPersistenceStore().close?.(); };
 
   const task = taskService.createTask({
@@ -70,7 +71,16 @@ try {
   assert.equal(reloaded?.verification?.checks.every((check) => !check.required || check.status === 'PASS'), true);
   assert.equal(reloaded?.observations.some((observation) => observation.includes('Verifier PASS')), true);
   assert.equal(reloaded?.checkpoints.some((checkpoint) => checkpoint.includes('Verification')), true);
-  assert.equal(reloaded?.timeline.some((event) => event.type === 'verification'), true);
+  const projection = projectTaskEventsV2(reloaded!);
+  assert.equal(projection.diagnostics.quarantinedEventCount, 0);
+  const verificationEvents = projection.events.filter(event => event.type === 'task.verification_completed');
+  assert.equal(verificationEvents.length, 1);
+  const verificationEvent = verificationEvents[0];
+  assert.equal(verificationEvent.taskId, task.id);
+  assert.equal(verificationEvent.type, 'task.verification_completed');
+  if (verificationEvent.type !== 'task.verification_completed') throw new Error('Canonical verification event required');
+  assert.equal(verificationEvent.payload.verificationId, reloaded!.verification!.id);
+  assert.equal(verificationEvent.payload.status, 'PASS');
   assert.equal(reloaded?.auditEvents.some((auditId) => verificationAudits.some((event) => event.id === auditId)), true);
   assert.equal(verificationAudits.length, 1);
   const repeated = verificationService.verifyTask(task.id);

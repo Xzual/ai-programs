@@ -2,6 +2,10 @@ import { Router, type Request, type Response } from 'express';
 import { supabaseRegistry } from '../cloud/supabaseRegistry';
 import { CloudRegistryError, type RegistryService, type SupabaseUser } from '../cloud/types';
 import { pendingSyncStore, type PendingSyncStore } from '../cloud/pendingSyncStore';
+import { cloudSyncWorker } from '../cloud/syncWorker';
+import { getOwnerSession } from '../security/ownerSession';
+import { randomUUID } from 'node:crypto';
+import { requireOwnerSession, requireProtectedMutation, requireSameOrigin } from '../security/ownerSession';
 
 const DEVICE_FIELDS = ['id', 'name', 'platform', 'app_version', 'workspace_id', 'last_seen_at', 'metadata'] as const;
 const WORKSPACE_FIELDS = ['id', 'device_id', 'label', 'local_path', 'vault_path', 'portable_mode', 'layout_version', 'sync_mode', 'metadata', 'updated_at'] as const;
@@ -76,7 +80,10 @@ function sendError(res: Response, error: unknown): void {
 
 async function authenticated(req: Request, service: RegistryService): Promise<{ token: string; user: SupabaseUser }> {
   const token = bearerToken(req);
-  return { token, user: await service.getUser(token) };
+  const user = await service.getUser(token);
+  const owner = getOwnerSession(req);
+  if (service === supabaseRegistry && owner) cloudSyncWorker.restore(user.id,token,owner.bindingId,owner.expiresAt);
+  return { token, user };
 }
 
 function queueRetryable(
@@ -104,10 +111,42 @@ function queueRetryable(
 
 export function createCloudRouter(service: RegistryService = supabaseRegistry, pendingStore: PendingSyncStore = pendingSyncStore): Router {
   const router = Router();
+  router.get('/api/cloud/push/status', requireOwnerSession, requireSameOrigin, (_req,res) => {
+    res.json({ success: true, ...(service.pushStatus?.() ?? { configured: false, status: 'CONFIGURATION_REQUIRED', transportBound: false }), deliveryConfirmed: false });
+  });
+  router.post('/api/cloud/push/registration', ...requireProtectedMutation, async (req,res) => {
+    try {
+      const {token,user}=await authenticated(req,service);
+      const input=req.body;
+      if (!input || typeof input !== 'object' || Array.isArray(input) || !['register','revoke'].includes(input.action) || Object.keys(input).some(key => !(input.action==='register' ? ['action','deviceId','registrationToken','consent'] : ['action','deviceId']).includes(key)) || !/^[A-Za-z0-9_-]{1,160}$/.test(input.deviceId ?? '')) throw new CloudRegistryError('Invalid push registration.','VALIDATION_ERROR',400);
+      if(input.action==='register' && (input.consent!==true || typeof input.registrationToken!=='string' || !/^[A-Za-z0-9:_.-]{10,4096}$/.test(input.registrationToken)))throw new CloudRegistryError('Explicit consent and an FCM registration token are required.','VALIDATION_ERROR',400);
+      const devices=await service.select('devices',token,new URLSearchParams({user_id:`eq.${user.id}`,id:`eq.${input.deviceId}`,platform:'eq.android',limit:'1'}));
+      if(!devices.length)throw new CloudRegistryError('Device is not owned by current user.','DEVICE_NOT_AUTHORIZED',403);
+      if(!getOwnerSession(req))throw new CloudRegistryError('Owner session expired.','OWNER_SESSION_REQUIRED',401);
+      if(!service.registerPush)throw new CloudRegistryError('Push registration transport is not bound.','PUSH_TRANSPORT_MISSING',503);
+      const result=await service.registerPush(token,input);
+      res.json({success:true,...result,provider:'fcm',delivered:false});
+    }catch(error){sendError(res,error);}
+  });
+  router.post('/api/cloud/push', ...requireProtectedMutation, async (req,res) => {
+    try {
+      const {token,user} = await authenticated(req,service);
+      if (!service.sendPush) throw new CloudRegistryError('Push production transport is not bound.','PUSH_TRANSPORT_MISSING',503);
+      if (!req.body || typeof req.body !== 'object' || Object.keys(req.body).some(key => !['deviceId','eventId','kind','resourceId'].includes(key))) throw new CloudRegistryError('Invalid push input.','VALIDATION_ERROR',400);
+      const input = pick(req.body,['deviceId','eventId','kind','resourceId']) as {deviceId:string;eventId:string;kind:'task'|'transfer';resourceId:string};
+      for (const field of ['deviceId','eventId','resourceId'] as const) if (!/^[a-zA-Z0-9_-]{1,160}$/.test(requiredString(input[field],field))) throw new CloudRegistryError('Invalid push identity.','VALIDATION_ERROR',400);
+      if (!['task','transfer'].includes(input.kind)) throw new CloudRegistryError('Invalid push kind.','VALIDATION_ERROR',400);
+      const devices=await service.select('devices',token,new URLSearchParams({user_id:`eq.${user.id}`,id:`eq.${input.deviceId}`,limit:'1'}));
+      if (!devices.length) throw new CloudRegistryError('Device is not owned by current user.','DEVICE_NOT_AUTHORIZED',403);
+      if(!getOwnerSession(req))throw new CloudRegistryError('Owner session expired.','OWNER_SESSION_REQUIRED',401);
+      const result=await service.sendPush(token,input);
+      res.status(202).json({success:true,...result,delivered:false});
+    }catch(error){sendError(res,error);}
+  });
 
   router.get('/api/cloud/status', async (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ success: true, ...(await service.status()), mode: 'metadata_only' });
+    res.json({ success: true, ...(await service.status()), mode: 'metadata_only', ...(service === supabaseRegistry ? { queue: cloudSyncWorker.status() } : {}) });
   });
 
   router.post('/api/account/sign-in', async (req, res) => {
@@ -115,6 +154,8 @@ export function createCloudRouter(service: RegistryService = supabaseRegistry, p
       const email = requiredString(req.body?.email, 'email');
       const password = requiredString(req.body?.password, 'password');
       const session = await service.signIn(email, password);
+      const owner = getOwnerSession(req);
+      if (service === supabaseRegistry && owner) cloudSyncWorker.restore(session.user.id,session.accessToken,owner.bindingId,owner.expiresAt);
       let metadataSynced = true;
       try {
         await service.upsert('profiles', session.accessToken, {
@@ -133,6 +174,8 @@ export function createCloudRouter(service: RegistryService = supabaseRegistry, p
   router.post('/api/account/refresh', async (req, res) => {
     try {
       const session = await service.refreshSession(requiredString(req.body?.refreshToken, 'refreshToken'));
+      const owner = getOwnerSession(req);
+      if (service === supabaseRegistry && owner) cloudSyncWorker.restore(session.user.id,session.accessToken,owner.bindingId,owner.expiresAt);
       res.setHeader('Cache-Control', 'no-store');
       res.json({ success: true, session });
     } catch (error) { sendError(res, error); }
@@ -141,6 +184,7 @@ export function createCloudRouter(service: RegistryService = supabaseRegistry, p
   router.post('/api/account/sign-out', async (req, res) => {
     try {
       const { token, user } = await authenticated(req, service);
+      if (service === supabaseRegistry) cloudSyncWorker.forget(user.id);
       const sessionId = typeof req.body?.sessionId === 'string' ? req.body.sessionId.trim() : '';
       if (sessionId) {
         const query = new URLSearchParams({ user_id: `eq.${user.id}`, id: `eq.${sessionId}` });
@@ -302,6 +346,7 @@ export function createCloudRouter(service: RegistryService = supabaseRegistry, p
     try {
       const { token, user } = await authenticated(req, service);
       const value: Record<string, unknown> = { ...pick(req.body, SYNC_FIELDS), user_id: user.id };
+      value.id = value.id || randomUUID();
       requiredString(value.entity_type, 'entity_type');
       requiredString(value.operation, 'operation');
       let rows;

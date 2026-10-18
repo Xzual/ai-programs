@@ -31,10 +31,18 @@ const WINDOWS_KNOWN_PATHS: Record<string, string[]> = {
     'C:\\Program Files\\Tesseract-OCR\\tesseract.exe',
   ],
   ollama: [
-    'C:\\Users\\arday\\AppData\\Local\\Programs\\Ollama\\ollama.exe',
     'C:\\Program Files\\Ollama\\ollama.exe',
   ],
 };
+
+function ollamaKnownPaths(): string[] {
+  const localAppData = process.env.LOCALAPPDATA;
+  if (os.platform() !== 'win32' || !localAppData || localAppData !== localAppData.trim()
+    || !path.win32.isAbsolute(localAppData) || !/^(?:[a-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+(?:[\\/]|$))/i.test(localAppData)
+    || /[\x00-\x1f<>"|?*]/.test(localAppData) || localAppData.replace(/^[a-z]:/i, '').includes(':')
+    || /^[\\/]{2}[.?][\\/]/.test(localAppData)) return WINDOWS_KNOWN_PATHS.ollama;
+  return [path.win32.join(localAppData, 'Programs', 'Ollama', 'ollama.exe'), ...WINDOWS_KNOWN_PATHS.ollama];
+}
 
 function pathCandidates(command: string): string[] {
   const pathExt = os.platform() === 'win32'
@@ -68,7 +76,7 @@ export class LocalToolProbeService {
     const blenderPath = findExecutable('blender', WINDOWS_KNOWN_PATHS.blender);
     const freecadPath = findExecutable('FreeCAD', WINDOWS_KNOWN_PATHS.freecad) ?? findExecutable('freecad');
     const tesseractPath = findExecutable('tesseract', WINDOWS_KNOWN_PATHS.tesseract);
-    const ollamaPath = findExecutable('ollama', WINDOWS_KNOWN_PATHS.ollama);
+    const ollamaPath = findExecutable('ollama', ollamaKnownPaths());
     const openfoamPath = findExecutable('foamVersion') ?? findExecutable('openfoam');
     const cadqueryEnv = process.env.CADQUERY_PYTHON || process.env.EDITH_CADQUERY_PYTHON;
     const playwrightDetected = nodeDependencyDetected('playwright');

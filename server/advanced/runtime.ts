@@ -13,6 +13,12 @@ import { taskQueueService } from '../../src/edith/taskQueueService';
 import { taskService } from '../../src/edith/taskService';
 import { onKillSwitchActivated } from '../../src/edith/killSwitch';
 import { onOwnerSessionInvalidated } from '../security/ownerSession';
+import { ownerSessionBindingActive } from '../security/ownerSession';
+import { getEdithPersistenceStore } from '../../src/edith/persistence';
+import { parseMissionMemoryV2 } from '../../src/edith/contracts';
+import path from 'node:path';
+import { DurableStateStore } from './durableStateStore';
+import { sanitizeSensitiveValue } from '../../src/edith/securityRedaction';
 import { getPhase4ApiRuntime } from '../routes/phase4Api';
 import { removeAdvancedPriorityPoliciesForOwner, setAdvancedPriorityPolicy } from './priorityRegistry';
 
@@ -22,6 +28,10 @@ export type AdvancedResourceKind =
   | 'snapshots' | 'restore-plans' | 'scenes' | 'watchers' | 'comparisons' | 'communication'
   | 'orchestration' | 'retries' | 'downloads' | 'power-presence' | 'history-policy' | 'capsule-selection';
 export type AdvancedPublishTrust = 'internal_producer' | 'trusted_native';
+export interface AdvancedRuntimePersistenceOptions {
+  missionMemoryPath: string;
+  ownerActive?: (bindingId: string) => boolean;
+}
 
 const MAX_PER_KIND = 256;
 const CAPSULE_RANK: Record<CapsuleContextCandidateV2['kind'], number> = {
@@ -45,8 +55,22 @@ function nextTimestamp(previous: string): string {
 
 export class AdvancedExperienceRuntime {
   private readonly records = new Map<AdvancedResourceKind, Map<string, AdvancedResource>>();
+  private readonly durable?: DurableStateStore;
+  private readonly ownerActive?: (bindingId: string) => boolean;
 
-  constructor(private readonly getTask: (taskId: string) => EdithTask | undefined = (id) => taskService.getTask(id)) {}
+  constructor(private readonly getTask: (taskId: string) => EdithTask | undefined = (id) => taskService.getTask(id), persistence?: AdvancedRuntimePersistenceOptions) {
+    if (persistence) {
+      this.durable = new DurableStateStore(persistence.missionMemoryPath, MAX_PER_KIND);
+      this.ownerActive = persistence.ownerActive ?? ownerSessionBindingActive;
+      const restored = new Map<string, AdvancedResource>();
+      for (const [key, value] of this.durable.entries()) {
+        const parsed = parseMissionMemoryV2(value);
+        if (!parsed.success || key !== keyOf(parsed.value as unknown as AdvancedResource)) throw new Error('MISSION_MEMORY_STORE_INVALID');
+        restored.set(key, clone(parsed.value as unknown as AdvancedResource));
+      }
+      this.records.set('mission-memories', restored);
+    }
+  }
 
   put(kind: AdvancedResourceKind, record: AdvancedResource): AdvancedResource {
     return this.putWithTrust(kind, record);
@@ -57,8 +81,10 @@ export class AdvancedExperienceRuntime {
   }
 
   private putWithTrust(kind: AdvancedResourceKind, record: AdvancedResource, trust?: AdvancedPublishTrust): AdvancedResource {
+    if (kind === 'mission-memories') record = sanitizeSensitiveValue(record);
     this.cleanup();
     this.assertEvidence(kind, record, trust);
+    if (kind === 'mission-memories' && this.ownerActive && !this.ownerActive(record.ownerSessionBindingId)) throw new Error('OWNER_SESSION_REQUIRED');
     const bucket = this.records.get(kind) ?? new Map<string, AdvancedResource>();
     const key = keyOf(record);
     const current = bucket.get(key);
@@ -68,6 +94,16 @@ export class AdvancedExperienceRuntime {
       if (record.createdAt !== current.createdAt || Date.parse(record.updatedAt) <= Date.parse(current.updatedAt)) throw new Error('ADVANCED_RESOURCE_LINEAGE_CONFLICT');
     } else if (record.revision !== 1) {
       throw new Error('ADVANCED_RESOURCE_INITIAL_REVISION_INVALID');
+    }
+    if (kind === 'mission-memories' && this.durable) {
+      if (!parseMissionMemoryV2(record).success) throw new Error('MISSION_MEMORY_INVALID');
+      this.durable.update((entries) => {
+        const persisted = entries.get(key) as AdvancedResource | undefined;
+        if (persisted && (!current || persisted.revision !== current.revision || persisted.updatedAt !== current.updatedAt
+          || persisted.ownerSessionBindingId !== record.ownerSessionBindingId || persisted.workspaceId !== record.workspaceId)) throw new Error('ADVANCED_RESOURCE_REVISION_CONFLICT');
+        if (!persisted && current) throw new Error('ADVANCED_RESOURCE_REVISION_CONFLICT');
+        entries.set(key, clone(record));
+      });
     }
     bucket.set(key, clone(record));
     while (bucket.size > MAX_PER_KIND) bucket.delete(bucket.keys().next().value as string);
@@ -80,11 +116,34 @@ export class AdvancedExperienceRuntime {
     this.cleanup();
     return [...(this.records.get(kind)?.values() ?? [])]
       .filter((item) => item.ownerSessionBindingId === ownerSessionBindingId && item.workspaceId === workspaceId)
+      .filter((item) => {
+        if (kind !== 'mission-memories') return true;
+        if (this.ownerActive && !this.ownerActive(ownerSessionBindingId)) return false;
+        try { this.assertEvidence(kind, item); return true; } catch { return false; }
+      })
       .map(clone);
   }
 
   state(ownerSessionBindingId: string, workspaceId: string): Record<AdvancedResourceKind, AdvancedResource[]> {
     return Object.fromEntries(ADVANCED_RESOURCE_KINDS.map((kind) => [kind, this.list(kind, ownerSessionBindingId, workspaceId)])) as Record<AdvancedResourceKind, AdvancedResource[]>;
+  }
+
+  /** Explicit authenticated-owner action after restart; metadata never restores authority. */
+  rebindMissionMemory(memoryId: string, ownerSessionBindingId: string, workspaceId: string): AdvancedResource {
+    if (!this.ownerActive?.(ownerSessionBindingId) || !this.durable) throw new Error('OWNER_SESSION_REQUIRED');
+    const bucket = this.records.get('mission-memories');
+    const current = bucket?.get(memoryId);
+    if (!current || current.workspaceId !== workspaceId) throw new Error('MISSION_MEMORY_NOT_FOUND');
+    this.assertEvidence('mission-memories', current);
+    const rebound = { ...current, ownerSessionBindingId, revision: current.revision + 1, updatedAt: nextTimestamp(current.updatedAt), currentStateReverificationRequired: true };
+    if (!parseMissionMemoryV2(rebound).success) throw new Error('MISSION_MEMORY_INVALID');
+    this.durable.update((entries) => {
+      const persisted = entries.get(memoryId) as AdvancedResource | undefined;
+      if (!persisted || persisted.revision !== current.revision || persisted.updatedAt !== current.updatedAt) throw new Error('ADVANCED_RESOURCE_REVISION_CONFLICT');
+      entries.set(memoryId, rebound);
+    });
+    bucket!.set(memoryId, clone(rebound));
+    return clone(rebound);
   }
 
   pauseGhost(ownerSessionBindingId: string, workspaceId: string, ghostTaskId: string): GhostTaskV2 {
@@ -128,6 +187,7 @@ export class AdvancedExperienceRuntime {
   invalidateOwner(ownerSessionBindingId: string): void {
     for (const bucket of this.records.values()) for (const [key, value] of bucket) if (value.ownerSessionBindingId === ownerSessionBindingId) bucket.delete(key);
     removeAdvancedPriorityPoliciesForOwner(ownerSessionBindingId);
+    this.durable?.update((entries) => { for (const [key, value] of entries) if ((value as AdvancedResource).ownerSessionBindingId === ownerSessionBindingId) entries.delete(key); });
   }
 
   emergencyStop(): void {
@@ -145,7 +205,7 @@ export class AdvancedExperienceRuntime {
 
   capabilityStatus() {
     return {
-      persistence: 'memory_only', restartRecovery: 'partial', nativeExecution: 'configuration_required',
+      persistence: this.durable ? 'mission_metadata_durable' : 'memory_only', restartRecovery: 'partial', nativeExecution: 'configuration_required',
       scheduler: 'configuration_required', watcherObservation: 'metadata_only', watcherDelivery: 'configuration_required',
       mobileRead: 'available', secretsStored: false,
     } as const;
@@ -166,7 +226,9 @@ export class AdvancedExperienceRuntime {
     if (kind === 'mission-memories') {
       const memory = record as unknown as MissionMemoryV2;
       const task = this.getTask(memory.sourceTaskId);
-      if (!task || task.verification?.status !== 'PASS') throw new Error('VERIFIED_TASK_EVIDENCE_REQUIRED');
+      if (!task || task.status !== 'COMPLETED' || task.verification?.status !== 'PASS' || task.verification.taskId !== task.id
+        || !task.verification.checks.some((check) => check.required && check.status === 'PASS' && check.evidence)
+        || task.verification.checks.some((check) => check.required && check.status !== 'PASS')) throw new Error('VERIFIED_TASK_EVIDENCE_REQUIRED');
       if (memory.sourceResearchRunId) {
         const run = getPhase4ApiRuntime().persistence.getResearchRun(memory.sourceResearchRunId);
         if (!run || run.status !== 'completed' || !run.provenance || !run.claims?.length) throw new Error('VERIFIED_RESEARCH_EVIDENCE_REQUIRED');
@@ -217,7 +279,7 @@ export const ADVANCED_RESOURCE_KINDS: AdvancedResourceKind[] = ['priority', 'sha
 let runtime: AdvancedExperienceRuntime | undefined;
 export function getAdvancedExperienceRuntime(): AdvancedExperienceRuntime {
   if (!runtime) {
-    runtime = new AdvancedExperienceRuntime();
+    runtime = new AdvancedExperienceRuntime(undefined, { missionMemoryPath: path.join(getEdithPersistenceStore().getPaths().dataDir, 'advanced-mission-memories.sqlite') });
     onOwnerSessionInvalidated((event) => runtime?.invalidateOwner(event.bindingId));
     onKillSwitchActivated(() => runtime?.emergencyStop());
   }

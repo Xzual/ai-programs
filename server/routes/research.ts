@@ -1,5 +1,5 @@
 import { Router, type RequestHandler } from 'express';
-import { requireOwnerSession, requireProtectedMutation } from '../security/ownerSession';
+import { requireOwnerSession, requireProtectedMutation, getOwnerSession } from '../security/ownerSession';
 import { appendSecurityAudit } from '../security/auditLog';
 import type { ResearchModeV2 } from '../../src/edith/contracts';
 import type { ResearchRequestV2_1 } from '../../src/edith/researchService';
@@ -9,6 +9,7 @@ import {
   getPhase4ApiRuntime,
   successEnvelope,
   validatePublicPayload,
+  redactPhase4Payload,
   type Phase4ApiRuntime,
 } from './phase4Api';
 
@@ -83,7 +84,7 @@ export function createResearchRouter(options: { runtime?: Phase4ApiRuntime; prot
     const parsed = parseRequest(req.body, runtime);
     if (parsed.success === false) return res.status(400).json(errorEnvelope(req, parsed.errorCode, parsed.safeMessage));
     const executed = await executeIdempotent(req, runtime, 'research.run', async () => {
-      const result = await runtime.research.execute(parsed.value);
+      const result = await runtime.research.execute({ ...parsed.value, ownerSessionBindingId: getOwnerSession(req)?.bindingId });
       appendSecurityAudit(req, {
         action: 'phase4.research.run', authorization: 'allowed', result: result.outcome === 'completed' ? 'success' : 'error',
         message: `Research run finished with ${result.outcome}.`, riskLevel: parsed.value.mode === 'BROWSER' ? 3 : 2,
@@ -107,7 +108,7 @@ export function createResearchRouter(options: { runtime?: Phase4ApiRuntime; prot
     const parsed = parseRequest(req.body, runtime);
     if (parsed.success === false) return res.status(400).json(errorEnvelope(req, parsed.errorCode, parsed.safeMessage));
     const executed = await executeIdempotent(req, runtime, 'research.create', async () => {
-      const result = await runtime.research.execute(parsed.value);
+      const result = await runtime.research.execute({ ...parsed.value, ownerSessionBindingId: getOwnerSession(req)?.bindingId });
       const status = outcomeStatus(result.outcome);
       return {
         status,
@@ -127,7 +128,7 @@ export function createResearchRouter(options: { runtime?: Phase4ApiRuntime; prot
     const parsed = parseRequest(req.body, runtime);
     if (parsed.success === false) return res.status(400).json(errorEnvelope(req, parsed.errorCode, parsed.safeMessage));
     const executed = await executeIdempotent(req, runtime, `research.rerun:${prior.runId}`, async () => {
-      const result = await runtime.research.execute(parsed.value);
+      const result = await runtime.research.execute({ ...parsed.value, ownerSessionBindingId: getOwnerSession(req)?.bindingId });
       const status = outcomeStatus(result.outcome);
       return { status, body: result.outcome === 'completed' ? successEnvelope(req, result, { outcome: result.outcome }) : errorEnvelope(req, result.outcome.toUpperCase(), 'Research rerun could not complete.', { outcome: result.outcome, data: result }) };
     });
@@ -153,6 +154,18 @@ export function createResearchRouter(options: { runtime?: Phase4ApiRuntime; prot
     const artifact = run.artifactIds.find((id) => id.startsWith('journal:'));
     const status = artifact ? 'written' : runtime.journalConfigured ? 'not_written' : 'configuration_required';
     res.json(successEnvelope(req, { runId: run.runId, status, artifactId: artifact }));
+  });
+
+  router.get('/api/edith/research/:runId/export.txt', requireOwnerSession, (req, res) => {
+    const run = runtime.persistence.getResearchRun(req.params.runId);
+    if (!run) return res.status(404).json(errorEnvelope(req, 'RESEARCH_RUN_NOT_FOUND', 'Research run not found.'));
+    const safe = redactPhase4Payload(run);
+    const text = [safe.query, `Status: ${safe.status}; mode: ${safe.mode}`, '',
+      ...(safe.claims ?? []).map((claim) => `${claim.statement}\nCitations: ${claim.citationIds.join(', ')}`), '',
+      ...(safe.sources ?? []).map((source) => `${source.sourceId}: ${source.title}\n${source.url}\nRetrieved: ${source.retrievedAt}; SHA256: ${source.contentSha256 ?? 'unavailable'}`),
+      '', `Method: ${safe.provenance?.methodology ?? 'unavailable'}`].join('\n');
+    res.setHeader('Content-Disposition', 'attachment; filename="edith-research.txt"');
+    res.type('text/plain').send(text);
   });
 
   router.get('/api/edith/research/:runId', requireOwnerSession, (req, res) => {

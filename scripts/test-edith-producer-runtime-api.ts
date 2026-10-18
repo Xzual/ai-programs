@@ -1,0 +1,86 @@
+import assert from 'node:assert/strict';
+import express from 'express';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { randomBytes, createHash } from 'node:crypto';
+import { createOwnerSessionRouter } from '../server/security/ownerSession';
+import { createResearchRouter } from '../server/routes/research';
+import { createPlaybooksRouter } from '../server/routes/playbooks';
+import { Phase4IdempotencyStore, type Phase4ApiRuntime } from '../server/routes/phase4Api';
+import { BoundedResearchAcquisitionWorker } from '../src/edith/researchAcquisitionAdapter';
+import { ResearchService } from '../src/edith/researchService';
+import { MemoryPhase4Persistence } from '../src/edith/phase4Persistence';
+import { PlaybookService } from '../src/edith/playbookService';
+import { RegistryPlaybookExecutionAdapter } from '../src/edith/playbookExecutionAdapter';
+import { LocalSearchService } from '../src/edith/localSearchService';
+import { getEdithPersistenceStore } from '../src/edith/persistence';
+
+async function main() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-producer-api-'));
+  const bytes = Buffer.from('Research evidence is a real local HTTP response used to check protected routing and replay behavior.');
+  let byteRequests = 0;
+  const fixture = http.createServer((_req, res) => { byteRequests++; res.writeHead(200, { 'content-type': 'text/plain' }); res.end(bytes); });
+  await new Promise<void>(resolve => fixture.listen(0, '127.0.0.1', resolve));
+  const fixtureAddress = fixture.address(); assert(fixtureAddress && typeof fixtureAddress === 'object');
+  const resolver = { resolverId: 'api-fixture-dns', async resolve() { return ['93.184.216.34']; } };
+  const worker = new BoundedResearchAcquisitionWorker({ resolver, async fixtureTransport(url) {
+    assert.equal(new URL(url).hostname, 'fixture.example.com');
+    const response = await fetch(`http://127.0.0.1:${fixtureAddress.port}/bytes`);
+    return { status: response.status, headers: { contentType: response.headers.get('content-type') ?? undefined }, bytes: Buffer.from(await response.arrayBuffer()) };
+  } });
+  const persistence = new MemoryPhase4Persistence();
+  const adapter = new RegistryPlaybookExecutionAdapter();
+  const durablePath = path.join(root, 'idempotency.json');
+  const runtime: Phase4ApiRuntime = { persistence, research: new ResearchService(persistence, [worker], resolver), playbooks: new PlaybookService(persistence, adapter, adapter), search: new LocalSearchService(getEdithPersistenceStore(), persistence), journalConfigured: false, researchConfigured: true, playbookExecutionConfigured: true, idempotency: new Phase4IdempotencyStore(durablePath) };
+  const token = randomBytes(32).toString('base64url');
+  process.env.EDITH_OWNER_TOKEN = token;
+  process.env.EDITH_OWNER_TOKEN_ONE_TIME = 'true';
+  const app = express(); app.use(express.json()); app.use(createOwnerSessionRouter()); app.use(createResearchRouter({ runtime })); app.use(createPlaybooksRouter({ runtime }));
+  const server = http.createServer(app);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address(); assert(address && typeof address === 'object');
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    assert.equal((await fetch(`${base}/api/edith/research`)).status, 401);
+    assert.equal((await fetch(`${base}/api/edith/playbooks`)).status, 401);
+    let response = await fetch(`${base}/api/security/session`, { method: 'POST', headers: { authorization: `Bearer ${token}`, origin: base, 'sec-fetch-site': 'same-origin' } });
+    assert.equal(response.status, 201);
+    const auth = await response.json() as any;
+    const headers = { 'content-type': 'application/json', cookie: (response.headers.get('set-cookie') ?? '').split(';')[0], origin: base, 'sec-fetch-site': 'same-origin', 'x-edith-csrf-token': auth.session.csrfToken, 'x-idempotency-key': 'producer-research-key' };
+    const payload = { query: 'research evidence', mode: 'FAST', seedUrls: ['https://fixture.example.com/bytes'], maxRetries: 0 };
+    const post = (body: unknown, requestHeaders: Record<string, string> = headers) => fetch(`${base}/api/edith/research/run`, { method: 'POST', headers: requestHeaders, body: JSON.stringify(body) });
+    const noCsrf = { ...headers }; delete (noCsrf as Partial<typeof headers>)['x-edith-csrf-token'];
+    assert.equal((await post(payload, noCsrf)).status, 403);
+    assert.equal((await post(payload, { ...headers, origin: 'https://attacker.invalid' })).status, 403);
+    assert.equal(byteRequests, 0);
+    response = await post(payload); assert.equal(response.status, 201);
+    const first = await response.json() as any;
+    assert.equal(first.idempotentReplay, false);
+    assert.equal(first.data.measurements.modelCalls, 0);
+    assert.equal(first.data.measurements.fixture, true);
+    assert.equal(byteRequests, 1);
+    response = await post(payload); assert.equal(response.status, 201);
+    const replay = await response.json() as any; assert.equal(replay.idempotentReplay, true); assert.equal(replay.data.run.runId, first.data.run.runId); assert.equal(byteRequests, 1);
+    runtime.idempotency = new Phase4IdempotencyStore(durablePath);
+    response = await post(payload); assert.equal(response.status, 201); assert.equal((await response.json() as any).idempotentReplay, true); assert.equal(byteRequests, 1);
+    response = await post({ ...payload, query: 'changed evidence' }); assert.equal(response.status, 409); assert.equal((await response.json() as any).errorCode, 'IDEMPOTENCY_KEY_REUSED'); assert.equal(byteRequests, 1);
+    const exportRoute = `${base}/api/edith/research/${first.data.run.runId}/export.txt`;
+    assert.equal((await fetch(exportRoute)).status, 401);
+    response = await fetch(exportRoute, { headers }); assert.equal(response.status, 200); assert(response.headers.get('content-type')?.startsWith('text/plain')); assert.equal(response.headers.get('content-disposition'), 'attachment; filename="edith-research.txt"');
+    const exported = await response.text(); assert(exported.includes(first.data.run.claims[0].statement)); assert(exported.includes(createHash('sha256').update(bytes).digest('hex'))); assert(!exported.includes(root));
+    response = await fetch(`${base}/api/edith/playbooks`, { headers }); assert.equal(response.status, 200);
+    response = await fetch(`${base}/api/edith/tasks/missing-task/continue`, { method: 'POST', headers: { ...headers, 'x-idempotency-key': 'continue-missing-task' }, body: '{}' });
+    assert.equal(response.status, 409); assert.equal((await response.json() as any).errorCode, 'TASK_BINDING_REQUIRED');
+    response = await fetch(`${base}/api/edith/mission-memories/missing-memory/rebind`, { method: 'POST', headers: { ...headers, 'x-idempotency-key': 'rebind-missing-memory' }, body: JSON.stringify({ workspaceId: 'fixture-workspace' }) });
+    assert.equal(response.status, 409); assert.equal((await response.json() as any).errorCode, 'MISSION_MEMORY_NOT_FOUND');
+    response = await fetch(`${base}/api/security/session`, { method: 'DELETE', headers }); assert.equal(response.status, 200);
+    assert.equal((await post(payload)).status, 401); assert.equal(byteRequests, 1);
+    console.log(JSON.stringify({ status: 'PASS', checks: ['actual_protected_routers', 'owner_origin_csrf', 'byte_acquisition', 'durable_store_reconstruction_replay', 'body_conflict', 'authorized_txt_hash', 'logout_rejects_replay'], firstModelCalls: 0, replayAdditionalModelCalls: 0, actualByteRequests: byteRequests, wholeServerIntegration: 'deferred_Chat4_writer', processRestartVerified: false }));
+  } finally {
+    await Promise.all([server, fixture].map(s => new Promise<void>((resolve, reject) => s.close(error => error ? reject(error) : resolve()))));
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

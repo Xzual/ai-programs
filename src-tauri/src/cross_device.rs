@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{State, WebviewWindow, Window};
 use tauri_plugin_dialog::DialogExt;
@@ -17,16 +17,21 @@ use crate::computer::ComputerState;
 const CONTRACT_VERSION: u8 = 2;
 const CONTRACT_AMENDMENT: &str = "2.1";
 const MAX_LIVE_VIEW_FPS: u8 = 2;
-const MAX_LIVE_VIEW_WIDTH: u32 = 1920;
-const MAX_LIVE_VIEW_HEIGHT: u32 = 1080;
+const MAX_LIVE_VIEW_WIDTH: u32 = 1280;
+const MAX_LIVE_VIEW_HEIGHT: u32 = 720;
 const MAX_LIVE_VIEW_TTL_MS: u64 = 5 * 60_000;
 const MAX_TRANSFER_BYTES: u64 = 25 * 1024 * 1024;
-const MAX_CHUNK_BYTES: usize = 256 * 1024;
+const MAX_CHUNK_BYTES: usize = 52 * 1024;
 const HANDLE_TTL_MS: u64 = 60 * 60_000;
 const RETENTION_MS: u64 = 24 * 60 * 60_000;
 const PRODUCER_SESSION_MAX_TTL_MS: u64 = 15 * 60_000;
 const MAX_PRODUCER_PAYLOAD_BYTES: usize = 256 * 1024;
 const OWNER_SESSION_COOKIE: &str = "edith_owner_session";
+static CARRIER_WORKERS: std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);
+struct CarrierWorker;
+impl CarrierWorker {fn admitted()->Self{CARRIER_WORKERS.fetch_add(1,std::sync::atomic::Ordering::SeqCst);Self}}
+impl Drop for CarrierWorker {fn drop(&mut self){CARRIER_WORKERS.fetch_sub(1,std::sync::atomic::Ordering::SeqCst);}}
+pub(crate) fn native_carrier_quiescent()->bool {CARRIER_WORKERS.load(std::sync::atomic::Ordering::SeqCst)==0&&!CAPTURE_WORKER.load(std::sync::atomic::Ordering::SeqCst)}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +77,61 @@ struct LiveViewLease {
     sequence: u64,
     last_frame_at_ms: u64,
     started_at_ms: u64,
+    privacy: Option<PrivacyScope>,
+}
+
+#[derive(Clone)]
+struct PrivacyScope {
+    candidate: crate::computer::RetainedCaptureCandidate,
+    client: [i32;4], region:[i32;4], exclusions:Vec<[i32;4]>,
+    inventory_digest:String, scope_ref:String, scope_digest:String, generation:u64,
+    dpi:u32,
+    memory:Arc<PrivacyMemory>,
+}
+struct PrivateFrame { scope_ref:String, frame_ref:String, memory:Arc<PrivacyMemory>, observed_at_ms:u64, sequence:u64, width:u32, height:u32 }
+impl Drop for PrivateFrame {fn drop(&mut self){self.memory.clear_frame(&self.frame_ref);}}
+struct RetainedPixels {frame_ref:String,bytes:Vec<u8>}
+fn clear_owned_bytes(bytes:&mut [u8]) {
+    for byte in bytes {unsafe{std::ptr::write_volatile(byte,0);}}
+    std::sync::atomic::compiler_fence(std::sync::atomic::Ordering::SeqCst);
+}
+impl Drop for RetainedPixels {fn drop(&mut self){clear_owned_bytes(&mut self.bytes);}}
+struct PrivacyMemory {
+    epoch:u64,
+    active:std::sync::atomic::AtomicBool,
+    pixels:Mutex<Option<RetainedPixels>>,
+}
+impl PrivacyMemory {
+    fn new(epoch:u64)->Self {Self{epoch,active:std::sync::atomic::AtomicBool::new(true),pixels:Mutex::new(None)}}
+    fn require_active(&self)->Result<(),String>{if !self.active.load(std::sync::atomic::Ordering::SeqCst){Err("LIVE_VIEW_SCOPE_REVOKED".into())}else{Ok(())}}
+    // Called with no ComputerState, CrossDeviceInner or native OS resource lock.
+    fn stop_epoch(&self,epoch:u64){
+        if epoch!=self.epoch{return;}
+        self.active.store(false,std::sync::atomic::Ordering::SeqCst);
+        let mut pixels=self.pixels.lock().unwrap_or_else(|poisoned|poisoned.into_inner());
+        pixels.take();
+    }
+    fn clear_frame(&self,frame_ref:&str){
+        let mut pixels=self.pixels.lock().unwrap_or_else(|poisoned|poisoned.into_inner());
+        if pixels.as_ref().is_some_and(|p|p.frame_ref==frame_ref){pixels.take();}
+    }
+    fn install(&self,frame_ref:String,bytes:Vec<u8>)->Result<(),String>{
+        let pixels=RetainedPixels{frame_ref,bytes};
+        self.require_active()?;
+        let mut current=self.pixels.lock().map_err(|_|"LIVE_VIEW_PIXEL_STATE_UNAVAILABLE")?;
+        self.require_active()?;
+        *current=Some(pixels);Ok(())
+    }
+    fn encoded(&self,frame_ref:&str)->Result<(usize,String,String),String>{
+        self.require_active()?;
+        let current=self.pixels.lock().map_err(|_|"LIVE_VIEW_PIXEL_STATE_UNAVAILABLE")?;
+        let frame=current.as_ref().filter(|p|p.frame_ref==frame_ref).ok_or("LIVE_VIEW_FRESH_FRAME_REQUIRED")?;
+        self.require_active()?;
+        let size=frame.bytes.len();let digest=sha256_bytes(&frame.bytes);
+        let mut encoded=base64::engine::general_purpose::STANDARD.encode(&frame.bytes);
+        if self.require_active().is_err(){unsafe{clear_owned_bytes(encoded.as_bytes_mut());}return Err("LIVE_VIEW_SCOPE_REVOKED".into());}
+        Ok((size,digest,encoded))
+    }
 }
 
 #[derive(Clone)]
@@ -90,6 +150,16 @@ struct SourceRecord {
     size_bytes: u64,
     sha256: String,
     expires_at_ms: u64,
+    held: Arc<Mutex<File>>,
+    identity: String,
+    native_generation: Option<u64>,
+}
+
+#[derive(Clone)]
+struct NativeTransferPin {
+    lineage: CrossDeviceLineage, transfer_id: String, source_handle: String,
+    manifest: Value, manifest_digest: String, source_identity_digest: String,
+    generation: u64, expires_at_ms: u64, checkpoint_id: String, file_name: String, media_type: String,
 }
 
 struct DestinationRecord {
@@ -98,6 +168,9 @@ struct DestinationRecord {
     kind: String,
     display_summary: String,
     expires_at_ms: u64,
+    held_directory: Option<Arc<File>>,
+    identity: String,
+    native_generation: u64,
 }
 
 struct InboundTransfer {
@@ -115,7 +188,11 @@ struct InboundTransfer {
     created_at_ms: u64,
     updated_at_ms: u64,
     expires_at_ms: u64,
+    held_staging: Option<Arc<Mutex<File>>>,
+    native_receiver: Option<ReceiverBinding>,
 }
+#[derive(Clone)]
+struct ReceiverBinding {manifest_digest:String,checkpoint_id:String,generation:u64}
 
 struct RetainedArtifact {
     owner_session_binding_id: String,
@@ -177,11 +254,16 @@ struct CrossDeviceInner {
     inbound: HashMap<String, InboundTransfer>,
     retained: HashMap<String, RetainedArtifact>,
     producer: Option<NativeProducerSession>,
+    native_pins: HashMap<String, NativeTransferPin>,
+    filtered_frame: Option<PrivateFrame>,
+    native_commits: HashMap<String,(Value,u64,u64)>,
 }
 
+#[derive(Clone)]
 pub struct CrossDeviceState {
-    inner: Mutex<CrossDeviceInner>,
-    bridge: Mutex<Option<ProducerBridge>>,
+    inner: Arc<Mutex<CrossDeviceInner>>,
+    bridge: Arc<Mutex<Option<ProducerBridge>>>,
+    producer_transport:Arc<Mutex<()>>,
 }
 
 impl Default for CrossDeviceState {
@@ -194,8 +276,9 @@ impl Default for CrossDeviceState {
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(3000);
         Self {
-            inner: Mutex::new(CrossDeviceInner::default()),
-            bridge: Mutex::new(token.map(|token| ProducerBridge { token, port })),
+            inner: Arc::new(Mutex::new(CrossDeviceInner::default())),
+            bridge: Arc::new(Mutex::new(token.map(|token| ProducerBridge { token, port }))),
+            producer_transport:Arc::new(Mutex::new(())),
         }
     }
 }
@@ -220,14 +303,17 @@ impl CrossDeviceState {
 
     pub fn revoke_all(&self, _reason_code: &str) {
         if let Ok(mut inner) = self.inner.lock() {
-            inner.live_view.take();
+            if let Some(lease)=inner.live_view.take(){if let Some(scope)=lease.privacy{scope.memory.stop_epoch(scope.candidate.session_generation);}}
+            inner.filtered_frame.take();
             inner.audio_lease.take();
             inner.sources.clear();
+            inner.native_pins.clear();
+            inner.native_commits.clear();
             inner.destinations.clear();
-            for transfer in inner.inbound.values() {
+            for (_,mut transfer) in inner.inbound.drain() {
+                transfer.held_staging.take();
                 let _ = fs::remove_file(&transfer.partial_path);
             }
-            inner.inbound.clear();
             inner.producer.take();
         }
     }
@@ -261,7 +347,8 @@ impl CrossDeviceState {
             .as_ref()
             .is_some_and(|lease| lease.lineage.owner_session_binding_id == owner_binding)
         {
-            inner.live_view.take();
+            if let Some(lease)=inner.live_view.take(){if let Some(scope)=lease.privacy{scope.memory.stop_epoch(scope.candidate.session_generation);}}
+            inner.filtered_frame.take();
         }
         if inner
             .audio_lease
@@ -283,7 +370,8 @@ impl CrossDeviceState {
             .map(|(transfer_id, _)| transfer_id.clone())
             .collect();
         for transfer_id in revoked_transfers {
-            if let Some(transfer) = inner.inbound.remove(&transfer_id) {
+            if let Some(mut transfer) = inner.inbound.remove(&transfer_id) {
+                transfer.held_staging.take();
                 let _ = fs::remove_file(transfer.partial_path);
             }
         }
@@ -294,6 +382,8 @@ impl CrossDeviceState {
         {
             inner.producer.take();
         }
+        inner.native_pins.retain(|_,pin|pin.lineage.owner_session_binding_id!=owner_binding);
+        inner.native_commits.retain(|_,(commit,_,_)|commit["lineage"]["ownerSessionBindingId"]!=owner_binding);
         Ok(())
     }
 }
@@ -396,6 +486,7 @@ struct DesktopProducerSession {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProducerCommandRequest {
+    #[serde(rename_all = "camelCase")]
     Bootstrap {
         device_id: String,
         csrf_token: String,
@@ -404,6 +495,24 @@ pub enum ProducerCommandRequest {
         kind: ProducerIngestKind,
         payload: Value,
     },
+    #[serde(rename_all = "camelCase")]
+    PinSource { lineage: CrossDeviceLineage, source_handle: String, idempotency_key: String, expires_at: String },
+    #[serde(rename_all = "camelCase")]
+    SendSourceChunk { transfer_id: String, index: u32, checkpoint_id: String },
+    #[serde(rename_all = "camelCase")]
+    TransferCheckpoint { transfer_id: String },
+    #[serde(rename_all = "camelCase")]
+    CancelTransfer { transfer_id: String },
+    #[serde(rename_all = "camelCase")]
+    ReapproveSource { transfer_id: String, checkpoint_id: String },
+    #[serde(rename_all = "camelCase")]
+    PublishFrame { live_view_id:String, frame_ref:String },
+    #[serde(rename_all = "camelCase")]
+    RegisterReceiver {transfer_id:String,manifest_digest:String,checkpoint_id:String},
+    #[serde(rename_all = "camelCase")]
+    ReceiveChunk {transfer_id:String,index:u32},
+    #[serde(rename_all = "camelCase")]
+    CommitReceiver {transfer_id:String},
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -486,6 +595,7 @@ fn producer_bridge(state: &CrossDeviceState) -> Result<ProducerBridge, String> {
 
 fn producer_http_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -914,6 +1024,7 @@ fn bootstrap_producer(
     device_id: &str,
     csrf_token: &str,
 ) -> Result<ProducerCommandResult, String> {
+    let _transport=state.producer_transport.try_lock().map_err(|_|"DESKTOP_PRODUCER_BUSY")?;
     validate_safe_id(device_id)?;
     if !safe_csrf(csrf_token) {
         return Err("CSRF_TOKEN_INVALID".into());
@@ -1004,6 +1115,8 @@ fn ingest_producer(
     kind: ProducerIngestKind,
     payload: Value,
 ) -> Result<ProducerCommandResult, String> {
+    let _worker=CarrierWorker::admitted();
+    let _transport=state.producer_transport.try_lock().map_err(|_|"DESKTOP_PRODUCER_BUSY")?;
     validate_producer_payload(kind, &payload)?;
     let bridge = producer_bridge(state)?;
     let producer = {
@@ -1209,6 +1322,7 @@ pub fn cross_device_producer_ingest(
     computer: State<'_, ComputerState>,
     request: ProducerCommandRequest,
 ) -> Result<ProducerCommandResult, String> {
+    let _worker=CarrierWorker::admitted();
     if window.label() != "main" {
         return Err("CROSS_DEVICE_MAIN_WINDOW_REQUIRED".into());
     }
@@ -1219,12 +1333,238 @@ pub fn cross_device_producer_ingest(
             csrf_token,
         } => bootstrap_producer(&window, &state, &computer, &device_id, &csrf_token),
         ProducerCommandRequest::Ingest { kind, payload } => {
-            if kind.advanced_native_only() {
+            if kind.advanced_native_only() || matches!(kind, ProducerIngestKind::Transfer | ProducerIngestKind::LiveViewFrameMetadata) {
                 return Err("ADVANCED_NATIVE_PUBLICATION_RUST_ONLY".into());
             }
             ingest_producer(&state, kind, payload)
         }
+        ProducerCommandRequest::PinSource { lineage, source_handle, idempotency_key, expires_at } => {
+            validate_safe_id(&idempotency_key)?;
+            let intent = native_http(&state,&computer,"/transfer/intent",json!({"idempotencyKey":idempotency_key}))?;
+            let data = &intent.body["data"];
+            let id = data["transferId"].as_str().ok_or("TRANSFER_INTENT_INVALID")?;
+            let requested = parse_expiry(&expires_at,now_ms(),PRODUCER_SESSION_MAX_TTL_MS)?;
+            let reserved = parse_expiry(data["expiresAt"].as_str().ok_or("TRANSFER_INTENT_INVALID")?,now_ms(),PRODUCER_SESSION_MAX_TTL_MS)?;
+            pin_source(&state,&computer,&source_handle,lineage,id,requested.min(reserved),None)
+        }
+        ProducerCommandRequest::SendSourceChunk { transfer_id,index,checkpoint_id } => send_native_chunk(&state,&computer,&transfer_id,index,&checkpoint_id),
+        ProducerCommandRequest::TransferCheckpoint { transfer_id } => native_transfer_control(&state,&computer,&transfer_id,false),
+        ProducerCommandRequest::CancelTransfer { transfer_id } => native_transfer_control(&state,&computer,&transfer_id,true),
+        ProducerCommandRequest::ReapproveSource { transfer_id,checkpoint_id } => {
+            if !owner_confirms_reapproval(&window)? {return Err("TRANSFER_NATIVE_REAPPROVAL_REQUIRED".into());}
+            reapprove_native_source(&state,&computer,&transfer_id,&checkpoint_id)
+        },
+        ProducerCommandRequest::PublishFrame {live_view_id,frame_ref} => publish_filtered_frame(&state,&computer,&live_view_id,&frame_ref),
+        ProducerCommandRequest::RegisterReceiver{transfer_id,manifest_digest,checkpoint_id} => {
+            if !owner_confirms_reapproval(&window)? {return Err("TRANSFER_NATIVE_REAPPROVAL_REQUIRED".into());}
+            register_receiver(&state,&computer,&transfer_id,&manifest_digest,&checkpoint_id)
+        },
+        ProducerCommandRequest::ReceiveChunk{transfer_id,index} => receive_native_chunk(&state,&computer,&transfer_id,index),
+        ProducerCommandRequest::CommitReceiver{transfer_id} => publish_receiver_commit(&state,&computer,&transfer_id),
     }
+}
+
+fn native_lineage_from_producer(state:&CrossDeviceState) -> Result<CrossDeviceLineage,String> {
+    let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    let s=&inner.producer.as_ref().ok_or("DESKTOP_PRODUCER_SESSION_INVALID")?.session;
+    if parse_expiry(&s.expires_at,now_ms(),PRODUCER_SESSION_MAX_TTL_MS).is_err() { return Err("DESKTOP_PRODUCER_SESSION_EXPIRED".into()); }
+    Ok(CrossDeviceLineage {contract_version:2,amendment:"2.1".into(),owner_session_binding_id:s.owner_session_binding_id.clone(),workspace_id:s.workspace_id.clone(),session_id:s.session_id.clone(),source_device_id:s.source_device_id.clone(),target_device_id:s.target_device_id.clone()})
+}
+
+/// Only private constructors call this carrier. A renderer cannot supply native receipt bytes.
+fn native_http(state:&CrossDeviceState,computer:&ComputerState,path:&str,payload:Value)->Result<ProducerCommandResult,String>{
+    let _worker=CarrierWorker::admitted();
+    let _transport=state.producer_transport.try_lock().map_err(|_|"DESKTOP_PRODUCER_BUSY")?;
+    ensure_operational(state,computer)?;
+    let carrier_epoch=computer.carrier_generation()?;
+    let source_epoch=if let Some(handle)=payload["sourceHandle"].as_str(){
+        let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        inner.sources.get(handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?.native_generation
+    }else{None};
+    if let Some(epoch)=source_epoch{computer.ensure_carrier_generation(epoch)?;}
+    let frame_memory=if path=="/live-view/frame-bytes" {
+        let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        let lease=inner.live_view.as_ref().ok_or("LIVE_VIEW_NOT_ACTIVE")?;
+        let scope=lease.privacy.as_ref().ok_or("LIVE_VIEW_PRIVACY_SCOPE_REQUIRED")?;
+        let frame=inner.filtered_frame.as_ref().ok_or("LIVE_VIEW_FRESH_FRAME_REQUIRED")?;
+        if payload["liveViewId"].as_str()!=Some(lease.live_view_id.as_str())||payload["scopeRef"].as_str()!=Some(scope.scope_ref.as_str())||payload["frameId"].as_str()!=Some(frame.frame_ref.as_str())||frame.scope_ref!=scope.scope_ref||now_ms().saturating_sub(frame.observed_at_ms)>=2000||lease.expires_at_ms<=now_ms(){return Err("LIVE_VIEW_FRAME_STALE".into());}
+        scope.memory.require_active()?;Some(scope.memory.clone())
+    }else{None};
+    if serde_json::to_vec(&payload).map_err(|_| "NATIVE_PAYLOAD_INVALID")?.len()>75_000 { return Err("NATIVE_PAYLOAD_LIMIT".into()); }
+    let bridge=producer_bridge(state)?;
+    let producer={let mut inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        revoke_expired_locked(&mut inner,now_ms()); let p=inner.producer.as_mut().ok_or("DESKTOP_PRODUCER_SESSION_INVALID")?;
+        let copy=p.clone(); p.next_sequence=p.next_sequence.checked_add(1).ok_or("DESKTOP_PRODUCER_SEQUENCE_INVALID")?;copy};
+    let request=producer_http_client()?.post(format!("http://127.0.0.1:{}/api/edith/mobile/desktop-producer{}",bridge.port,path))
+        .bearer_auth(&bridge.token).header("X-Edith-Producer-Session",&producer.token)
+        .header("X-Edith-Producer-Sequence",producer.next_sequence.to_string()).json(&payload);
+    computer.ensure_carrier_generation(carrier_epoch)?;
+    if let Some(memory)=&frame_memory{memory.require_active()?;}
+    let response=request.send()
+        .map_err(|_| "DESKTOP_PRODUCER_BACKEND_UNAVAILABLE")?;
+    let status=response.status().as_u16();let mut response_bytes=Vec::new();response.take(96*1024+1).read_to_end(&mut response_bytes).map_err(|_|"NATIVE_RESPONSE_INVALID")?;
+    if response_bytes.len()>96*1024{return Err("NATIVE_RESPONSE_LIMIT".into());}
+    let body:Value=serde_json::from_slice(&response_bytes).map_err(|_| "NATIVE_RESPONSE_INVALID")?;
+    ensure_operational(state,computer)?;
+    computer.ensure_carrier_generation(carrier_epoch)?;
+    if let Some(epoch)=source_epoch{computer.ensure_carrier_generation(epoch)?;}
+    if let Some(memory)=&frame_memory{memory.require_active()?;}
+    let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    if !inner.producer.as_ref().is_some_and(|p|p.token==producer.token && p.session.expires_at==producer.session.expires_at) {return Err("DESKTOP_PRODUCER_SCOPE_STALE".into());}
+    if !(200..300).contains(&status) || body["success"]!=true { return Err(safe_backend_error(&body,"NATIVE_PRODUCER_REJECTED")); }
+    Ok(ProducerCommandResult{status,body})
+}
+
+fn canonical_value(value:&Value)->Value { match value {Value::Object(m)=>{let mut keys:Vec<_>=m.keys().collect();keys.sort();let mut out=Map::new();for k in keys{out.insert(k.clone(),canonical_value(&m[k]));}Value::Object(out)},Value::Array(a)=>Value::Array(a.iter().map(canonical_value).collect()),v=>v.clone()} }
+
+fn pin_source(state:&CrossDeviceState,computer:&ComputerState,handle:&str,lineage:CrossDeviceLineage,id:&str,deadline:u64,backend_identity:Option<&str>)->Result<ProducerCommandResult,String>{
+    lineage.validate()?;validate_safe_id(id)?;
+    if native_lineage_from_producer(state)?!=lineage {return Err("TRANSFER_LINEAGE_MISMATCH".into());}
+    let pin={let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        if inner.native_pins.len()>=4 {return Err("TRANSFER_PIN_LIMIT".into());}
+        let s=inner.sources.get(handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;
+        if let Some(epoch)=s.native_generation{computer.ensure_carrier_generation(epoch)?;}
+        if s.owner_session_binding_id!=lineage.owner_session_binding_id || deadline> s.expires_at_ms || deadline<=now_ms() {return Err("TRANSFER_SOURCE_SCOPE_INVALID".into());}
+        let manifest=source_manifest(s,id)?;let manifest_digest=sha256_bytes(serde_json::to_vec(&canonical_value(&manifest)).map_err(|_| "TRANSFER_MANIFEST_INVALID")?.as_slice());
+        let name=s.path.file_name().and_then(|s|s.to_str()).ok_or("TRANSFER_FILE_NAME_INVALID")?.to_string();
+        let media=match s.path.extension().and_then(|s|s.to_str()).unwrap_or("").to_ascii_lowercase().as_str(){"txt"|"md"|"csv"=>"text/plain","json"=>"application/json","png"=>"image/png","jpg"|"jpeg"=>"image/jpeg","pdf"=>"application/pdf",_=>return Err("TRANSFER_MEDIA_TYPE_INVALID".into())};
+        NativeTransferPin{lineage,transfer_id:id.into(),source_handle:handle.into(),manifest,manifest_digest,source_identity_digest:backend_identity.unwrap_or(&s.identity).into(),generation:1,expires_at_ms:deadline,checkpoint_id:String::new(),file_name:name,media_type:media.into()}};
+    let response=native_http(state,computer,"/transfer/source",pin_payload(&pin))?;
+    let checkpoint=response.body["data"]["checkpoint"]["checkpointId"].as_str().ok_or("TRANSFER_CHECKPOINT_INVALID")?;
+    validate_safe_id(checkpoint)?;let mut pin=pin;pin.checkpoint_id=checkpoint.into();
+    let mut inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    let source=inner.sources.get(handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;
+    if let Some(epoch)=source.native_generation{computer.ensure_carrier_generation(epoch)?;}
+    if deadline<=now_ms(){return Err("TRANSFER_EXPIRED".into());}
+    inner.native_pins.insert(id.into(),pin);
+    Ok(response)
+}
+fn pin_payload(pin:&NativeTransferPin)->Value {json!({"schema":"edith.native-mobile/1","lineage":pin.lineage,"transferId":pin.transfer_id,"sourceHandle":pin.source_handle,"manifest":pin.manifest,"manifestDigest":pin.manifest_digest,"sourceIdentityDigest":pin.source_identity_digest,"sourceGeneration":pin.generation,"fileName":pin.file_name,"mediaType":pin.media_type,"expiresAt":iso_ms(pin.expires_at_ms)})}
+fn receiver_control(t:&InboundTransfer,b:&ReceiverBinding)->Value{json!({"schema":"edith.native-mobile/1","lineage":t.lineage,"transferId":t.transfer_id,"manifestDigest":b.manifest_digest,"checkpointId":b.checkpoint_id})}
+fn register_receiver(state:&CrossDeviceState,computer:&ComputerState,id:&str,digest:&str,checkpoint:&str)->Result<ProducerCommandResult,String>{
+    if !is_sha256(digest){return Err("TRANSFER_MANIFEST_INVALID".into());}validate_safe_id(checkpoint)?;
+    let epoch=computer.carrier_generation()?;let mut lineage=native_lineage_from_producer(state)?;std::mem::swap(&mut lineage.source_device_id,&mut lineage.target_device_id);
+    let (body,binding)={let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let t=inner.inbound.get(id).ok_or("TRANSFER_NOT_FOUND")?;
+        let d=inner.destinations.get(&t.destination_handle).ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?;
+        if d.held_directory.is_none()||destination_open(&d.path)?.1!=d.identity{return Err("TRANSFER_DESTINATION_CHANGED".into());}
+        if t.expires_at_ms<=now_ms()||d.expires_at_ms<t.expires_at_ms||d.owner_session_binding_id!=t.lineage.owner_session_binding_id{return Err("TRANSFER_DESTINATION_SCOPE_INVALID".into());}
+        if t.lineage.owner_session_binding_id!=lineage.owner_session_binding_id||t.lineage.workspace_id!=lineage.workspace_id||t.lineage.source_device_id!=lineage.source_device_id||t.lineage.target_device_id!=lineage.target_device_id{return Err("TRANSFER_RECEIVER_LINEAGE_MISMATCH".into());}
+        if let Some(old)=&t.native_receiver{if old.manifest_digest!=digest||old.checkpoint_id!=checkpoint{return Err("TRANSFER_RECEIVER_REAPPROVAL_MISMATCH".into());}}
+        let generation=t.native_receiver.as_ref().map(|b|b.generation+1).unwrap_or(1);
+        let binding=ReceiverBinding{manifest_digest:digest.into(),checkpoint_id:checkpoint.into(),generation};
+        let mut body=receiver_control(t,&binding);body["lineage"]=json!(lineage);body["destinationHandle"]=json!(t.destination_handle);body["receiverGeneration"]=json!(generation);body["expiresAt"]=json!(iso_ms(t.expires_at_ms));(body,binding)};
+    let result=native_http(state,computer,&format!("/transfer/{id}/receiver-pin"),body)?;
+    computer.ensure_carrier_generation(epoch)?;
+    let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    let t=inner.inbound.get_mut(id).ok_or("TRANSFER_NOT_FOUND")?;t.native_receiver=Some(binding);t.lineage=lineage;let destination=t.destination_handle.clone();
+    inner.destinations.get_mut(&destination).ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?.native_generation=epoch;Ok(result)
+}
+fn receive_native_chunk(state:&CrossDeviceState,computer:&ComputerState,id:&str,index:u32)->Result<ProducerCommandResult,String>{
+    let (mut body,expected_size,expected_sha,destination,lineage,checkpoint,original_expiry,original_epoch)={let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let t=inner.inbound.get(id).ok_or("TRANSFER_NOT_FOUND")?;let b=t.native_receiver.as_ref().ok_or("TRANSFER_RECEIVER_PIN_REQUIRED")?;
+        if t.expires_at_ms<=now_ms()||index as usize!=t.completed_chunks.len(){return Err("TRANSFER_RESUME_OFFSET_INVALID".into());}
+        let epoch=inner.destinations.get(&t.destination_handle).ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?.native_generation;computer.ensure_carrier_generation(epoch)?;
+        (receiver_control(t,b),t.expected_size,t.expected_sha256.clone(),t.destination_handle.clone(),t.lineage.clone(),b.clone(),t.expires_at_ms,epoch)};
+    body["index"]=json!(index);body["offsetBytes"]=json!(index as u64*MAX_CHUNK_BYTES as u64);
+    let response=native_http(state,computer,&format!("/transfer/{id}/read"),body.clone())?;
+    let chunk=&response.body["data"];let c=chunk.as_object().ok_or("TRANSFER_SOURCE_CHUNK_INVALID")?;
+    if !exact_keys(c,&["schema","lineage","transferId","manifestDigest","checkpointId","index","offsetBytes","sourceHandle","sizeBytes","chunkSha256","fileSha256","bytesBase64"],&[])
+        ||chunk["schema"]!="edith.native-mobile/1"||chunk["lineage"]!=json!(lineage)||chunk["transferId"]!=id||chunk["manifestDigest"]!=checkpoint.manifest_digest||chunk["checkpointId"]!=checkpoint.checkpoint_id||chunk["index"]!=index||chunk["offsetBytes"]!=index as u64*MAX_CHUNK_BYTES as u64||chunk["fileSha256"]!=expected_sha{return Err("TRANSFER_SOURCE_CHUNK_INVALID".into());}
+    let encoded=chunk["bytesBase64"].as_str().ok_or("TRANSFER_CHUNK_ENCODING_INVALID")?;
+    if encoded.len()>MAX_CHUNK_BYTES.div_ceil(3)*4{return Err("TRANSFER_CHUNK_SIZE_INVALID".into());}
+    let bytes=ClearingBytes(base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|_|"TRANSFER_CHUNK_ENCODING_INVALID")?);
+    let offset=index as u64*MAX_CHUNK_BYTES as u64;
+    if bytes.0.len()!=MAX_CHUNK_BYTES.min(expected_size.saturating_sub(offset) as usize)||bytes.0.is_empty()||chunk["sizeBytes"]!=bytes.0.len()||chunk["chunkSha256"]!=sha256_bytes(&bytes.0)||base64::engine::general_purpose::STANDARD.encode(&bytes.0)!=encoded{return Err("TRANSFER_CHUNK_CHECKSUM_INVALID".into());}
+    ensure_operational(state,computer)?;
+    let request=InboxChunkRequest{owner_session_binding_id:lineage.owner_session_binding_id.clone(),transfer_id:id.into(),chunk_index:index,offset_bytes:offset,chunk_sha256:sha256_bytes(&bytes.0),bytes_base64:String::new()};
+    let snapshot={let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let t=inner.inbound.get(id).ok_or("TRANSFER_NOT_FOUND")?;
+        if t.expires_at_ms<=now_ms()||!t.native_receiver.as_ref().is_some_and(|b|b.manifest_digest==checkpoint.manifest_digest&&b.generation==checkpoint.generation){return Err("TRANSFER_RECEIVER_SCOPE_STALE".into());}
+        let d=inner.destinations.get(&t.destination_handle).ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?;let epoch=d.native_generation;
+        computer.ensure_carrier_generation(epoch)?;
+        write_inbox_chunk_locked(&mut inner,&request,&bytes.0,&||computer.ensure_carrier_generation(epoch))?};
+    if snapshot.status!="completed"{return Ok(ProducerCommandResult{status:202,body:json!({"success":true,"data":{"nativeStaged":true,"completed":false,"bytesTransferred":snapshot.progress.bytes_transferred}})});}
+    ensure_operational(state,computer)?;
+    let commit=json!({"schema":"edith.native-mobile/1","lineage":lineage,"transferId":id,"manifestDigest":checkpoint.manifest_digest,"checkpointId":checkpoint.checkpoint_id,"sizeBytes":expected_size,"sha256":expected_sha,"destinationHandle":destination,"commitId":format!("commit-{}",random_hex(16)?),"committedAt":iso_ms(now_ms())});
+    computer.ensure_carrier_generation(original_epoch)?;
+    state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?.native_commits.insert(id.into(),(commit,original_expiry,original_epoch));
+    publish_receiver_commit(state,computer,id)
+}
+fn publish_receiver_commit(state:&CrossDeviceState,computer:&ComputerState,id:&str)->Result<ProducerCommandResult,String>{
+    let commit={let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let (c,expiry,epoch)=inner.native_commits.get(id).ok_or("TRANSFER_NATIVE_COMMIT_REQUIRED")?;if *expiry<=now_ms(){return Err("TRANSFER_NATIVE_COMMIT_EXPIRED".into());}computer.ensure_carrier_generation(*epoch)?;c.clone()};
+    native_http(state,computer,"/transfer/receiver-commit",commit)
+}
+fn pin_control(pin:&NativeTransferPin)->Value{json!({"schema":"edith.native-mobile/1","lineage":pin.lineage,"transferId":pin.transfer_id,"manifestDigest":pin.manifest_digest,"checkpointId":pin.checkpoint_id})}
+fn current_pin(state:&CrossDeviceState,id:&str)->Result<NativeTransferPin,String>{let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;let p=inner.native_pins.get(id).ok_or("TRANSFER_PIN_REQUIRED")?;if p.expires_at_ms<=now_ms(){return Err("TRANSFER_EXPIRED".into());}Ok(p.clone())}
+fn native_transfer_control(state:&CrossDeviceState,computer:&ComputerState,id:&str,cancel:bool)->Result<ProducerCommandResult,String>{
+    validate_safe_id(id)?;
+    let pin=current_pin(state,id).ok();
+    let mut body=if let Some(p)=&pin{pin_control(p)}else{let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let t=inner.inbound.get(id).ok_or("TRANSFER_NOT_FOUND")?;receiver_control(t,t.native_receiver.as_ref().ok_or("TRANSFER_RECEIVER_PIN_REQUIRED")?)};
+    if !cancel {body.as_object_mut().ok_or("TRANSFER_CONTROL_INVALID")?.remove("transferId");body.as_object_mut().ok_or("TRANSFER_CONTROL_INVALID")?.remove("checkpointId");}
+    let result=native_http(state,computer,&format!("/transfer/{}/{}",id,if cancel{"cancel"}else{"checkpoint"}),body)?;
+    let mut inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    if cancel{inner.native_pins.remove(id);if let Some(p)=pin{inner.sources.remove(&p.source_handle);}if let Some(mut t)=inner.inbound.remove(id){t.held_staging.take();let _=fs::remove_file(&t.partial_path);}}
+    else{let cp=result.body["data"]["checkpointId"].as_str().ok_or("TRANSFER_CHECKPOINT_INVALID")?;validate_safe_id(cp)?;if let Some(p)=inner.native_pins.get_mut(id){p.checkpoint_id=cp.into();}if let Some(t)=inner.inbound.get_mut(id){if let Some(b)=t.native_receiver.as_mut(){b.checkpoint_id=cp.into();}}}Ok(result)
+}
+fn send_native_chunk(state:&CrossDeviceState,computer:&ComputerState,id:&str,index:u32,checkpoint:&str)->Result<ProducerCommandResult,String>{
+    let pin=current_pin(state,id)?;if pin.checkpoint_id!=checkpoint{return Err("TRANSFER_CHECKPOINT_STALE".into());}
+    let mut bytes={let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;let s=inner.sources.get(&pin.source_handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;
+        let c=pin.manifest["chunks"].get(index as usize).ok_or("TRANSFER_CHUNK_INDEX_INVALID")?;
+        if let Some(epoch)=s.native_generation{computer.ensure_carrier_generation(epoch)?;}
+        let offset=c["offsetBytes"].as_u64().ok_or("TRANSFER_MANIFEST_INVALID")?;let size=c["sizeBytes"].as_u64().ok_or("TRANSFER_MANIFEST_INVALID")? as usize;
+        let mut f=s.held.lock().map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
+        if held_file_identity(&f)?!=s.identity || held_hash(&mut f)?!=s.sha256{return Err("TRANSFER_SOURCE_CHANGED".into());}
+        f.seek(SeekFrom::Start(offset)).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;let mut bytes=vec![0;size];f.read_exact(&mut bytes).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+        if sha256_bytes(&bytes)!=c["sha256"].as_str().ok_or("TRANSFER_MANIFEST_INVALID")?{bytes.fill(0);return Err("TRANSFER_SOURCE_CHANGED".into());}bytes};
+    let mut payload=pin_control(&pin);let m=payload.as_object_mut().ok_or("TRANSFER_MANIFEST_INVALID")?;
+    m.insert("index".into(),json!(index));m.insert("offsetBytes".into(),json!(index as u64*MAX_CHUNK_BYTES as u64));m.insert("sourceHandle".into(),json!(pin.source_handle));
+    m.insert("sizeBytes".into(),json!(bytes.len()));m.insert("chunkSha256".into(),json!(sha256_bytes(&bytes)));m.insert("fileSha256".into(),pin.manifest["fileSha256"].clone());m.insert("bytesBase64".into(),json!(base64::engine::general_purpose::STANDARD.encode(&bytes)));bytes.fill(0);
+    let result=native_http(state,computer,"/transfer/chunk",payload)?;let cp=result.body["data"]["checkpointId"].as_str().ok_or("TRANSFER_CHECKPOINT_INVALID")?;
+    if let Some(p)=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?.native_pins.get_mut(id){p.checkpoint_id=cp.into();}Ok(result)
+}
+fn reapprove_native_source(state:&CrossDeviceState,computer:&ComputerState,id:&str,checkpoint:&str)->Result<ProducerCommandResult,String>{
+    let mut pin=current_pin(state,id)?;if pin.checkpoint_id!=checkpoint{return Err("TRANSFER_CHECKPOINT_STALE".into());}
+    {let inner=state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;let s=inner.sources.get(&pin.source_handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;if source_manifest(s,id)?!=pin.manifest{return Err("TRANSFER_SOURCE_CHANGED".into());}}
+    let lineage=native_lineage_from_producer(state)?;
+    if lineage.owner_session_binding_id!=pin.lineage.owner_session_binding_id||lineage.workspace_id!=pin.lineage.workspace_id||lineage.source_device_id!=pin.lineage.source_device_id||lineage.target_device_id!=pin.lineage.target_device_id||lineage.session_id==pin.lineage.session_id{return Err("TRANSFER_REAPPROVAL_SCOPE_INVALID".into());}
+    pin.lineage=lineage;pin.generation=pin.generation.checked_add(1).ok_or("TRANSFER_GENERATION_INVALID")?;
+    let epoch=computer.carrier_generation()?;
+    state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?.sources.get_mut(&pin.source_handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?.native_generation=Some(epoch);
+    let mut body=pin_payload(&pin);body["checkpointId"]=json!(checkpoint);let response=native_http(state,computer,&format!("/transfer/{id}/reapprove"),body)?;
+    state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?.native_pins.insert(id.into(),pin);Ok(response)
+}
+#[cfg(windows)]
+fn owner_confirms_reapproval(window:&WebviewWindow)->Result<bool,String>{
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW,IDYES,MB_DEFBUTTON2,MB_ICONWARNING,MB_YESNO};
+    let hwnd=window.hwnd().map_err(|_|"TRANSFER_APPROVAL_UNAVAILABLE")?.0;
+    let message:Vec<u16>="Approve this previously selected source/destination for the current paired session, retaining its original deadline? No overwrite or new destination is allowed.\0".encode_utf16().collect();let title:Vec<u16>="E.D.I.T.H. native transfer approval\0".encode_utf16().collect();
+    Ok(unsafe{MessageBoxW(hwnd,message.as_ptr(),title.as_ptr(),MB_YESNO|MB_DEFBUTTON2|MB_ICONWARNING)}==IDYES)
+}
+#[cfg(not(windows))]
+fn owner_confirms_reapproval(_:&WebviewWindow)->Result<bool,String>{Err("TRANSFER_NATIVE_PLATFORM_UNSUPPORTED".into())}
+
+pub(crate) fn pin_native_files_source(state:&CrossDeviceState,computer:&ComputerState,source:&Value,native_generation:u64,guard:&dyn Fn()->Result<(),String>)->Result<Value,String>{
+    let _worker=CarrierWorker::admitted();
+    guard()?;ensure_operational(state,computer)?;
+    computer.ensure_carrier_generation(native_generation)?;
+    let path=PathBuf::from(source["canonicalPath"].as_str().ok_or("TRANSFER_NATIVE_PATH_REQUIRED")?).canonicalize().map_err(|_|"TRANSFER_SOURCE_UNAVAILABLE")?;
+    if PathBuf::from(source["absolutePath"].as_str().ok_or("TRANSFER_NATIVE_PATH_REQUIRED")?).canonicalize().map_err(|_|"TRANSFER_SOURCE_UNAVAILABLE")?!=path {return Err("TRANSFER_SOURCE_CHANGED".into());}
+    let expected=source["contentSha256"].as_str().ok_or("TRANSFER_NATIVE_HASH_REQUIRED")?;
+    let backend_identity=source["sourceIdentityDigest"].as_str().ok_or("TRANSFER_NATIVE_IDENTITY_REQUIRED")?;
+    if !is_sha256(expected)||!is_sha256(backend_identity){return Err("TRANSFER_NATIVE_DESCRIPTOR_INVALID".into());}
+    let lineage=native_lineage_from_producer(state)?;
+    if source["ownerBindingId"]!=lineage.owner_session_binding_id || source["targetDeviceId"]!=lineage.target_device_id{return Err("TRANSFER_NATIVE_OWNER_MISMATCH".into());}
+    let id=source["transferId"].as_str().ok_or("TRANSFER_NATIVE_ID_REQUIRED")?;
+    let expiry=source["expiresAt"].as_str().ok_or("TRANSFER_NATIVE_EXPIRY_REQUIRED")?;
+    let deadline=parse_expiry(expiry,now_ms(),PRODUCER_SESSION_MAX_TTL_MS)?;
+    let (mut file,identity)=source_open(Path::new(source["absolutePath"].as_str().ok_or("TRANSFER_NATIVE_PATH_REQUIRED")?))?;let size=file.metadata().map_err(|_|"TRANSFER_SOURCE_UNAVAILABLE")?.len();
+    if size==0||size>MAX_TRANSFER_BYTES{return Err("TRANSFER_SOURCE_SIZE_INVALID".into());}
+    let sha=held_hash(&mut file)?;if sha!=expected{return Err("TRANSFER_SOURCE_CHANGED".into());}
+    guard()?;let handle=format!("source-{}",random_hex(16)?);
+    state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?.sources.insert(handle.clone(),SourceRecord{
+        owner_session_binding_id:lineage.owner_session_binding_id.clone(),path,size_bytes:size,sha256:sha.clone(),expires_at_ms:deadline,held:Arc::new(Mutex::new(file)),identity,native_generation:Some(native_generation)});
+    let result=pin_source(state,computer,&handle,lineage,id,deadline,Some(backend_identity));
+    guard()?;result?;
+    let pin=current_pin(state,id)?;
+    Ok(json!({"sourceHandle":handle,"contentSha256":sha,"sourceManifest":pin.manifest}))
 }
 
 #[derive(Deserialize)]
@@ -1236,6 +1576,11 @@ pub struct LiveViewStartRequest {
     max_frames_per_second: u8,
     max_width: u32,
     max_height: u32,
+    observation_id:String,
+    observation_generation:u64,
+    public_region:[i32;4],
+    exclusions:Vec<[i32;4]>,
+    lease_generation:u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -1310,6 +1655,7 @@ pub fn cross_device_live_view_start(
     computer: State<'_, ComputerState>,
     request: LiveViewStartRequest,
 ) -> Result<LiveViewSession, String> {
+    let _worker=CarrierWorker::admitted();
     ensure_main_window(&window)?;
     ensure_operational(&state, &computer)?;
     request.lineage.validate()?;
@@ -1325,20 +1671,30 @@ pub fn cross_device_live_view_start(
     {
         return Err("LIVE_VIEW_FRAME_POLICY_INVALID".into());
     }
-    if !owner_approves_live_view(&window)? {
+    let candidate=computer.retained_capture_candidate(&request.observation_id,request.observation_generation)?;
+    if candidate.owner_binding_id!=request.lineage.owner_session_binding_id||native_lineage_from_producer(&state)?!=request.lineage{return Err("LIVE_VIEW_OWNER_LINEAGE_MISMATCH".into());}
+    let client=privacy_client_rect(&candidate.identity)?;
+    let privacy=build_privacy_scope(&computer,candidate,client,request.public_region,&request.exclusions,request.lease_generation)?;
+    if !owner_approves_privacy(&window,&privacy)? {
         return Err("LIVE_VIEW_OWNER_APPROVAL_REQUIRED".into());
     }
+    let weak=Arc::downgrade(&privacy.memory);
+    computer.register_carrier_stop_hook(privacy.candidate.session_generation,Arc::new(move|epoch|{
+        if let Some(memory)=weak.upgrade(){memory.stop_epoch(epoch);}
+    }))?;
+    privacy.memory.require_active()?;
     ensure_operational(&state, &computer)?;
     let lease = LiveViewLease {
         lineage: request.lineage,
         live_view_id: request.live_view_id,
-        expires_at_ms,
+        expires_at_ms: expires_at_ms.min(privacy.candidate.expires_at_ms),
         max_fps: request.max_frames_per_second,
         max_width: request.max_width,
         max_height: request.max_height,
         sequence: 0,
         last_frame_at_ms: 0,
         started_at_ms: now_ms(),
+        privacy: Some(privacy.clone()),
     };
     let mut inner = state
         .inner
@@ -1346,7 +1702,15 @@ pub fn cross_device_live_view_start(
         .map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE".to_string())?;
     revoke_expired_locked(&mut inner, now_ms());
     ensure_capture_slot_available(&inner)?;
-    let response = session_from_lease(&lease, "streaming", None);
+    computer.validate_capture_candidate(&privacy.candidate)?;
+    privacy.memory.require_active()?;
+    drop(inner);
+    native_http(&state,&computer,"/live-view/scope",json!({"schema":"edith.native-mobile/1","producerLineage":lease.lineage,"liveViewId":lease.live_view_id,"leaseGeneration":privacy.generation,"scopeRef":privacy.scope_ref,"privacyProfile":"window-public-region-v1","scopeDigest":privacy.scope_digest,"approvedAt":iso_ms(lease.started_at_ms),"expiresAt":iso_ms(lease.expires_at_ms)}))?;
+    computer.validate_capture_candidate(&privacy.candidate)?;
+    privacy.memory.require_active()?;
+    let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    ensure_capture_slot_available(&inner)?;
+    let response = session_from_lease(&lease, "configuration_required", None);
     inner.live_view = Some(lease);
     Ok(response)
 }
@@ -1374,7 +1738,7 @@ pub struct LiveViewFrameMetadata {
     contains_pixels: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone,Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PhysicalFrameBounds {
     x: i32,
@@ -1401,6 +1765,7 @@ pub struct FrameTransport {
 pub struct LiveViewFrameResponse {
     metadata: LiveViewFrameMetadata,
     transport: FrameTransport,
+    frame_ref: String,
 }
 
 #[tauri::command]
@@ -1411,6 +1776,7 @@ pub fn cross_device_live_view_frame(
     owner_session_binding_id: String,
     live_view_id: String,
 ) -> Result<LiveViewFrameResponse, String> {
+    let _worker=CarrierWorker::admitted();
     ensure_main_window(&window)?;
     ensure_operational(&state, &computer)?;
     let now = now_ms();
@@ -1437,15 +1803,33 @@ pub fn cross_device_live_view_frame(
         lease.last_frame_at_ms = now;
         lease.clone()
     };
-    let captured = platform::capture_current_screen(lease.max_width, lease.max_height)?;
+    let privacy=lease.privacy.as_ref().ok_or("LIVE_VIEW_PRIVACY_SCOPE_REQUIRED")?;
+    privacy.memory.require_active()?;
+    let mut captured = ClearingCapture(capture_private_window(&computer,privacy,lease.max_width,lease.max_height)?);
     ensure_operational(&state, &computer)?;
-    let observed_at = now_ms();
+    let observed_at = now;
     let cursor = captured.cursor.map(|(x, y)| NormalizedPoint {
         x: ((x - captured.bounds.x) as f64 / captured.bounds.width as f64).clamp(0.0, 1.0),
         y: ((y - captured.bounds.y) as f64 / captured.bounds.height as f64).clamp(0.0, 1.0),
     });
     let frame_id = format!("frame-{}-{}", lease.sequence, random_hex(8)?);
+    let frame_ref=frame_id.clone();
+    {
+        computer.validate_capture_candidate(&privacy.candidate)?;
+        let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        if !inner.live_view.as_ref().is_some_and(|current|current.live_view_id==lease.live_view_id && current.sequence==lease.sequence && current.expires_at_ms>now_ms()) || now_ms().saturating_sub(observed_at)>2000 {
+            captured.bytes.fill(0);return Err("LIVE_VIEW_SCOPE_STALE".into());
+        }
+        privacy.memory.install(frame_ref.clone(),std::mem::take(&mut captured.bytes))?;
+        inner.filtered_frame=Some(PrivateFrame{scope_ref:privacy.scope_ref.clone(),frame_ref:frame_ref.clone(),memory:privacy.memory.clone(),observed_at_ms:observed_at,sequence:lease.sequence,width:captured.width,height:captured.height});
+    }
+    let expiry_state=state.inner().clone();let expiry_ref=frame_ref.clone();
+    std::thread::spawn(move||{std::thread::sleep(Duration::from_millis(2000));if let Ok(mut inner)=expiry_state.inner.lock(){if let Some(frame)=inner.filtered_frame.as_ref().filter(|f|f.frame_ref==expiry_ref){frame.memory.clear_frame(&expiry_ref);inner.filtered_frame.take();}}});
+    let (size_bytes,sha256,bytes_base64)=privacy.memory.encoded(&frame_ref)?;
+    computer.validate_capture_candidate(&privacy.candidate)?;
+    privacy.memory.require_active()?;
     Ok(LiveViewFrameResponse {
+        frame_ref,
         metadata: LiveViewFrameMetadata {
             lineage: lease.lineage,
             live_view_id: lease.live_view_id,
@@ -1460,11 +1844,11 @@ pub fn cross_device_live_view_frame(
         },
         transport: FrameTransport {
             mime_type: "image/png",
-            size_bytes: captured.bytes.len(),
-            sha256: sha256_bytes(&captured.bytes),
-            bytes_base64: base64::engine::general_purpose::STANDARD.encode(captured.bytes),
-            source_bounds: captured.bounds,
-            monitor_id: captured.monitor_id,
+            size_bytes,
+            sha256,
+            bytes_base64,
+            source_bounds: captured.bounds.clone(),
+            monitor_id: captured.monitor_id.clone(),
             dpi_scale: captured.dpi_scale,
         },
     })
@@ -1487,12 +1871,14 @@ pub fn cross_device_live_view_stop(
         inner.live_view = Some(lease);
         return Err("LIVE_VIEW_OWNER_OR_ID_MISMATCH".into());
     }
+    if let Some(scope)=&lease.privacy{scope.memory.stop_epoch(scope.candidate.session_generation);}
+    inner.filtered_frame.take();
     Ok(session_from_lease(&lease, "stopped", Some(now_ms())))
 }
 
 fn ensure_operational(state: &CrossDeviceState, computer: &ComputerState) -> Result<(), String> {
     if let Err(error) = computer.ensure_kill_switch_inactive() {
-        state.revoke_all("KILL_SWITCH_ACTIVE");
+        if error!="NATIVE_CARRIER_STOPPED" {state.revoke_all("KILL_SWITCH_ACTIVE");}
         return Err(format!("KILL_SWITCH_BLOCKED: {error}"));
     }
     Ok(())
@@ -1519,7 +1905,7 @@ fn revoke_expired_locked(inner: &mut CrossDeviceInner, now: u64) {
         .as_ref()
         .is_some_and(|lease| lease.expires_at_ms <= now)
     {
-        inner.live_view.take();
+        if let Some(lease)=inner.live_view.take(){if let Some(scope)=lease.privacy{scope.memory.stop_epoch(scope.candidate.session_generation);}}
     }
     if inner
         .audio_lease
@@ -1529,6 +1915,9 @@ fn revoke_expired_locked(inner: &mut CrossDeviceInner, now: u64) {
         inner.audio_lease.take();
     }
     inner.sources.retain(|_, record| record.expires_at_ms > now);
+    inner.native_pins.retain(|_,pin|pin.expires_at_ms>now);
+    inner.native_commits.retain(|_,(_,expiry,_)|*expiry>now);
+    if inner.filtered_frame.as_ref().is_some_and(|f|now.saturating_sub(f.observed_at_ms)>=2000)||inner.live_view.is_none(){inner.filtered_frame.take();}
     inner
         .destinations
         .retain(|_, record| record.expires_at_ms > now);
@@ -1539,7 +1928,8 @@ fn revoke_expired_locked(inner: &mut CrossDeviceInner, now: u64) {
         .map(|(transfer_id, _)| transfer_id.clone())
         .collect();
     for transfer_id in expired_transfers {
-        if let Some(transfer) = inner.inbound.remove(&transfer_id) {
+        if let Some(mut transfer) = inner.inbound.remove(&transfer_id) {
+            transfer.held_staging.take();
             let _ = fs::remove_file(transfer.partial_path);
         }
     }
@@ -1555,10 +1945,10 @@ fn ensure_capture_slot_available(inner: &CrossDeviceInner) -> Result<(), String>
 
 fn validate_safe_id(value: &str) -> Result<(), String> {
     if value.is_empty()
-        || value.len() > 200
+        || value.len() > 160
         || !value
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
     {
         return Err("CROSS_DEVICE_SAFE_ID_INVALID".into());
     }
@@ -1567,14 +1957,18 @@ fn validate_safe_id(value: &str) -> Result<(), String> {
 
 fn validate_file_name(value: &str) -> Result<(), String> {
     if value.is_empty()
-        || value.len() > 180
+        || value.chars().count() > 128
+        || value.trim()!=value
         || value == "."
         || value == ".."
-        || value.contains(['/', '\\', ':'])
+        || value.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|'])
+        || value.contains("..") || value.to_ascii_lowercase().contains("%2f") || value.to_ascii_lowercase().contains("%5c")
         || value.chars().any(char::is_control)
     {
         return Err("TRANSFER_FILE_NAME_INVALID".into());
     }
+    let base=value.split('.').next().unwrap_or("").to_ascii_lowercase();
+    if ["con","prn","aux","nul"].contains(&base.as_str())||((base.starts_with("com")||base.starts_with("lpt"))&&base.len()==4&&matches!(base.as_bytes()[3],b'1'..=b'9')){return Err("TRANSFER_FILE_NAME_INVALID".into());}
     Ok(())
 }
 
@@ -1632,6 +2026,202 @@ fn sha256_file(path: &Path) -> Result<String, String> {
         .collect())
 }
 
+fn source_open(path: &Path) -> Result<(File, String), String> {
+    for ancestor in path.ancestors() {
+        let meta = fs::symlink_metadata(ancestor).map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
+        if meta.file_type().is_symlink() { return Err("TRANSFER_SOURCE_REPARSE_DENIED".into()); }
+        #[cfg(windows)] {
+            use std::os::windows::fs::MetadataExt;
+            if meta.file_attributes() & 0x400 != 0 { return Err("TRANSFER_SOURCE_REPARSE_DENIED".into()); }
+        }
+    }
+    let mut options = OpenOptions::new(); options.read(true);
+    #[cfg(windows)] { use std::os::windows::fs::OpenOptionsExt; options.share_mode(1).custom_flags(0x00200000); }
+    let file = options.open(path).map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
+    let identity = held_file_identity(&file)?;
+    Ok((file, identity))
+}
+
+#[cfg(windows)]
+fn held_file_identity(file: &File) -> Result<String, String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION};
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0
+        || info.nNumberOfLinks != 1 || info.dwFileAttributes & (0x400 | 0x10) != 0 {
+        return Err("TRANSFER_SOURCE_IDENTITY_UNAVAILABLE".into());
+    }
+    Ok(sha256_bytes(serde_json::to_string(&[
+        info.dwVolumeSerialNumber as u64, info.nFileIndexHigh as u64, info.nFileIndexLow as u64,
+        info.ftCreationTime.dwHighDateTime as u64, info.ftCreationTime.dwLowDateTime as u64,
+        info.ftLastWriteTime.dwHighDateTime as u64, info.ftLastWriteTime.dwLowDateTime as u64,
+        info.nFileSizeHigh as u64, info.nFileSizeLow as u64,
+    ]).map_err(|_| "TRANSFER_SOURCE_IDENTITY_UNAVAILABLE")?.as_bytes()))
+}
+#[cfg(not(windows))]
+fn held_file_identity(_: &File) -> Result<String, String> { Err("TRANSFER_SOURCE_PLATFORM_UNSUPPORTED".into()) }
+
+fn held_hash(file: &mut File) -> Result<String, String> {
+    file.seek(SeekFrom::Start(0)).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+    let mut hash = Sha256::new(); let mut scratch = [0u8; MAX_CHUNK_BYTES];
+    loop { let count = file.read(&mut scratch).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+        if count == 0 { break; } hash.update(&scratch[..count]); scratch[..count].fill(0); }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
+fn source_manifest(source: &SourceRecord, transfer_id: &str) -> Result<Value, String> {
+    if source_open(&source.path)?.1!=source.identity{return Err("TRANSFER_SOURCE_CHANGED".into());}
+    let mut file = source.held.lock().map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
+    if held_file_identity(&file)? != source.identity { return Err("TRANSFER_SOURCE_CHANGED".into()); }
+    file.seek(SeekFrom::Start(0)).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+    let mut full = Sha256::new(); let mut chunks = Vec::new(); let mut offset = 0u64;
+    while offset < source.size_bytes {
+        let mut bytes = vec![0; MAX_CHUNK_BYTES.min((source.size_bytes-offset) as usize)];
+        file.read_exact(&mut bytes).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+        full.update(&bytes); chunks.push(json!({"index":chunks.len(),"offsetBytes":offset,"sizeBytes":bytes.len(),"sha256":sha256_bytes(&bytes)}));
+        offset += bytes.len() as u64; bytes.fill(0);
+    }
+    if format!("{:x}", full.finalize()) != source.sha256 || held_file_identity(&file)? != source.identity {
+        return Err("TRANSFER_SOURCE_CHANGED".into());
+    }
+    Ok(json!({"contractVersion":2,"amendment":"2.1","transferId":transfer_id,"sizeBytes":source.size_bytes,
+        "chunkSizeBytes":MAX_CHUNK_BYTES,"totalChunks":chunks.len(),"fileSha256":source.sha256,"chunks":chunks}))
+}
+
+#[cfg(windows)]
+fn destination_open(path:&Path)->Result<(File,String),String>{
+    use std::os::windows::fs::{MetadataExt,OpenOptionsExt};use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{GetFileInformationByHandle,BY_HANDLE_FILE_INFORMATION};
+    for a in path.ancestors(){let m=fs::symlink_metadata(a).map_err(|_|"TRANSFER_DESTINATION_UNAVAILABLE")?;if m.file_attributes()&0x400!=0{return Err("TRANSFER_DESTINATION_REPARSE_DENIED".into());}}
+    let file=OpenOptions::new().read(true).share_mode(3).custom_flags(0x02200000).open(path).map_err(|_|"TRANSFER_DESTINATION_UNAVAILABLE")?;
+    let mut i=BY_HANDLE_FILE_INFORMATION::default();if unsafe{GetFileInformationByHandle(file.as_raw_handle(),&mut i)}==0||i.dwFileAttributes&0x400!=0||i.dwFileAttributes&0x10==0{return Err("TRANSFER_DESTINATION_UNAVAILABLE".into());}
+    let identity=sha256_bytes(serde_json::to_vec(&[i.dwVolumeSerialNumber,i.nFileIndexHigh,i.nFileIndexLow,i.ftCreationTime.dwHighDateTime,i.ftCreationTime.dwLowDateTime]).map_err(|_|"TRANSFER_DESTINATION_UNAVAILABLE")?.as_slice());Ok((file,identity))
+}
+#[cfg(not(windows))]
+fn destination_open(_:&Path)->Result<(File,String),String>{Err("TRANSFER_NATIVE_PLATFORM_UNSUPPORTED".into())}
+
+fn valid_region(client:[i32;4],r:[i32;4])->bool {r[0]>=client[0]&&r[1]>=client[1]&&r[2]<=client[2]&&r[3]<=client[3]&&r[0]<r[2]&&r[1]<r[3]}
+#[cfg(windows)]
+fn privacy_client_rect(identity:&crate::native_calculator_identity::NativeWindowIdentity)->Result<[i32;4],String>{
+    use windows_sys::Win32::{Foundation::{POINT,RECT},Graphics::Gdi::ClientToScreen,UI::WindowsAndMessaging::GetClientRect};
+    crate::native_calculator_identity::revalidate(identity)?;
+    privacy_window_dpi(identity.root_hwnd)?;
+    let mut r=RECT::default();let mut origin=POINT::default();let hwnd=identity.root_hwnd as *mut std::ffi::c_void;
+    if unsafe{GetClientRect(hwnd,&mut r)}==0||unsafe{ClientToScreen(hwnd,&mut origin)}==0||r.left!=0||r.top!=0||r.right<=0||r.bottom<=0||r.right>4096||r.bottom>4096||r.right as i64*r.bottom as i64>4_194_304{return Err("LIVE_VIEW_CLIENT_UNSUPPORTED".into());}
+    Ok([origin.x,origin.y,origin.x.checked_add(r.right).ok_or("LIVE_VIEW_CLIENT_UNSUPPORTED")?,origin.y.checked_add(r.bottom).ok_or("LIVE_VIEW_CLIENT_UNSUPPORTED")?])
+}
+#[cfg(not(windows))]
+fn privacy_client_rect(_:&crate::native_calculator_identity::NativeWindowIdentity)->Result<[i32;4],String>{Err("LIVE_VIEW_NATIVE_UNSUPPORTED".into())}
+#[cfg(windows)]
+fn privacy_window_dpi(hwnd:isize)->Result<u32,String>{
+    use windows_sys::Win32::UI::HiDpi::{GetThreadDpiAwarenessContext,AreDpiAwarenessContextsEqual,DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,GetDpiForWindow};
+    if unsafe{AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(),DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)}==0{return Err("LIVE_VIEW_PHYSICAL_DPI_CONTEXT_REQUIRED".into());}
+    let dpi=unsafe{GetDpiForWindow(hwnd as *mut std::ffi::c_void)};if dpi==0{return Err("LIVE_VIEW_DPI_UNKNOWN".into());}Ok(dpi)
+}
+#[cfg(not(windows))]
+fn privacy_window_dpi(_:isize)->Result<u32,String>{Err("LIVE_VIEW_NATIVE_UNSUPPORTED".into())}
+fn build_privacy_scope(computer:&ComputerState,candidate:crate::computer::RetainedCaptureCandidate,client:[i32;4],region:[i32;4],exclusions:&[[i32;4]],generation:u64)->Result<PrivacyScope,String>{
+    if generation==0||exclusions.len()>64||!valid_region(client,region)||exclusions.iter().any(|r|!valid_region(client,*r)){return Err("LIVE_VIEW_REGION_INVALID".into());}
+    computer.validate_capture_candidate(&candidate)?;
+    let inventory=crate::native_uia::privacy_inventory(&candidate.identity,client,region,&||computer.validate_capture_candidate(&candidate))?;
+    let dpi=privacy_window_dpi(candidate.identity.root_hwnd)?;
+    let digest=sha256_bytes(serde_json::to_vec(&json!({"observationId":candidate.observation_id,"observationGeneration":candidate.observation_generation,"sessionId":candidate.session_id,"sessionGeneration":candidate.session_generation,"ownerBindingId":candidate.owner_binding_id,"rootHwnd":candidate.identity.root_hwnd,"rootPid":candidate.identity.root_pid,"rootCreated":candidate.identity.root_created,"rootImageDigest":sha256_bytes(candidate.identity.root_image.as_bytes()),"rootRuntimeId":inventory.root_runtime_id,"client":client,"region":region,"exclusions":exclusions,"inventoryDigest":inventory.inventory_digest})).map_err(|_|"LIVE_VIEW_SCOPE_INVALID")?.as_slice());
+    let memory=Arc::new(PrivacyMemory::new(candidate.session_generation));
+    Ok(PrivacyScope{candidate,client,region,exclusions:exclusions.to_vec(),inventory_digest:inventory.inventory_digest,scope_ref:format!("scope-{}",random_hex(16)?),scope_digest:digest,generation,dpi,memory})
+}
+#[cfg(windows)]
+fn owner_approves_privacy(window:&Window,scope:&PrivacyScope)->Result<bool,String>{
+    use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW,IDYES,MB_DEFBUTTON2,MB_ICONWARNING,MB_YESNO};
+    let hwnd=window.hwnd().map_err(|_|"LIVE_VIEW_APPROVAL_UNAVAILABLE")?.0;
+    let text=format!("Share ONLY the selected ordinary native window public region {:?}?\nOriginal window process: {}\nExclusion rectangles: {:?}\nPassword fields are masked. Other text in this region is public by your confirmation. No automatic secret classifier. No desktop fallback. Approval ends with the original observation or STOP.\0",scope.region,scope.candidate.identity.root_pid,scope.exclusions);
+    let message:Vec<u16>=text.encode_utf16().collect();let title:Vec<u16>="E.D.I.T.H. exact public region approval\0".encode_utf16().collect();
+    Ok(unsafe{MessageBoxW(hwnd,message.as_ptr(),title.as_ptr(),MB_YESNO|MB_DEFBUTTON2|MB_ICONWARNING)}==IDYES)
+}
+#[cfg(not(windows))]
+fn owner_approves_privacy(_:&Window,_:&PrivacyScope)->Result<bool,String>{Err("LIVE_VIEW_NATIVE_UNSUPPORTED".into())}
+
+struct ClearingBytes(Vec<u8>);
+impl Drop for ClearingBytes{fn drop(&mut self){clear_owned_bytes(&mut self.0);}}
+static CAPTURE_WORKER:std::sync::atomic::AtomicBool=std::sync::atomic::AtomicBool::new(false);
+fn capture_private_window(computer:&ComputerState,scope:&PrivacyScope,max_width:u32,max_height:u32)->Result<CapturedFrame,String>{
+    let _worker=CarrierWorker::admitted();
+    scope.memory.require_active()?;
+    computer.validate_capture_candidate(&scope.candidate)?;
+    if privacy_client_rect(&scope.candidate.identity)?!=scope.client||privacy_window_dpi(scope.candidate.identity.root_hwnd)?!=scope.dpi{return Err("LIVE_VIEW_GEOMETRY_CHANGED".into());}
+    let before=crate::native_uia::privacy_inventory(&scope.candidate.identity,scope.client,scope.region,&||computer.validate_capture_candidate(&scope.candidate))?;
+    if before.inventory_digest!=scope.inventory_digest{return Err("LIVE_VIEW_INVENTORY_CHANGED".into());}
+    if CAPTURE_WORKER.compare_exchange(false,true,std::sync::atomic::Ordering::SeqCst,std::sync::atomic::Ordering::SeqCst).is_err(){return Err("LIVE_VIEW_CAPTURE_BUSY".into());}
+    let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));let worker_cancel=cancel.clone();let hwnd=scope.candidate.identity.root_hwnd;let client=scope.client;
+    let worker_memory=Arc::downgrade(&scope.memory);
+    std::thread::spawn(move||{struct Release;impl Drop for Release{fn drop(&mut self){CAPTURE_WORKER.store(false,std::sync::atomic::Ordering::SeqCst);}}let _release=Release;
+        let result=render_own_window(hwnd,client);if worker_cancel.load(std::sync::atomic::Ordering::SeqCst)||worker_memory.upgrade().is_none_or(|m|m.require_active().is_err()){return;}let _=tx.send(result);});
+    let result=rx.recv_timeout(Duration::from_millis(1000));cancel.store(true,std::sync::atomic::Ordering::SeqCst);
+    let raw=result.map_err(|_|"LIVE_VIEW_RENDER_TIMEOUT")??;
+    scope.memory.require_active()?;
+    computer.validate_capture_candidate(&scope.candidate)?;
+    scope.memory.require_active()?;
+    let after=crate::native_uia::privacy_inventory(&scope.candidate.identity,scope.client,scope.region,&||computer.validate_capture_candidate(&scope.candidate))?;
+    if after.inventory_digest!=before.inventory_digest||after.password_rects!=before.password_rects||after.root_runtime_id!=before.root_runtime_id||privacy_client_rect(&scope.candidate.identity)?!=scope.client{return Err("LIVE_VIEW_SCOPE_CHANGED".into());}
+    let mut masks=scope.exclusions.clone();masks.extend(after.password_rects);
+    let (rgb,width,height)=crop_mask_resize(&raw.0,scope.client,scope.region,&masks,max_width,max_height)?;
+    let rgb=ClearingBytes(rgb);let mut png=ClearingBytes(Vec::new());
+    {let mut encoder=png::Encoder::new(&mut png.0,width,height);encoder.set_color(png::ColorType::Rgb);encoder.set_depth(png::BitDepth::Eight);let mut writer=encoder.write_header().map_err(|_|"LIVE_VIEW_ENCODE_FAILED")?;writer.write_image_data(&rgb.0).map_err(|_|"LIVE_VIEW_ENCODE_FAILED")?;writer.finish().map_err(|_|"LIVE_VIEW_ENCODE_FAILED")?;}
+    if png.0.len()>48*1024{return Err("LIVE_VIEW_FRAME_BYTES_LIMIT".into());}
+    computer.validate_capture_candidate(&scope.candidate)?;
+    scope.memory.require_active()?;
+    Ok(CapturedFrame{bytes:std::mem::take(&mut png.0),width,height,bounds:PhysicalFrameBounds{x:scope.region[0],y:scope.region[1],width:scope.region[2]-scope.region[0],height:scope.region[3]-scope.region[1],coordinate_space:"physical_virtual_desktop"},monitor_id:"selected-native-client".into(),dpi_scale:scope.dpi as f64/96.0,cursor:None})
+}
+fn crop_mask_resize(bgra:&[u8],client:[i32;4],region:[i32;4],masks:&[[i32;4]],max_width:u32,max_height:u32)->Result<(Vec<u8>,u32,u32),String>{
+    if !valid_region(client,region)||max_width==0||max_height==0{return Err("LIVE_VIEW_REGION_INVALID".into());}
+    let cw=(client[2]-client[0]) as usize;let ch=(client[3]-client[1]) as usize;
+    if bgra.len()!=cw*ch*4{return Err("LIVE_VIEW_RENDER_INVALID".into());}
+    let rw=(region[2]-region[0]) as u32;let rh=(region[3]-region[1]) as u32;
+    // Crop/mask on original pixels BEFORE any resampling or encoding.
+    let mut cropped=ClearingBytes(vec![0;rw as usize*rh as usize*3]);
+    for y in 0..rh{for x in 0..rw{let sx=region[0]+x as i32;let sy=region[1]+y as i32;let dst=(y as usize*rw as usize+x as usize)*3;
+        if masks.iter().any(|m|sx>=m[0]&&sx<m[2]&&sy>=m[1]&&sy<m[3]){continue;}
+        let src=((sy-client[1]) as usize*cw+(sx-client[0]) as usize)*4;cropped.0[dst..dst+3].copy_from_slice(&[bgra[src+2],bgra[src+1],bgra[src]]);
+    }}
+    let scale=(max_width.min(1280) as f64/rw as f64).min(max_height.min(720) as f64/rh as f64).min(1.0);let width=(rw as f64*scale).floor().max(1.0) as u32;let height=(rh as f64*scale).floor().max(1.0) as u32;
+    let mut rgb=vec![0;width as usize*height as usize*3];for y in 0..height{for x in 0..width{let src=((y as u64*rh as u64/height as u64) as usize*rw as usize+(x as u64*rw as u64/width as u64) as usize)*3;let dst=(y as usize*width as usize+x as usize)*3;rgb[dst..dst+3].copy_from_slice(&cropped.0[src..src+3]);}}
+    Ok((rgb,width,height))
+}
+#[cfg(not(windows))]
+fn render_own_window(_:isize,_:[i32;4])->Result<ClearingBytes,String>{Err("LIVE_VIEW_NATIVE_UNSUPPORTED".into())}
+#[cfg(windows)]
+fn render_own_window(hwnd:isize,client:[i32;4])->Result<ClearingBytes,String>{
+    use windows_sys::Win32::{Graphics::Gdi::{GetDC,ReleaseDC,CreateCompatibleDC,CreateCompatibleBitmap,SelectObject,DeleteObject,DeleteDC,GetDIBits,PatBlt,BLACKNESS,BITMAPINFO,BI_RGB,DIB_RGB_COLORS},Storage::Xps::{PrintWindow,PW_CLIENTONLY}};
+    let hwnd=hwnd as *mut std::ffi::c_void;let w=client[2]-client[0];let h=client[3]-client[1];
+    privacy_window_dpi(hwnd as isize)?;
+    let dc=unsafe{GetDC(hwnd)};if dc.is_null(){return Err("LIVE_VIEW_RENDER_UNAVAILABLE".into());}
+    let memory=unsafe{CreateCompatibleDC(dc)};let bitmap=unsafe{CreateCompatibleBitmap(dc,w,h)};
+    if memory.is_null()||bitmap.is_null(){unsafe{if !bitmap.is_null(){DeleteObject(bitmap);}if !memory.is_null(){DeleteDC(memory);}ReleaseDC(hwnd,dc);}return Err("LIVE_VIEW_RENDER_UNAVAILABLE".into());}
+    let old=unsafe{SelectObject(memory,bitmap)};let cleared=unsafe{PatBlt(memory,0,0,w,h,BLACKNESS)};
+    let rendered=if cleared!=0{unsafe{PrintWindow(hwnd,memory,PW_CLIENTONLY)}}else{0};unsafe{SelectObject(memory,old);}
+    let mut info=BITMAPINFO::default();info.bmiHeader.biSize=std::mem::size_of_val(&info.bmiHeader) as u32;info.bmiHeader.biWidth=w;info.bmiHeader.biHeight=-h;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;info.bmiHeader.biCompression=BI_RGB;
+    let mut raw=ClearingBytes(vec![0;w as usize*h as usize*4]);let lines=if rendered!=0{unsafe{GetDIBits(dc,bitmap,0,h as u32,raw.0.as_mut_ptr().cast(),&mut info,DIB_RGB_COLORS)}}else{0};
+    unsafe{DeleteObject(bitmap);DeleteDC(memory);ReleaseDC(hwnd,dc);}
+    if lines!=h||raw.0.chunks_exact(4).all(|p|p[..3]==raw.0[..3]){return Err("LIVE_VIEW_RENDER_BLANK_OR_UNSUPPORTED".into());}Ok(raw)
+}
+fn publish_filtered_frame(state:&CrossDeviceState,computer:&ComputerState,id:&str,frame_ref:&str)->Result<ProducerCommandResult,String>{
+    let (lease,mut payload)={let inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;let lease=inner.live_view.as_ref().ok_or("LIVE_VIEW_NOT_ACTIVE")?;let scope=lease.privacy.as_ref().ok_or("LIVE_VIEW_PRIVACY_SCOPE_REQUIRED")?;
+        let frame=inner.filtered_frame.as_ref().ok_or("LIVE_VIEW_FRESH_FRAME_REQUIRED")?;
+        scope.memory.require_active()?;
+        if lease.live_view_id!=id||frame.frame_ref!=frame_ref||frame.scope_ref!=scope.scope_ref||now_ms().saturating_sub(frame.observed_at_ms)>2000||lease.expires_at_ms<=now_ms(){return Err("LIVE_VIEW_FRAME_STALE".into());}
+        computer.validate_capture_candidate(&scope.candidate)?;
+        if privacy_client_rect(&scope.candidate.identity)?!=scope.client{return Err("LIVE_VIEW_GEOMETRY_CHANGED".into());}
+        let inventory=crate::native_uia::privacy_inventory(&scope.candidate.identity,scope.client,scope.region,&||computer.validate_capture_candidate(&scope.candidate))?;
+        if inventory.inventory_digest!=scope.inventory_digest{return Err("LIVE_VIEW_INVENTORY_CHANGED".into());}
+        let (size,digest,encoded)=frame.memory.encoded(frame_ref)?;
+        (lease.clone(),json!({"schema":"edith.native-mobile/1","producerLineage":lease.lineage,"liveViewId":id,"leaseGeneration":scope.generation,"scopeRef":scope.scope_ref,"scopeDigest":scope.scope_digest,"frameId":frame.frame_ref,"sequence":frame.sequence,"observedAt":iso_ms(frame.observed_at_ms),"width":frame.width,"height":frame.height,"mediaType":"image/png","sizeBytes":size,"sha256":digest,"bytesBase64":encoded}))};
+    lease.privacy.as_ref().ok_or("LIVE_VIEW_PRIVACY_SCOPE_REQUIRED")?.memory.require_active()?;
+    let result=native_http(state,computer,"/live-view/frame-bytes",payload.take())?;
+    let scope=lease.privacy.as_ref().ok_or("LIVE_VIEW_PRIVACY_SCOPE_REQUIRED")?;computer.validate_capture_candidate(&scope.candidate)?;
+    scope.memory.require_active()?;
+    if privacy_client_rect(&scope.candidate.identity)?!=scope.client{return Err("LIVE_VIEW_GEOMETRY_CHANGED".into());}
+    let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;if !inner.live_view.as_ref().is_some_and(|l|l.live_view_id==id&&l.expires_at_ms>now_ms()){return Err("LIVE_VIEW_SCOPE_STALE".into());}inner.filtered_frame.take();Ok(result)
+}
+
 #[cfg(windows)]
 fn owner_approves_live_view(window: &Window) -> Result<bool, String> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -1669,6 +2259,10 @@ struct CapturedFrame {
     dpi_scale: f64,
     cursor: Option<(i32, i32)>,
 }
+struct ClearingCapture(CapturedFrame);
+impl std::ops::Deref for ClearingCapture {type Target=CapturedFrame;fn deref(&self)->&CapturedFrame{&self.0}}
+impl std::ops::DerefMut for ClearingCapture {fn deref_mut(&mut self)->&mut CapturedFrame{&mut self.0}}
+impl Drop for ClearingCapture {fn drop(&mut self){clear_owned_bytes(&mut self.0.bytes);}}
 
 pub(crate) fn capture_bookmark_frame() -> Result<Vec<u8>, String> {
     platform::capture_current_screen(MAX_LIVE_VIEW_WIDTH, MAX_LIVE_VIEW_HEIGHT)
@@ -1831,7 +2425,10 @@ pub fn cross_device_select_source(
 ) -> Result<SourceDescriptor, String> {
     ensure_main_window(&window)?;
     ensure_operational(&state, &computer)?;
+    let native_generation=computer.carrier_generation()?;
     validate_safe_id(&owner_session_binding_id)?;
+    if native_lineage_from_producer(&state)?.owner_session_binding_id!=owner_session_binding_id{return Err("TRANSFER_SOURCE_OWNER_MISMATCH".into());}
+    if state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?.sources.len()>=4{return Err("TRANSFER_SOURCE_PIN_LIMIT".into());}
     let selected = window
         .dialog()
         .file()
@@ -1840,6 +2437,7 @@ pub fn cross_device_select_source(
         .ok_or("TRANSFER_SOURCE_SELECTION_CANCELLED")?
         .into_path()
         .map_err(|_| "TRANSFER_SOURCE_SELECTION_INVALID")?;
+    let (mut held, identity) = source_open(&selected)?;
     let path = selected
         .canonicalize()
         .map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
@@ -1853,19 +2451,22 @@ pub fn cross_device_select_source(
         .ok_or("TRANSFER_FILE_NAME_INVALID")?
         .to_string();
     validate_file_name(&file_name)?;
-    let sha256 = sha256_file(&path)?;
+    let sha256 = held_hash(&mut held)?;
+    computer.ensure_carrier_generation(native_generation)?;
+    ensure_operational(&state,&computer)?;
+    if native_lineage_from_producer(&state)?.owner_session_binding_id!=owner_session_binding_id{return Err("TRANSFER_SOURCE_OWNER_MISMATCH".into());}
     let handle = format!("source-{}", random_hex(16)?);
     let expires_at_ms = now_ms() + HANDLE_TTL_MS;
-    state
-        .inner
-        .lock()
-        .map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE".to_string())?
-        .sources
-        .insert(
+    let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    revoke_expired_locked(&mut inner,now_ms());
+    if inner.sources.len()>=4{return Err("TRANSFER_SOURCE_PIN_LIMIT".into());}
+    inner.sources        .insert(
             handle.clone(),
             SourceRecord {
                 owner_session_binding_id,
                 path,
+                held: Arc::new(Mutex::new(held)), identity,
+                native_generation:Some(native_generation),
                 size_bytes: metadata.len(),
                 sha256: sha256.clone(),
                 expires_at_ms,
@@ -1909,7 +2510,10 @@ pub fn cross_device_approve_destination(
 ) -> Result<DestinationDescriptor, String> {
     ensure_main_window(&window)?;
     ensure_operational(&state, &computer)?;
+    let native_generation=computer.carrier_generation()?;
     validate_safe_id(&owner_session_binding_id)?;
+    if native_lineage_from_producer(&state)?.owner_session_binding_id!=owner_session_binding_id{return Err("TRANSFER_DESTINATION_OWNER_MISMATCH".into());}
+    if state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?.destinations.len()>=4{return Err("TRANSFER_DESTINATION_PIN_LIMIT".into());}
     let selected = window
         .dialog()
         .file()
@@ -1924,18 +2528,21 @@ pub fn cross_device_approve_destination(
     if !path.is_dir() {
         return Err("TRANSFER_DESTINATION_UNAVAILABLE".into());
     }
+    let (directory,identity)=destination_open(&selected)?;
+    computer.ensure_carrier_generation(native_generation)?;
+    ensure_operational(&state,&computer)?;
+    if native_lineage_from_producer(&state)?.owner_session_binding_id!=owner_session_binding_id{return Err("TRANSFER_DESTINATION_OWNER_MISMATCH".into());}
     let handle = format!("destination-{}", random_hex(16)?);
     let expires_at_ms = now_ms() + HANDLE_TTL_MS;
-    state
-        .inner
-        .lock()
-        .map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE".to_string())?
-        .destinations
-        .insert(
+    let mut inner=state.inner.lock().map_err(|_|"CROSS_DEVICE_STATE_UNAVAILABLE")?;
+    revoke_expired_locked(&mut inner,now_ms());
+    if inner.destinations.len()>=4{return Err("TRANSFER_DESTINATION_PIN_LIMIT".into());}
+    inner.destinations        .insert(
             handle.clone(),
             DestinationRecord {
                 owner_session_binding_id,
                 path,
+                held_directory:Some(Arc::new(directory)),identity,native_generation,
                 kind: "approved_folder".into(),
                 display_summary: "Owner-approved folder".into(),
                 expires_at_ms,
@@ -1994,46 +2601,32 @@ pub fn cross_device_read_source_chunk(
     if request.maximum_bytes == 0 || request.maximum_bytes > MAX_CHUNK_BYTES {
         return Err("TRANSFER_CHUNK_SIZE_INVALID".into());
     }
-    let (path, size_bytes, file_sha256) = {
-        let mut inner = state
-            .inner
-            .lock()
-            .map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE".to_string())?;
+    let (held, identity, size_bytes, file_sha256) = {
+        let mut inner = state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
         revoke_expired_locked(&mut inner, now_ms());
-        let source = inner
-            .sources
-            .get(&request.source_handle)
-            .ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;
-        if source.owner_session_binding_id != request.owner_session_binding_id {
-            return Err("TRANSFER_SOURCE_OWNER_MISMATCH".into());
-        }
-        (
-            source.path.clone(),
-            source.size_bytes,
-            source.sha256.clone(),
-        )
+        let source = inner.sources.get(&request.source_handle).ok_or("TRANSFER_SOURCE_HANDLE_INVALID")?;
+        if source.owner_session_binding_id != request.owner_session_binding_id { return Err("TRANSFER_SOURCE_OWNER_MISMATCH".into()); }
+        if let Some(epoch)=source.native_generation{computer.ensure_carrier_generation(epoch)?;}
+        if source_open(&source.path)?.1!=source.identity{return Err("TRANSFER_SOURCE_CHANGED".into());}
+        (source.held.clone(),source.identity.clone(),source.size_bytes,source.sha256.clone())
     };
-    if request.offset_bytes >= size_bytes {
+    if request.offset_bytes >= size_bytes || request.offset_bytes != request.chunk_index as u64 * MAX_CHUNK_BYTES as u64 {
         return Err("TRANSFER_RESUME_OFFSET_INVALID".into());
     }
-    let current_size = fs::metadata(&path)
-        .map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?
-        .len();
-    if current_size != size_bytes {
-        return Err("TRANSFER_SOURCE_CHANGED".into());
-    }
-    if sha256_file(&path)? != file_sha256 {
-        return Err("TRANSFER_SOURCE_CHANGED".into());
-    }
-    let mut file = File::open(path).map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
-    file.seek(SeekFrom::Start(request.offset_bytes))
-        .map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
-    let bounded = request
-        .maximum_bytes
-        .min(size_bytes.saturating_sub(request.offset_bytes) as usize);
+    let mut file = held.lock().map_err(|_| "TRANSFER_SOURCE_UNAVAILABLE")?;
+    if held_file_identity(&file)? != identity || held_hash(&mut file)? != file_sha256 { return Err("TRANSFER_SOURCE_CHANGED".into()); }
+    file.seek(SeekFrom::Start(request.offset_bytes)).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+    let bounded = request.maximum_bytes.min(size_bytes.saturating_sub(request.offset_bytes) as usize);
     let mut bytes = vec![0_u8; bounded];
-    file.read_exact(&mut bytes)
-        .map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+    file.read_exact(&mut bytes).map_err(|_| "TRANSFER_SOURCE_READ_FAILED")?;
+    if held_file_identity(&file)? != identity { bytes.fill(0); return Err("TRANSFER_SOURCE_CHANGED".into()); }
+    ensure_operational(&state,&computer)?;
+    {
+        let inner = state.inner.lock().map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE")?;
+        if !inner.sources.get(&request.source_handle).is_some_and(|s| s.identity == identity && s.expires_at_ms > now_ms()) {
+            bytes.fill(0); return Err("TRANSFER_SOURCE_HANDLE_INVALID".into());
+        }
+    }
     let bytes_transferred = request.offset_bytes + bytes.len() as u64;
     Ok(SourceChunk {
         source_handle: request.source_handle,
@@ -2213,10 +2806,13 @@ pub fn cross_device_begin_inbox_transfer(
     if inner.inbound.contains_key(&request.transfer_id) {
         return Err("TRANSFER_ID_ALREADY_EXISTS".into());
     }
+    if inner.inbound.len()>=4{return Err("TRANSFER_RECEIVER_PIN_LIMIT".into());}
     let destination = inner
         .destinations
         .get(&request.destination_handle)
         .ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?;
+    if destination.held_directory.is_some()&&destination_open(&destination.path)?.1!=destination.identity{return Err("TRANSFER_DESTINATION_CHANGED".into());}
+    computer.ensure_carrier_generation(destination.native_generation)?;
     if destination.owner_session_binding_id != request.lineage.owner_session_binding_id {
         return Err("TRANSFER_DESTINATION_OWNER_MISMATCH".into());
     }
@@ -2232,6 +2828,7 @@ pub fn cross_device_begin_inbox_transfer(
         .join(format!(".edith-{}.part", random_hex(12)?));
     let now = now_ms();
     let transfer = InboundTransfer {
+        held_staging: None, native_receiver: None,
         lineage: request.lineage,
         transfer_id: request.transfer_id.clone(),
         file_name: request.file_name,
@@ -2289,14 +2886,18 @@ pub fn cross_device_write_inbox_chunk(
         .lock()
         .map_err(|_| "CROSS_DEVICE_STATE_UNAVAILABLE".to_string())?;
     revoke_expired_locked(&mut inner, now_ms());
-    write_inbox_chunk_locked(&mut inner, &request, &bytes)
+    if inner.inbound.get(&request.transfer_id).is_some_and(|t|t.native_receiver.is_some()) {return Err("TRANSFER_NATIVE_RECEIVER_ONLY".into());}
+    let epoch=inner.destinations.get(&inner.inbound.get(&request.transfer_id).ok_or("TRANSFER_NOT_FOUND")?.destination_handle).ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?.native_generation;
+    write_inbox_chunk_locked(&mut inner, &request, &bytes,&||computer.ensure_carrier_generation(epoch))
 }
 
 fn write_inbox_chunk_locked(
     inner: &mut CrossDeviceInner,
     request: &InboxChunkRequest,
     bytes: &[u8],
+    guard:&dyn Fn()->Result<(),String>,
 ) -> Result<CrossDeviceTransferSnapshot, String> {
+    let _worker=CarrierWorker::admitted();
     let destination_handle = {
         let transfer = inner
             .inbound
@@ -2308,7 +2909,10 @@ fn write_inbox_chunk_locked(
         .destinations
         .get(&destination_handle)
         .ok_or("TRANSFER_DESTINATION_HANDLE_INVALID")?;
+    if destination.held_directory.is_some()&&destination_open(&destination.path)?.1!=destination.identity{return Err("TRANSFER_DESTINATION_CHANGED".into());}
     let destination_view = DestinationRecord {
+        held_directory:destination.held_directory.clone(),identity:destination.identity.clone(),
+        native_generation:destination.native_generation,
         owner_session_binding_id: destination.owner_session_binding_id.clone(),
         path: destination.path.clone(),
         kind: destination.kind.clone(),
@@ -2328,21 +2932,25 @@ fn write_inbox_chunk_locked(
     {
         return Err("TRANSFER_RESUME_OFFSET_INVALID".into());
     }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .read(true)
-        .open(&transfer.partial_path)
-        .map_err(|_| "TRANSFER_INBOX_WRITE_FAILED")?;
+    if transfer.held_staging.is_none() {
+        guard()?;
+        let mut options=OpenOptions::new();options.create_new(true).read(true).write(true);
+        #[cfg(windows)] {use std::os::windows::fs::OpenOptionsExt;options.share_mode(1);}
+        let staging=options.open(&transfer.partial_path).map_err(|_| "TRANSFER_INBOX_WRITE_FAILED")?;
+        transfer.held_staging=Some(Arc::new(Mutex::new(staging)));
+    }
+    let held=transfer.held_staging.as_ref().ok_or("TRANSFER_INBOX_WRITE_FAILED")?.clone();
+    let mut file=held.lock().map_err(|_| "TRANSFER_INBOX_WRITE_FAILED")?;
     file.seek(SeekFrom::Start(request.offset_bytes))
         .map_err(|_| "TRANSFER_INBOX_WRITE_FAILED")?;
+    guard()?;
     file.write_all(bytes)
         .and_then(|_| file.sync_data())
         .map_err(|_| "TRANSFER_INBOX_WRITE_FAILED")?;
     transfer.acknowledged_bytes += bytes.len() as u64;
     transfer.completed_chunks.push(request.chunk_index);
     transfer.updated_at_ms = now_ms();
+    guard()?;
     if transfer.acknowledged_bytes < transfer.expected_size {
         return Ok(transfer_snapshot(
             transfer,
@@ -2351,7 +2959,7 @@ fn write_inbox_chunk_locked(
             "pending",
         ));
     }
-    if sha256_file(&transfer.partial_path)? != transfer.expected_sha256 {
+    if held_hash(&mut file)? != transfer.expected_sha256 {
         let _ = fs::remove_file(&transfer.partial_path);
         transfer.expires_at_ms = 0;
         return Err("TRANSFER_INTEGRITY_FAILED".into());
@@ -2361,17 +2969,21 @@ fn write_inbox_chunk_locked(
         transfer.expires_at_ms = 0;
         return Err("TRANSFER_DESTINATION_COLLISION".into());
     }
-    let mut source =
-        File::open(&transfer.partial_path).map_err(|_| "TRANSFER_INBOX_FINALIZE_FAILED")?;
+    file.seek(SeekFrom::Start(0)).map_err(|_|"TRANSFER_INBOX_FINALIZE_FAILED")?;
+    guard()?;
     let mut final_file = OpenOptions::new()
         .create_new(true)
         .write(true)
+        .read(true)
         .open(&transfer.final_path)
         .map_err(|_| "TRANSFER_DESTINATION_COLLISION")?;
-    if std::io::copy(&mut source, &mut final_file).is_err() || final_file.sync_all().is_err() {
+    if std::io::copy(&mut *file, &mut final_file).is_err() || final_file.sync_all().is_err() {
         let _ = fs::remove_file(&transfer.final_path);
         return Err("TRANSFER_INBOX_FINALIZE_FAILED".into());
     }
+    guard()?;
+    if held_hash(&mut final_file)?!=transfer.expected_sha256 {return Err("TRANSFER_INTEGRITY_FAILED".into());}
+    drop(file);drop(held);transfer.held_staging.take();
     let _ = fs::remove_file(&transfer.partial_path);
     let completed_at = now_ms();
     let artifact_handle = format!("artifact-{}", random_hex(16)?);
@@ -2666,6 +3278,7 @@ mod tests {
             sequence: 0,
             last_frame_at_ms: 0,
             started_at_ms: now_ms(),
+            privacy: None,
         }
     }
 
@@ -2687,14 +3300,15 @@ mod tests {
 
     fn producer_state(port: u16) -> CrossDeviceState {
         CrossDeviceState {
-            inner: Mutex::new(CrossDeviceInner {
+            producer_transport:Arc::new(Mutex::new(())),
+            inner: Arc::new(Mutex::new(CrossDeviceInner {
                 producer: Some(producer_session()),
                 ..CrossDeviceInner::default()
-            }),
-            bridge: Mutex::new(Some(ProducerBridge {
+            })),
+            bridge: Arc::new(Mutex::new(Some(ProducerBridge {
                 token: "bridge-token-kept-native-and-never-returned".into(),
                 port,
-            })),
+            }))),
         }
     }
 
@@ -3066,11 +3680,12 @@ mod tests {
     #[test]
     fn producer_missing_bridge_configuration_fails_closed() {
         let state = CrossDeviceState {
-            inner: Mutex::new(CrossDeviceInner {
+            producer_transport:Arc::new(Mutex::new(())),
+            inner: Arc::new(Mutex::new(CrossDeviceInner {
                 producer: Some(producer_session()),
                 ..CrossDeviceInner::default()
-            }),
-            bridge: Mutex::new(None),
+            })),
+            bridge: Arc::new(Mutex::new(None)),
         };
         assert_eq!(
             ingest_producer(&state, ProducerIngestKind::PcStatus, pc_status_payload())
@@ -3172,6 +3787,7 @@ mod tests {
             inner.inbound.insert(
                 "transfer-test".into(),
                 InboundTransfer {
+        held_staging: None, native_receiver: None,
                     lineage: lineage("owner-test"),
                     transfer_id: "transfer-test".into(),
                     file_name: "fixture.bin".into(),
@@ -3227,6 +3843,7 @@ mod tests {
         let directory = temp_dir("transfer");
         let payload = b"EDITH_PHASE6_TRANSFER";
         let destination = DestinationRecord {
+            held_directory:None,identity:String::new(),native_generation:0,
             owner_session_binding_id: "owner-test".into(),
             path: directory.clone(),
             kind: "approved_folder".into(),
@@ -3234,6 +3851,7 @@ mod tests {
             expires_at_ms: now_ms() + 60_000,
         };
         let transfer = InboundTransfer {
+        held_staging: None, native_receiver: None,
             lineage: lineage("owner-test"),
             transfer_id: "transfer-test".into(),
             file_name: "fixture.bin".into(),
@@ -3262,7 +3880,7 @@ mod tests {
             chunk_sha256: sha256_bytes(payload),
             bytes_base64: String::new(),
         };
-        let snapshot = write_inbox_chunk_locked(&mut inner, &request, payload).expect("write");
+        let snapshot = write_inbox_chunk_locked(&mut inner, &request, payload,&||Ok(())).expect("write");
         assert_eq!(snapshot.status, "completed");
         assert_eq!(snapshot.progress.bytes_transferred, payload.len() as u64);
         assert_eq!(snapshot.progress.percent, 100.0);
@@ -3277,6 +3895,7 @@ mod tests {
 
         let collision_partial = directory.join("collision.part");
         let collision = InboundTransfer {
+        held_staging: None, native_receiver: None,
             lineage: lineage("owner-test"),
             transfer_id: "transfer-collision".into(),
             file_name: "fixture.bin".into(),
@@ -3302,7 +3921,7 @@ mod tests {
             bytes_base64: String::new(),
         };
         let collision_error =
-            match write_inbox_chunk_locked(&mut inner, &collision_request, payload) {
+            match write_inbox_chunk_locked(&mut inner, &collision_request, payload,&||Ok(())) {
                 Ok(_) => panic!("collision must fail closed"),
                 Err(error) => error,
             };
@@ -3345,6 +3964,7 @@ mod tests {
         inner.inbound.insert(
             "transfer-pending".into(),
             InboundTransfer {
+        held_staging: None, native_receiver: None,
                 lineage: lineage("owner-test"),
                 transfer_id: "transfer-pending".into(),
                 file_name: "pending.bin".into(),
@@ -3370,6 +3990,19 @@ mod tests {
         let _ = fs::remove_dir_all(directory);
     }
 
+    #[test]
+    fn native_public_region_crop_masks_before_downsample_and_excludes_exterior() {
+        let mut pixels=vec![0u8;4*2*4];for (index,p) in pixels.chunks_exact_mut(4).enumerate(){p.copy_from_slice(&[index as u8,20,40,255]);}
+        let (rgb,w,h)=crop_mask_resize(&pixels,[10,20,14,22],[11,20,13,22],&[[11,20,12,22]],2,2).unwrap();
+        assert_eq!((w,h),(2,2));assert_eq!(&rgb[..3],&[0,0,0]);assert_eq!(&rgb[3..6],&[40,20,2]);assert_eq!(&rgb[6..9],&[0,0,0]);assert_eq!(&rgb[9..12],&[40,20,6]);
+        let (scaled,w,h)=crop_mask_resize(&pixels,[10,20,14,22],[11,20,13,22],&[[11,20,12,22]],1,1).unwrap();assert_eq!((w,h),(1,1));assert_eq!(scaled,vec![0,0,0]);
+    }
+    #[test]
+    fn native_public_region_wrong_size_or_outside_denies() {
+        assert!(crop_mask_resize(&[0;16],[0,0,2,2],[-1,0,2,2],&[],2,2).is_err());
+        assert!(crop_mask_resize(&[0;15],[0,0,2,2],[0,0,2,2],&[],2,2).is_err());
+        assert!(crop_mask_resize(&[0;16],[0,0,2,2],[0,0,2,2],&[],0,2).is_err());
+    }
     #[test]
     fn measured_metrics_are_bounded_or_honestly_unavailable() {
         let (cpu, ram, network) = platform::pc_metrics();
@@ -3576,5 +4209,45 @@ mod platform {
             },
             cursor: Some((cursor.x, cursor.y)),
         })
+    }
+}
+
+#[cfg(test)]
+mod privacy_memory_tests {
+    use super::{clear_owned_bytes,PrivacyMemory};
+    use std::sync::{Arc,atomic::Ordering};
+    #[test]
+    fn original_epoch_stop_clears_and_denies_late_frame() {
+        let memory=PrivacyMemory::new(0);
+        memory.install("old".into(),vec![1,2,3]).unwrap();
+        memory.stop_epoch(1);
+        assert!(memory.require_active().is_ok());
+        assert_eq!(memory.pixels.lock().unwrap().as_ref().unwrap().bytes,vec![1,2,3]);
+        memory.stop_epoch(0);
+        assert!(memory.pixels.lock().unwrap().is_none());
+        assert!(memory.install("late".into(),vec![4,5,6]).is_err());
+        assert!(memory.require_active().is_err());
+    }
+    #[test]
+    fn original_callback_does_not_clear_new_epoch_or_replacement_frame() {
+        let old=Arc::new(PrivacyMemory::new(4));let weak=Arc::downgrade(&old);
+        let new=PrivacyMemory::new(5);new.install("new".into(),vec![9]).unwrap();
+        weak.upgrade().unwrap().stop_epoch(4);new.stop_epoch(4);
+        assert!(new.require_active().is_ok());
+        new.clear_frame("old");assert!(new.pixels.lock().unwrap().is_some());
+        new.install("replacement".into(),vec![8]).unwrap();new.clear_frame("new");
+        assert_eq!(new.pixels.lock().unwrap().as_ref().unwrap().frame_ref,"replacement");
+        drop(old);assert!(weak.upgrade().is_none());
+    }
+    #[test]
+    fn latch_precedes_pixel_lock_and_clear_is_actual() {
+        let memory=Arc::new(PrivacyMemory::new(7));memory.install("held".into(),vec![7]).unwrap();
+        let pixels=memory.pixels.lock().unwrap();let worker=memory.clone();
+        let join=std::thread::spawn(move||worker.stop_epoch(7));
+        let deadline=std::time::Instant::now()+std::time::Duration::from_secs(1);
+        while memory.active.load(Ordering::SeqCst)&&std::time::Instant::now()<deadline {std::thread::yield_now();}
+        let latched=!memory.active.load(Ordering::SeqCst);drop(pixels);join.join().unwrap();
+        assert!(latched);assert!(memory.pixels.lock().unwrap().is_none());
+        let mut bytes=[1,2,3];clear_owned_bytes(&mut bytes);assert_eq!(bytes,[0,0,0]);
     }
 }

@@ -15,7 +15,7 @@ function sleep(ms: number): Promise<void> {
 async function removeTempRoot(): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
+      fs.rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EBUSY') throw error;

@@ -14,7 +14,7 @@ export type VoiceRoomState =
 export type VoiceRoomRuntimeStatus = 'connected' | 'connecting' | 'offline' | 'configuration_required' | 'error';
 
 export interface VoiceRoomCapabilitySnapshot {
-  assistant: typeof EDITH_VOICE_ROOM_ASSISTANT;
+  assistant: string;
   model: typeof EDITH_VOICE_ROOM_MODEL;
   runtimeStatus: VoiceRoomRuntimeStatus;
   liveConnectorBound: boolean;
@@ -55,14 +55,16 @@ export function getVoiceRoomCapabilitySnapshot(options: {
   bargeInEnabled?: boolean;
   runtimeStatus?: VoiceRoomRuntimeStatus;
   statusMessage?: string;
+  assistantName?: string;
+  localReady?: boolean;
 } = {}): VoiceRoomCapabilitySnapshot {
   const liveConnectorBound = Boolean(options.liveConnectorBound);
   const geminiApiKeyConfigured = Boolean(options.geminiApiKeyConfigured);
-  const runtimeStatus: VoiceRoomRuntimeStatus = options.runtimeStatus
-    ?? (liveConnectorBound ? 'connected' : geminiApiKeyConfigured ? 'offline' : 'configuration_required');
+  const requestedStatus = options.runtimeStatus ?? (geminiApiKeyConfigured ? 'offline' : 'configuration_required');
+  const runtimeStatus: VoiceRoomRuntimeStatus = requestedStatus === 'connected' && !options.localReady ? 'offline' : requestedStatus;
 
   return {
-    assistant: EDITH_VOICE_ROOM_ASSISTANT,
+    assistant: options.assistantName ?? EDITH_VOICE_ROOM_ASSISTANT,
     model: EDITH_VOICE_ROOM_MODEL,
     runtimeStatus,
     liveConnectorBound,
@@ -71,8 +73,8 @@ export function getVoiceRoomCapabilitySnapshot(options: {
     frontendCanReadApiKey: false,
     localSpeechRecognitionSupported: Boolean(options.localSpeechRecognitionSupported),
     wakeWordEnabled: false,
-    ttsOutputConnected: Boolean(options.ttsOutputConnected && liveConnectorBound),
-    bargeInEnabled: Boolean(options.bargeInEnabled && liveConnectorBound),
+    ttsOutputConnected: Boolean(options.localReady && options.ttsOutputConnected && liveConnectorBound),
+    bargeInEnabled: Boolean(options.localReady && options.bargeInEnabled && liveConnectorBound),
     statusMessage: options.statusMessage ?? (liveConnectorBound
       ? 'Gemini Live voice connector is available through the backend.'
       : 'Gemini Live voice connector is not wired yet. No cloud voice session has been opened.'),

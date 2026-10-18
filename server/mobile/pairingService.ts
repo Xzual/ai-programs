@@ -1,4 +1,6 @@
 import { randomBytes, randomInt, randomUUID, scryptSync } from 'node:crypto';
+import path from 'node:path';
+import { ownerSessionBindingActive } from '../security/ownerSession';
 import {
   EDITH_CONTRACT_AMENDMENT,
   EDITH_MOBILE_PROTOCOL_VERSION,
@@ -27,14 +29,17 @@ import { MobileCryptoService, isMobilePublicKeyCompatible, mobilePublicKeyFinger
 import { MobileRegistryStore } from './registryStore';
 import type { MobileAccessCredential, MobileCommand, MobileDeviceRecord, MobilePairingPublicResult, MobilePairingRecord, MobilePairingRequest, MobileSessionContext } from './types';
 import { safeDeviceCapabilities } from './types';
+import { RECONNECT_SCHEMA, P256_SUITE, initiationTranscript, reconnectTranscript, parseReconnectInitiation, parseReconnectConsume, type ReconnectInitiation, type ReconnectOffer } from './reconnectContract';
 
 const ALL_COMMANDS: MobileCommand[] = [
   'task.list', 'task.detail', 'task.activity', 'task.create_low_risk', 'task.pause', 'task.resume', 'task.cancel', 'emergency_stop',
-  'file.upload', 'clipboard.publish', 'clipboard.consume', 'offline_queue.manage', 'handoff.manage', 'result_card.read', 'audio_handoff.manage',
+  'file.upload', 'file.download', 'live_view.start', 'clipboard.publish', 'clipboard.consume', 'offline_queue.manage', 'handoff.manage', 'result_card.read', 'audio_handoff.manage',
 ];
 const DEFAULT_COMMANDS: MobileCommand[] = ['task.list', 'task.detail', 'task.activity', 'task.create_low_risk', 'task.pause', 'task.resume', 'task.cancel', 'emergency_stop', 'file.upload'];
 const PAIRING_TTL_MS = 5 * 60_000;
 const CREDENTIAL_TTL_MS = 15 * 60_000;
+// Shared by cold issuers in this process. Restart authority instead requires a live owner session.
+const uncertainDevices = new Set<string>();
 const SERVER_SUITES: MobileCryptoSuiteV2[] = [...MOBILE_CRYPTO_SUITES];
 
 function codeHash(code: string, pairingId: string): string {
@@ -64,8 +69,158 @@ function suiteMatches(suite: MobileCryptoSuiteV2, signing: MobilePublicKeyV2, ag
     : signing.algorithm === 'Ed25519' && agreement.algorithm === 'X25519';
 }
 
+function sameAuthority(left: MobileDeviceRecord, right: MobileDeviceRecord): boolean {
+  const { lastSeenAt: _leftSeen, updatedAt: _leftUpdated, ...a } = left;
+  const { lastSeenAt: _rightSeen, updatedAt: _rightUpdated, ...b } = right;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 export class MobilePairingService {
+  private readonly reconnects = new Map<string, { offer: ReconnectOffer; request: ReconnectInitiation; device: MobileDeviceRecord; attempts: number }>();
+  private readonly reconnectNonces = new Map<string, { fingerprint: string; id: string; expires: number }>();
+  private readonly sessionListeners = new Set<(deviceId: string, priorSessionId: string) => void>();
   constructor(readonly store: MobileRegistryStore, readonly crypto: MobileCryptoService) {}
+
+  onSessionReplaced(listener: (deviceId: string, priorSessionId: string) => void): () => void {
+    this.sessionListeners.add(listener); return () => this.sessionListeners.delete(listener);
+  }
+
+  private currentTrust(deviceId: string, workspaceId: string): MobileDeviceRecord {
+    if (uncertainDevices.has(this.uncertaintyKey(deviceId))) throw new Error('DEVICE_TRUST_INVALID');
+    return this.trustedDevice(deviceId, workspaceId);
+  }
+
+  private uncertaintyKey(deviceId: string): string {
+    const registry = path.resolve(this.store.filePath);
+    return `${process.platform === 'win32' ? registry.toLowerCase() : registry}\0${deviceId}`;
+  }
+
+  private trustedDevice(deviceId: string, workspaceId: string): MobileDeviceRecord {
+    const device = this.store.getDevice(deviceId);
+    if (!device || !parseDeviceTrustV2(device.trust).success || !parseOwnerSessionBindingV2(device.ownerBinding).success
+      || device.trust.status !== 'trusted' || device.ownerBinding.status !== 'active'
+      || !ownerSessionBindingActive(device.ownerBinding.ownerSessionId)
+      || !Number.isFinite(Date.parse(device.trust.expiresAt ?? '')) || Date.parse(device.trust.expiresAt!) <= Date.now()
+      || !Number.isFinite(Date.parse(device.ownerBinding.expiresAt)) || Date.parse(device.ownerBinding.expiresAt) <= Date.now()
+      || device.trust.deviceId !== deviceId || device.ownerBinding.deviceId !== deviceId
+      || device.trust.workspaceId !== workspaceId || device.ownerBinding.workspaceId !== workspaceId
+      || workspaceId !== workspaceManager.getCloudMetadata()?.workspaceId
+      || device.trust.fingerprint !== device.device.fingerprint || device.ownerBinding.deviceFingerprint !== device.trust.fingerprint
+      || !isMobilePublicKeyCompatible(this.signingKey(device)) || !isMobilePublicKeyCompatible(this.agreementKey(device))
+      || mobilePublicKeyFingerprint(this.signingKey(device)) !== device.trust.fingerprint
+      || mobilePublicKeyFingerprint(this.agreementKey(device)) !== this.agreementKey(device).fingerprint
+      || !suiteMatches(device.cryptoSuite!, this.signingKey(device), this.agreementKey(device))
+      || !Array.isArray(device.allowedCommands) || JSON.stringify(safeCommands(device.allowedCommands, [])) !== JSON.stringify(device.allowedCommands)) throw new Error('DEVICE_TRUST_INVALID');
+    return device;
+  }
+
+  private validateFreshPairing(context: MobileSessionContext): void {
+    const device = this.trustedDevice(context.credential.deviceId, context.credential.workspaceId);
+    const credential = this.store.getCredential(context.credential.credentialId);
+    if (!credential || JSON.stringify(credential) !== JSON.stringify(context.credential)
+      || JSON.stringify(device) !== JSON.stringify(context.device)
+      || credential.revokedAt || !Number.isFinite(Date.parse(credential.expiresAt)) || Date.parse(credential.expiresAt) <= Date.now()
+      || device.trust.reconnectCredentialId !== credential.credentialId
+      || device.trust.reconnectCredentialFingerprint !== credential.credentialFingerprint
+      || !this.crypto.hasSession(credential.sessionId)) throw new Error('DEVICE_TRUST_INVALID');
+  }
+
+  beginReconnect(input: unknown): ReconnectOffer {
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const row = input as Record<string, unknown>;
+      if (row.schema === RECONNECT_SCHEMA && row.contractVersion === TASK_CONTRACT_VERSION && row.amendment === EDITH_CONTRACT_AMENDMENT && row.protocolVersion === EDITH_MOBILE_PROTOCOL_VERSION
+        && (row.cryptoSuite === 'ED25519_X25519_HKDF_SHA256_AES256_GCM' || (row.clientAgreementKey && typeof row.clientAgreementKey === 'object' && (row.clientAgreementKey as Record<string, unknown>).encoding === 'jwk'))) throw new Error('RECONNECT_PAIRING_REQUIRED');
+    }
+    const parsed = parseReconnectInitiation(input);
+    if (parsed.success === false) throw new Error(parsed.errorCode);
+    const request = parsed.value;
+    if (request.serverId !== this.store.serverId() || Math.abs(Date.now() - Date.parse(request.issuedAt)) > 30_000) throw new Error('RECONNECT_BINDING_INVALID');
+    const device = this.currentTrust(request.deviceId, request.workspaceId);
+    if (!Number.isSafeInteger(device.sessionGeneration ?? 0) || (device.sessionGeneration ?? 0) < 0 || (device.sessionGeneration ?? 0) >= Number.MAX_SAFE_INTEGER) throw new Error('RECONNECT_BINDING_INVALID');
+    if (device.cryptoSuite !== P256_SUITE) throw new Error('RECONNECT_PAIRING_REQUIRED');
+    if (request.signingKeyFingerprint !== device.trust.fingerprint || !this.crypto.verifyProof(this.signingKey(device), initiationTranscript(request), request.assertionBase64url)) throw new Error('RECONNECT_PROOF_INVALID');
+    const now = Date.now();
+    for (const [id, row] of this.reconnects) if (Date.parse(row.offer.expiresAt) <= now) { this.crypto.discardReconnect(id); this.reconnects.delete(id); }
+    for (const [key, row] of this.reconnectNonces) if (row.expires <= now) this.reconnectNonces.delete(key);
+    const nonceKey = `${request.deviceId}:${request.clientNonce}`;
+    const fingerprint = sha256(JSON.stringify(request));
+    const previous = this.reconnectNonces.get(nonceKey);
+    if (previous) {
+      const pending = this.reconnects.get(previous.id);
+      if (previous.fingerprint === fingerprint && pending && sameAuthority(device, pending.device)) return structuredClone(pending.offer);
+      throw new Error('RECONNECT_NONCE_REPLAYED');
+    }
+    if (this.reconnects.size >= 256 || this.reconnectNonces.size >= 1024 || [...this.reconnects.values()].filter(row => row.offer.deviceId === request.deviceId).length >= 2) throw new Error('RECONNECT_CAPACITY');
+    const prior = this.store.getCredential(device.trust.reconnectCredentialId!);
+    if (!prior || prior.revokedAt || prior.deviceId !== request.deviceId || prior.workspaceId !== request.workspaceId || prior.credentialFingerprint !== device.trust.reconnectCredentialFingerprint) throw new Error('RECONNECT_APPROVAL_REQUIRED');
+    const reconnectId = `reconnect-${randomUUID()}`;
+    const expiresAt = new Date(Math.min(now + 60_000, Date.parse(device.trust.expiresAt!), Date.parse(device.ownerBinding.expiresAt))).toISOString();
+    const cryptoState = this.crypto.beginReconnect(reconnectId, expiresAt);
+    const offer: ReconnectOffer = {
+      schema: RECONNECT_SCHEMA, reconnectId, challengeId: `challenge-${randomUUID()}`, serverId: request.serverId,
+      workspaceId: request.workspaceId, deviceId: request.deviceId, ownerBindingId: device.ownerBinding.bindingId,
+      ownerSessionId: device.ownerBinding.ownerSessionId, ownerExpiresAt: device.ownerBinding.expiresAt, trustExpiresAt: device.trust.expiresAt!,
+      signingKeyFingerprint: device.trust.fingerprint, cryptoSuite: P256_SUITE, clientNonce: request.clientNonce,
+      clientAgreementKeyFingerprint: request.clientAgreementKey.fingerprint, priorSessionId: prior.sessionId,
+      priorCredentialId: prior.credentialId, priorCredentialFingerprint: prior.credentialFingerprint,
+      priorGeneration: device.sessionGeneration ?? 0, nextGeneration: (device.sessionGeneration ?? 0) + 1, nextSessionId: `mobile-session-${randomUUID()}`,
+      approvedCommands: [...device.allowedCommands], approvedCommandsFingerprint: sha256([...device.allowedCommands].sort().join('\n')),
+      challengeBase64url: cryptoState.challengeBase64url, serverAgreementKey: cryptoState.serverAgreementKey,
+      initiationTranscriptFingerprint: sha256(initiationTranscript(request)), issuedAt: new Date(now).toISOString(), expiresAt,
+      transcriptBase64url: '', transcriptFingerprint: '',
+    };
+    const transcript = reconnectTranscript(offer);
+    offer.transcriptBase64url = Buffer.from(transcript).toString('base64url'); offer.transcriptFingerprint = sha256(transcript);
+    this.reconnects.set(reconnectId, { offer, request, device, attempts: 0 });
+    this.reconnectNonces.set(nonceKey, { fingerprint, id: reconnectId, expires: now + 120_000 });
+    return structuredClone(offer);
+  }
+
+  consumeReconnect(id: string, input: unknown) {
+    const parsed = parseReconnectConsume(input);
+    if (parsed.success === false) throw new Error(parsed.errorCode);
+    const pending = this.reconnects.get(id);
+    if (!pending) throw new Error('RECONNECT_ALREADY_CONSUMED');
+    const offer = pending.offer;
+    if (Date.parse(offer.expiresAt) <= Date.now()) { this.reconnects.delete(id); this.crypto.discardReconnect(id); throw new Error('RECONNECT_EXPIRED'); }
+    const request = parsed.value;
+    if (request.reconnectId !== id || request.challengeId !== offer.challengeId || request.transcriptFingerprint !== offer.transcriptFingerprint) throw new Error('RECONNECT_BINDING_INVALID');
+    if (++pending.attempts > 3 || !this.crypto.verifyProof(this.signingKey(pending.device), `${reconnectTranscript(offer)}\nconsume`, request.assertionBase64url)) {
+      if (pending.attempts >= 3) { this.reconnects.delete(id); this.crypto.discardReconnect(id); }
+      throw new Error('RECONNECT_PROOF_INVALID');
+    }
+    // Claim before staging/publication; all following effects are synchronous and terminal.
+    this.reconnects.delete(id);
+    let current: MobileDeviceRecord;
+    try { current = this.currentTrust(offer.deviceId, offer.workspaceId); }
+    catch (error) { this.crypto.discardReconnect(id); throw error; }
+    if (!sameAuthority(current, pending.device)) { this.crypto.discardReconnect(id); throw new Error('RECONNECT_AUTHORITY_CHANGED'); }
+    const prior = this.store.getCredential(offer.priorCredentialId);
+    if (!prior || prior.revokedAt || prior.sessionId !== offer.priorSessionId || prior.deviceId !== offer.deviceId || prior.workspaceId !== offer.workspaceId || prior.credentialFingerprint !== offer.priorCredentialFingerprint) { this.crypto.discardReconnect(id); throw new Error('RECONNECT_AUTHORITY_CHANGED'); }
+    const staged = this.crypto.stageReconnect(id, offer.nextSessionId, pending.request.clientAgreementKey, reconnectTranscript(offer));
+    const { credential, record } = this.buildCredential(offer.deviceId, offer.nextSessionId, offer.workspaceId, offer.priorCredentialId, Math.min(Date.parse(offer.trustExpiresAt), Date.parse(offer.ownerExpiresAt)));
+    const next: MobileDeviceRecord = { ...current, sessionGeneration: offer.nextGeneration,
+      trust: { ...current.trust, reconnectCredentialId: record.credentialId, reconnectCredentialFingerprint: record.credentialFingerprint }, updatedAt: record.issuedAt };
+    const session: MobileDeviceSessionV2 = { contractVersion: TASK_CONTRACT_VERSION, amendment: EDITH_CONTRACT_AMENDMENT, protocolVersion: EDITH_MOBILE_PROTOCOL_VERSION,
+      sessionId: offer.nextSessionId, serverId: offer.serverId, deviceId: offer.deviceId, workspaceId: offer.workspaceId, cryptoSuite: P256_SUITE,
+      keyFingerprint: staged.keyFingerprint, status: 'active', establishedAt: record.issuedAt, expiresAt: record.expiresAt };
+    const checked = parseMobileDeviceSessionV2(session);
+    if (checked.success === false) { this.crypto.discardStaged(staged); throw new Error(checked.errorCode); }
+    try {
+      const credentialEnvelope = this.crypto.encryptStaged(staged, 'session.reconnected', { credential, credentialMetadata: this.credentialMetadata(record), trust: next.trust, ownerBinding: next.ownerBinding,
+        allowedCommands: [...next.allowedCommands], reset: { required: true, priorSessionId: offer.priorSessionId, sessionId: offer.nextSessionId, priorGeneration: offer.priorGeneration, generation: offer.nextGeneration, realtimeAfterCursor: 0 } });
+      this.store.commitAuthority(current, next, record);
+      this.crypto.activateReconnect(staged);
+      this.crypto.revokeSession(offer.priorSessionId);
+      for (const listener of this.sessionListeners) listener(offer.deviceId, offer.priorSessionId);
+      this.revalidateContext({ credential: record, device: next });
+      return { schema: RECONNECT_SCHEMA, reconnectId: id, session: checked.value, credentialEnvelope };
+    } catch (error) {
+      this.crypto.discardStaged(staged); this.crypto.revokeSession(offer.nextSessionId);
+      if (this.store.getDevice(offer.deviceId)?.trust.reconnectCredentialId === record.credentialId) this.crypto.revokeSession(offer.priorSessionId);
+      throw error;
+    }
+  }
 
   request(input: MobilePairingRequest): MobilePairingPublicResult {
     const normalized = this.normalizeRequest(input);
@@ -191,11 +346,12 @@ export class MobilePairingService {
     const requested = new Set(record.requestedCommands);
     const approved = safeCommands(approvedCommands, record.requestedCommands).filter((command) => requested.has(command));
     record.ownerApprovedAt = new Date().toISOString();
-    if (!ownerSession.bindingId || Date.parse(ownerSession.expiresAt) <= Date.now()) throw new Error('OWNER_SESSION_BINDING_INVALID');
+    if (!ownerSession.bindingId || !ownerSessionBindingActive(ownerSession.bindingId) || !Number.isFinite(Date.parse(ownerSession.expiresAt)) || Date.parse(ownerSession.expiresAt) <= Date.now()) throw new Error('OWNER_SESSION_BINDING_INVALID');
     record.ownerSessionBindingId = ownerSession.bindingId;
     record.ownerSessionExpiresAt = ownerSession.expiresAt;
     record.approvedCommands = approved;
     this.store.savePairing(record);
+    if (!ownerSessionBindingActive(ownerSession.bindingId) || Date.parse(ownerSession.expiresAt) <= Date.now()) throw new Error('OWNER_SESSION_BINDING_INVALID');
     this.audit('mobile.pairing.approved', record.device.deviceId, 'allowed', 'Owner approved pairing request.');
     return this.publicPairing(record);
   }
@@ -222,8 +378,8 @@ export class MobilePairingService {
     if (!this.crypto.verifyProof(this.signingKey(record), payload, signature)) throw new Error('PAIRING_CONSUME_PROOF_INVALID');
     const now = new Date().toISOString();
     const sessionId = `mobile-session-${randomUUID()}`;
-    const cryptoResult = this.crypto.establishSession(pairingId, sessionId, this.agreementKey(record));
-    const credential = this.issueCredential(record.device.deviceId, sessionId, record.challenge.workspaceId!);
+    if (!record.ownerSessionBindingId || !ownerSessionBindingActive(record.ownerSessionBindingId) || !Number.isFinite(Date.parse(record.ownerSessionExpiresAt ?? '')) || Date.parse(record.ownerSessionExpiresAt!) <= Date.now()) throw new Error('OWNER_SESSION_BINDING_INVALID');
+    const { credential, record: credentialRecord } = this.buildCredential(record.device.deviceId, sessionId, record.challenge.workspaceId!, undefined, Date.parse(record.ownerSessionExpiresAt!));
     const trust = {
       contractVersion: TASK_CONTRACT_VERSION,
       amendment: EDITH_CONTRACT_AMENDMENT,
@@ -252,11 +408,12 @@ export class MobilePairingService {
     };
     const parsedBinding = parseOwnerSessionBindingV2(binding);
     if (parsedBinding.success === false) throw new Error(parsedBinding.errorCode);
+    const cryptoResult = this.crypto.stagePairing(pairingId, sessionId, this.agreementKey(record));
     const deviceRecord: MobileDeviceRecord = {
       device: record.device,
       trust: parsedTrust.value,
       ownerBinding: parsedBinding.value,
-      cryptoSuite: cryptoResult.cryptoSuite,
+      cryptoSuite: record.cryptoSuite,
       signingKey: this.signingKey(record),
       agreementKey: this.agreementKey(record),
       allowedCommands: record.approvedCommands,
@@ -264,10 +421,8 @@ export class MobilePairingService {
       updatedAt: now,
       lastSeenAt: now,
     };
-    this.store.saveDevice(deviceRecord);
+    const expectedPairing = structuredClone(record);
     record.challenge = { ...record.challenge, status: 'consumed', consumedAt: now };
-    this.store.savePairing(record);
-    this.audit('mobile.pairing.consumed', record.device.deviceId, 'allowed', 'One-time pairing challenge consumed.');
     const session: MobileDeviceSessionV2 = {
       contractVersion: TASK_CONTRACT_VERSION,
       amendment: EDITH_CONTRACT_AMENDMENT,
@@ -276,14 +431,36 @@ export class MobilePairingService {
       serverId: this.store.serverId(),
       deviceId: record.device.deviceId,
       workspaceId: record.challenge.workspaceId!,
-      cryptoSuite: cryptoResult.cryptoSuite,
+      cryptoSuite: record.cryptoSuite!,
       keyFingerprint: cryptoResult.keyFingerprint,
       status: 'active',
       establishedAt: now,
       expiresAt: credential.expiresAt,
     };
     const parsedSession = parseMobileDeviceSessionV2(session);
-    if (parsedSession.success === false) throw new Error(parsedSession.errorCode);
+    if (parsedSession.success === false) { this.crypto.discardStaged(cryptoResult); throw new Error(parsedSession.errorCode); }
+    const previous = this.store.getDevice(record.device.deviceId);
+    const uncertaintyKey = this.uncertaintyKey(record.device.deviceId);
+    const recovering = uncertainDevices.has(uncertaintyKey);
+    try {
+      this.store.commitAuthority(previous, deviceRecord, credentialRecord, { expected: expectedPairing, next: record });
+      this.crypto.activateReconnect(cryptoResult);
+      for (const old of this.store.listCredentials().filter(row => row.deviceId === record.device.deviceId && row.sessionId !== sessionId)) {
+        this.crypto.revokeSession(old.sessionId);
+        for (const listener of this.sessionListeners) listener(record.device.deviceId, old.sessionId);
+      }
+      this.validateFreshPairing({ credential: credentialRecord, device: deviceRecord });
+      uncertainDevices.delete(uncertaintyKey);
+      this.revalidateContext({ credential: credentialRecord, device: deviceRecord });
+      this.audit('mobile.pairing.consumed', record.device.deviceId, 'allowed', 'One-time pairing challenge consumed.');
+    } catch (error) {
+      if (recovering) uncertainDevices.add(uncertaintyKey);
+      this.crypto.discardStaged(cryptoResult); this.crypto.revokeSession(sessionId);
+      if (this.store.getDevice(record.device.deviceId)?.trust.reconnectCredentialId === credentialRecord.credentialId) {
+        for (const old of this.store.listCredentials().filter(row => row.deviceId === record.device.deviceId)) this.crypto.revokeSession(old.sessionId);
+      }
+      throw error;
+    }
     return { pairing: this.publicPairing(record, deviceRecord), credential, keyFingerprint: cryptoResult.keyFingerprint, session: parsedSession.value };
   }
 
@@ -291,29 +468,31 @@ export class MobilePairingService {
     const [credentialId, secret] = token.split('.', 2);
     if (!credentialId || !secret) throw new Error('DEVICE_AUTH_REQUIRED');
     const credential = this.store.getCredential(credentialId);
-    if (!credential || credential.revokedAt || Date.parse(credential.expiresAt) <= Date.now() || !safeEqualHash(credential.credentialHash, sha256(secret))) throw new Error('DEVICE_CREDENTIAL_INVALID');
-    const device = this.store.getDevice(credential.deviceId);
-    if (!device || device.trust.status !== 'trusted' || (device.trust.expiresAt && Date.parse(device.trust.expiresAt) <= Date.now()) || device.ownerBinding.status !== 'active' || Date.parse(device.ownerBinding.expiresAt) <= Date.now()) throw new Error('DEVICE_TRUST_INVALID');
+    if (!credential || credential.revokedAt || !Number.isFinite(Date.parse(credential.expiresAt)) || Date.parse(credential.expiresAt) <= Date.now() || !safeEqualHash(credential.credentialHash, sha256(secret))) throw new Error('DEVICE_CREDENTIAL_INVALID');
+    const device = this.currentTrust(credential.deviceId, credential.workspaceId);
+    if (device.trust.reconnectCredentialId !== credential.credentialId || device.trust.reconnectCredentialFingerprint !== credential.credentialFingerprint) throw new Error('DEVICE_CREDENTIAL_INVALID');
     if (!this.crypto.hasSession(credential.sessionId)) throw new Error('DEVICE_REPAIR_REQUIRED');
     device.lastSeenAt = new Date().toISOString();
     device.updatedAt = device.lastSeenAt;
     this.store.saveDevice(device);
-    return { credential, device };
+    return this.revalidateContext({ credential, device });
   }
 
   revalidateContext(context: MobileSessionContext): MobileSessionContext {
     const credential = this.store.getCredential(context.credential.credentialId);
-    const device = this.store.getDevice(context.device.device.deviceId);
-    if (!credential || credential.deviceId !== context.credential.deviceId || credential.sessionId !== context.credential.sessionId || credential.revokedAt || Date.parse(credential.expiresAt) <= Date.now()) throw new Error('DEVICE_CREDENTIAL_INVALID');
-    if (!device || device.trust.status !== 'trusted' || device.ownerBinding.status !== 'active' || Date.parse(device.ownerBinding.expiresAt) <= Date.now() || !this.crypto.hasSession(credential.sessionId)) throw new Error('DEVICE_TRUST_INVALID');
+    if (!credential || credential.deviceId !== context.credential.deviceId || credential.sessionId !== context.credential.sessionId || credential.revokedAt || !Number.isFinite(Date.parse(credential.expiresAt)) || Date.parse(credential.expiresAt) <= Date.now()) throw new Error('DEVICE_CREDENTIAL_INVALID');
+    const device = this.currentTrust(context.device.device.deviceId, credential.workspaceId);
+    if (credential.deviceId !== device.device.deviceId || credential.workspaceId !== context.credential.workspaceId || device.trust.reconnectCredentialId !== credential.credentialId || device.trust.reconnectCredentialFingerprint !== credential.credentialFingerprint || !this.crypto.hasSession(credential.sessionId)) throw new Error('DEVICE_TRUST_INVALID');
     return { credential, device };
   }
 
   rotate(context: MobileSessionContext): MobileAccessCredential {
-    const current = this.store.getCredential(context.credential.credentialId)!;
-    current.revokedAt = new Date().toISOString();
-    this.store.saveCredential(current);
-    return this.issueCredential(current.deviceId, current.sessionId, current.workspaceId, current.credentialId);
+    const { credential: current, device } = this.revalidateContext(context);
+    const issued = this.buildCredential(current.deviceId, current.sessionId, current.workspaceId, current.credentialId, Math.min(Date.parse(device.trust.expiresAt!), Date.parse(device.ownerBinding.expiresAt)));
+    const next = { ...device, trust: { ...device.trust, reconnectCredentialId: issued.record.credentialId, reconnectCredentialFingerprint: issued.record.credentialFingerprint }, updatedAt: issued.record.issuedAt };
+    this.store.commitAuthority(device, next, issued.record);
+    this.revalidateContext({ credential: issued.record, device: next });
+    return issued.credential;
   }
 
   revokeDevice(deviceId: string): MobileDeviceRecord {
@@ -323,32 +502,57 @@ export class MobilePairingService {
     device.trust = { ...device.trust, status: 'revoked', revokedAt: now };
     device.ownerBinding = { ...device.ownerBinding, status: 'revoked', revokedAt: now };
     device.updatedAt = now;
-    this.store.saveDevice(device);
-    for (const credential of this.store.listCredentials().filter((item) => item.deviceId === deviceId && !item.revokedAt)) {
-      credential.revokedAt = now;
-      this.crypto.revokeSession(credential.sessionId);
-      this.store.saveCredential(credential);
+    const credentials = this.store.listCredentials().filter((item) => item.deviceId === deviceId);
+    uncertainDevices.add(this.uncertaintyKey(deviceId));
+    let failed = false, firstError: unknown;
+    const attempt = (work: () => void) => { try { work(); } catch (error) { if (!failed) firstError = error; failed = true; } };
+    attempt(() => this.store.revokeAuthority(device));
+    for (const [id, pending] of this.reconnects) {
+      if (pending.offer.deviceId !== deviceId) continue;
+      this.reconnects.delete(id);
+      attempt(() => this.crypto.discardReconnect(id));
     }
+    attempt(() => {
+      for (const pairing of this.store.listPairings()) {
+        if (pairing.device.deviceId === deviceId) attempt(() => this.crypto.discardPairing(pairing.pairingId));
+      }
+    });
+    for (const credential of credentials) {
+      attempt(() => this.crypto.revokeSession(credential.sessionId));
+    }
+    if (failed) throw firstError;
     this.audit('mobile.device.revoked', deviceId, 'denied', 'Owner revoked trusted mobile device.');
     return device;
   }
 
   revokeOwnerBinding(bindingId: string): string[] {
     const revoked: string[] = [];
+    let failed = false, firstError: unknown;
     for (const device of this.store.listDevices()) {
       if (device.ownerBinding.ownerSessionId !== bindingId || device.ownerBinding.status !== 'active') continue;
-      this.revokeDevice(device.device.deviceId);
+      try { this.revokeDevice(device.device.deviceId); }
+      catch (error) { if (!failed) firstError = error; failed = true; }
       revoked.push(device.device.deviceId);
     }
+    try {
+      for (const pairing of this.store.listPairings()) {
+        if (pairing.ownerSessionBindingId !== bindingId) continue;
+        try { this.crypto.discardPairing(pairing.pairingId); }
+        catch (error) { if (!failed) firstError = error; failed = true; }
+      }
+    } catch (error) { if (!failed) firstError = error; failed = true; }
+    if (failed) throw firstError;
     return revoked;
   }
 
   acceptCommand(context: MobileSessionContext, command: MobileCommand, sequence: number): void {
+    context = this.revalidateContext(context);
     if (!context.device.allowedCommands.includes(command)) throw new Error('DEVICE_COMMAND_NOT_ALLOWED');
     if (!Number.isSafeInteger(sequence) || sequence <= context.credential.lastCommandSequence) throw new Error('DEVICE_SEQUENCE_REPLAYED');
     if (sequence !== context.credential.lastCommandSequence + 1) throw new Error('DEVICE_SEQUENCE_GAP');
     context.credential.lastCommandSequence = sequence;
     this.store.saveCredential(context.credential);
+    this.revalidateContext(context);
   }
 
   sessionStatus(context: MobileSessionContext): MobileDeviceSessionV2 {
@@ -393,7 +597,7 @@ export class MobilePairingService {
 
   serverStatus(workspaceId: string): MobileServerIdentityV2 { return this.serverIdentity(workspaceId); }
 
-  private issueCredential(deviceId: string, sessionId: string, workspaceId: string, rotatedFromId?: string): MobileAccessCredential {
+  private buildCredential(deviceId: string, sessionId: string, workspaceId: string, rotatedFromId?: string, authorityExpiresAt = Infinity) {
     const credentialId = `mobile-cred-${randomUUID()}`;
     const secret = randomBytes(32).toString('base64url');
     const now = Date.now();
@@ -405,12 +609,12 @@ export class MobilePairingService {
       sessionId,
       workspaceId,
       issuedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + CREDENTIAL_TTL_MS).toISOString(),
+      expiresAt: new Date(Math.min(now + CREDENTIAL_TTL_MS, authorityExpiresAt)).toISOString(),
       rotatedFromId,
       lastCommandSequence: 0,
     };
-    this.store.saveCredential(record);
-    return { credentialId, secret, token: `${credentialId}.${secret}`, sessionId, deviceId, workspaceId, expiresAt: record.expiresAt };
+    const credential: MobileAccessCredential = { credentialId, secret, token: `${credentialId}.${secret}`, sessionId, deviceId, workspaceId, expiresAt: record.expiresAt };
+    return { record, credential };
   }
 
   private requirePairing(pairingId: string): MobilePairingRecord {
@@ -447,13 +651,13 @@ export class MobilePairingService {
     };
   }
 
-  private signingKey(record: MobilePairingRecord): MobilePublicKeyV2 {
+  private signingKey(record: MobilePairingRecord | MobileDeviceRecord): MobilePublicKeyV2 {
     if (record.signingKey) return record.signingKey;
     if (record.signingPublicKeyJwk) return legacyKey(record.signingPublicKeyJwk, 'Ed25519');
     throw new Error('PAIRING_SIGNING_KEY_MISSING');
   }
 
-  private agreementKey(record: MobilePairingRecord): MobilePublicKeyV2 {
+  private agreementKey(record: MobilePairingRecord | MobileDeviceRecord): MobilePublicKeyV2 {
     if (record.agreementKey) return record.agreementKey;
     if (record.agreementPublicKeyJwk) return legacyKey(record.agreementPublicKeyJwk, 'X25519');
     throw new Error('PAIRING_AGREEMENT_KEY_MISSING');

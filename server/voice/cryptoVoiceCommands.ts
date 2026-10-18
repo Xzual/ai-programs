@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { binanceSpotService, BinanceSpotError, type BinanceSpotProposal } from "../crypto/binanceSpotService";
+import { binanceSpotService, BinanceSpotError } from "../crypto/binanceSpotService";
 import { cryptoService } from "../../src/edith/cryptoService";
 
 export type CryptoVoiceIntent =
@@ -35,27 +35,10 @@ const aliases: Array<[RegExp, string, string]> = [
   [/\b(dogecoin|doge)\b/i, "DOGEUSDT", "Dogecoin"], [/\b(cardano|ada)\b/i, "ADAUSDT", "Cardano"],
 ];
 
-const quantityTokens: Record<string, string> = {
-  BTCUSDT: "(?:btc|bitcoin)", ETHUSDT: "(?:eth|ethereum|ether)", BNBUSDT: "(?:bnb|binance coin)",
-  XRPUSDT: "(?:xrp|ripple)", SOLUSDT: "(?:sol|solana)", TRXUSDT: "(?:trx|tron)",
-  ZECUSDT: "(?:zec|zcash)", HYPEUSDT: "(?:hype|hyperliquid)", DOGEUSDT: "(?:doge|dogecoin)",
-  ADAUSDT: "(?:ada|cardano)",
-};
-
 // Keep the leading boundary but allow Turkish suffixes such as coinleri, emirlerim and bakiyelerim.
 const cryptoContext = /\b(?:binance|kripto|crypto|coin|bitcoin|btc|ethereum|ether|eth|bnb|xrp|ripple|solana|tron|trx|zcash|zec|hyperliquid|hype|dogecoin|doge|cardano|ada|usdt|jev|portföy|portfoy|emir|bakiye)/i;
 const buyWords = /\b(al|alım|alim|satın al|buy|long)\b/i;
 const sellWords = /\b(sat|satış|satis|sell)\b/i;
-
-function numberValue(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
-  const compact = raw.replace(/\s/g, "");
-  const normalized = compact.includes(",") && compact.includes(".")
-    ? compact.lastIndexOf(",") > compact.lastIndexOf(".") ? compact.replace(/\./g, "").replace(",", ".") : compact.replace(/,/g, "")
-    : compact.replace(",", ".");
-  const value = Number(normalized);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
-}
 
 function foldSpeech(input: string): string {
   return input.toLocaleLowerCase("tr-TR").normalize("NFD")
@@ -90,22 +73,16 @@ async function dashboard(path: string, init?: RequestInit, timeoutMs = 12000): P
   } finally { clearTimeout(timeout); }
 }
 
-function amountParts(text: string, symbol?: string) {
-  const quote = text.match(/([0-9][0-9.,]*)\s*(?:usdt|dolar(?:lık|lik)?)/i);
-  const price = text.match(/(?:limit|fiyat(?:ı|i|tan|ten|a|e)?|price)\s*(?:olarak|=|:)?\s*([0-9][0-9.,]*)/i)
-    ?? text.match(/([0-9][0-9.,]*)\s*(?:usdt|dolar)\s*(?:fiyat|limit)/i)
-    ?? text.match(/([0-9][0-9.,]*)\s*(?:limit\s+fiyat|limit)(?:\s|$)/i);
-  let quantity: number | undefined;
-  if (symbol) {
-    const token = quantityTokens[symbol];
-    const quantityMatch = token ? text.match(new RegExp(`([0-9][0-9.,]*)\\s*${token}\\b`, "i")) : undefined;
-    quantity = numberValue(quantityMatch?.[1]);
-  }
-  return { quoteAmount: numberValue(quote?.[1]), price: numberValue(price?.[1]), quantity };
-}
-
 export function isCryptoVoiceCommand(text: string): boolean {
   return cryptoContext.test(String(text || ""));
+}
+
+function disabledPrivate(intent: CryptoVoiceIntent): CryptoVoiceCommandResult {
+  return {
+    matched: true, intent, navigateTo: "crypto", requiresVisualApproval: false,
+    reply: "DEMO_ONLY: Binance private hesap, bakiye, açık emir ve gerçek emir taslağı erişimi kalıcı olarak kapalı. Gerçek emir veya görsel onay oluşturulmaz. 10.000 CR demo portföyünü ve public piyasa verisini kullanabilirsiniz.",
+    data: { mode: "DEMO_ONLY", status: "disabled", errorCode: "demo_only", privateRequestsEnabled: false, realOrderSent: false },
+  };
 }
 
 export class CryptoVoiceCommandService {
@@ -118,7 +95,7 @@ export class CryptoVoiceCommandService {
     const selected = symbolsIn(text);
 
     if (/\b(yardim|neler soyleyebilirim|komut|help)/i.test(lower)) {
-      return { matched: true, intent: "help", navigateTo: "crypto", reply: "Binance bağlantısını, bakiyeyi, açık emirleri, top 10 piyasayı, coin fiyatını, yükselenleri, düşenleri, portföyü ve işlem geçmişini sorabilirsiniz. Jev analizi çalıştırabilir, alım veya satış taslağı hazırlatabilir, taslağı gösterebilir, reddedebilir ve kill switch'i açabilirsiniz. Gerçek emir sesle onaylanmaz; ekrandaki tek kullanımlık kod gerekir." };
+      return { matched: true, intent: "help", navigateTo: "crypto", reply: "Public coin fiyatı, top 10 piyasa, karşılaştırma, 10.000 CR demo portföyü ve demo işlem geçmişini sorabilirsiniz. Jev demo kararlarını kontrol edebilir ve kill switch açabilirsiniz. DEMO_ONLY: Binance private hesap ve gerçek emir erişimi kalıcı kapalı; sesli veya görsel onay ile açılamaz." };
     }
 
     if (/kill switch|acil dur|tum islemleri durdur|canli islemi kilitle/i.test(lower)) {
@@ -126,12 +103,14 @@ export class CryptoVoiceCommandService {
         return { matched: true, intent: "kill_switch_off_denied", navigateTo: "crypto", reply: "Kill switch sesli komutla kapatılamaz. Güvenlik merkezinde sahip doğrulaması gerekir." };
       }
       const status = this.binance.setKillSwitch(true);
-      return { matched: true, intent: "kill_switch_on", navigateTo: "crypto", reply: "Binance Spot kill switch açıldı. Yeni gerçek emir onayları engellendi.", data: { status } };
+      return { matched: true, intent: "kill_switch_on", navigateTo: "crypto", reply: "Crypto kill switch açıldı. Demo BUY/SELL işlemleri durduruldu. Gerçek emir erişimi zaten kalıcı olarak kapalı.", data: { status } };
     }
+
+    if (/\b(son.*emir|emir.*durum|taslak.*durum|gerceklesti mi|onayla|approve|emri gonder)/i.test(lower)) return disabledPrivate("proposal_status");
 
     if (/\b(baglanti|bagli mi|hazir mi|durum)/i.test(lower) && /binance|spot|api/i.test(lower)) {
       const status = this.binance.status();
-      const phrase = status.configured ? status.liveEnabled ? "API bağlı ve canlı Spot işlem açık" : "API yapılandırılmış fakat canlı işlem kilitli" : "API anahtarı henüz bağlı değil";
+      const phrase = "DEMO_ONLY; private hesap ve gerçek emir erişimi kalıcı kapalı, public piyasa verisi kullanılabilir";
       return { matched: true, intent: "connection_status", navigateTo: "crypto", reply: `Binance Global Spot durumu: ${phrase}. Kill switch ${status.killSwitch ? "açık" : "kapalı"}. Para çekme, futures ve margin bu sistemde yok.`, data: { status } };
     }
 
@@ -160,17 +139,10 @@ export class CryptoVoiceCommandService {
       return { matched: true, intent: "price", navigateTo: "crypto", reply: row ? `${selected[0].name} fiyatı ${money(row.price, Number(row.price) < 1 ? 6 : 2)} USDT. Son 24 saat değişimi yüzde ${money(row.change24h)}.` : `${selected[0].name} fiyatı doğrulanamadı.`, data: { market: row } };
     }
 
-    if (/\b(acik emir|bekleyen emir|open orders)/i.test(lower)) {
-      const orders = await this.binance.openOrders(selected[0]?.symbol);
-      return { matched: true, intent: "open_orders", navigateTo: "crypto", reply: orders.length ? `${orders.length} açık emir var. ${orders.slice(0, 5).map((order: any) => `${order.symbol} ${order.side} ${order.origQty} adet, ${order.price} USDT`).join("; ")}.` : "Binance Spot hesabında açık emir yok.", data: { orders } };
-    }
+    if (/\b(acik emir|bekleyen emir|open orders)/i.test(lower)) return disabledPrivate("open_orders");
 
-    if (/\b(bakiye|hesabim|varlik)/i.test(lower)) {
-      const account = await this.binance.account();
-      const balances = account.balances.filter((row: any) => Number(row.free) > 0 || Number(row.locked) > 0);
-      const usdt = balances.find((row: any) => row.asset === "USDT");
-      const detail = /hangi coin|varlik|bakiyeler/i.test(lower) ? balances.slice(0, 12).map((row: any) => `${row.asset} ${money(row.free, 8)}`).join("; ") : `Kullanılabilir USDT ${money(usdt?.free ?? 0)}`;
-      return { matched: true, intent: /hangi coin|varlik|bakiyeler/i.test(lower) ? "balances" : "account_summary", navigateTo: "crypto", reply: `Spot hesabı ${account.canTrade ? "işleme açık" : "işleme kapalı"}. ${detail}.`, data: { account } };
+    if (/\b(bakiye|hesabim|varlik)|hangi coin.*var|hesap/i.test(lower)) {
+      return disabledPrivate(/hangi coin|varlik|bakiyeler/i.test(lower) ? "balances" : "account_summary");
     }
 
     if (/\b(portfoy|kar zarar|pozisyon)/i.test(lower)) {
@@ -182,8 +154,7 @@ export class CryptoVoiceCommandService {
     if (/\b(ne yaptin|neler yaptin|islem gecmisi|son islemler|trade history)/i.test(lower)) {
       const value = await dashboard("/api/crypto/trades?limit=20");
       const trades = Array.isArray(value.trades) ? value.trades : [];
-      const proposal = this.binance.latestProposal();
-      return { matched: true, intent: "trade_history", navigateTo: "crypto", reply: `${trades.length ? `Son kayıtlarda ${trades.length} demo işlem var. ${trades.slice(0, 5).map((trade: any) => `${trade.symbol} ${trade.side}`).join("; ")}.` : "Demo işlem geçmişinde kayıt yok."} ${proposal ? `Son Binance taslağı ${proposal.symbol} ${proposal.side}, durum ${proposal.state}.` : "Binance için hazırlanmış taslak yok."}`, data: { trades, proposal } };
+      return { matched: true, intent: "trade_history", navigateTo: "crypto", reply: trades.length ? `Son kayıtlarda ${trades.length} demo işlem var. ${trades.slice(0, 5).map((trade: any) => `${trade.symbol} ${trade.side}`).join("; ")}.` : "Demo işlem geçmişinde kayıt yok.", data: { trades, mode: "DEMO_ONLY" } };
     }
 
     if (/\b(jev.*durum|jev hazir|jev baglanti)/i.test(lower)) {
@@ -207,47 +178,21 @@ export class CryptoVoiceCommandService {
       return { matched: true, intent: "jev_analyze", navigateTo: "crypto", reply: `${selected[0].name} için Jev kararı ${decision.action || decision.decision || "doğrulanamadı"}. Güven ${decision.confidence != null ? `yüzde ${money(Number(decision.confidence) * 100)}` : "bildirilmedi"}. Bu karar tek başına gerçek emir göndermez.`, data: { decision } };
     }
 
-    if (/\b(taslagi goster|emri goster|ekranda goster)/i.test(lower)) {
-      const proposal = this.binance.latestProposal();
-      return { matched: true, intent: "show_proposal", navigateTo: "crypto", requiresVisualApproval: proposal?.state === "AWAITING_APPROVAL", reply: proposal ? `Son taslak ${proposal.symbol} ${proposal.side}, ${proposal.quantity} adet, limit fiyat ${proposal.price} USDT. Durum ${proposal.state}. Crypto ekranını açıyorum.` : "Gösterilecek Binance emir taslağı yok.", data: { proposal } };
-    }
-
-    if (/\b(taslagi iptal|taslagi reddet|emir taslagini sil)/i.test(lower)) {
-      const proposal = this.binance.latestProposal();
-      if (!proposal || proposal.state !== "AWAITING_APPROVAL") return { matched: true, intent: "reject_proposal", navigateTo: "crypto", reply: "Reddedilecek bekleyen Binance taslağı yok." };
-      const rejected = this.binance.reject(proposal.id);
-      return { matched: true, intent: "reject_proposal", navigateTo: "crypto", reply: `${rejected.symbol} ${rejected.side} taslağı reddedildi. Gerçek emir gönderilmedi.`, data: { proposal: rejected } };
-    }
-
-    if (/\b(son emir|emir durumu|taslak durumu|gerceklesti mi)/i.test(lower)) {
-      const proposal = this.binance.latestProposal();
-      return { matched: true, intent: "proposal_status", navigateTo: "crypto", reply: proposal ? `Son Binance taslağı ${proposal.symbol} ${proposal.side}. Yerel durum ${proposal.state}, Binance durumu ${proposal.exchangeStatus || "henüz yok"}.` : "Binance emir taslağı bulunamadı.", data: { proposal } };
-    }
+    if (/\b(taslagi goster|emri goster|ekranda goster)/i.test(lower)) return disabledPrivate("show_proposal");
+    if (/\b(taslagi iptal|taslagi reddet|emir taslagini sil)/i.test(lower)) return disabledPrivate("reject_proposal");
+    if (/\b(son emir|emir durumu|taslak durumu|gerceklesti mi|onayla|approve|emri gonder)/i.test(lower)) return disabledPrivate("proposal_status");
 
     if (/\b(haber ver|bildir|alarm|ulasirsa|gelirse)/i.test(lower)) {
       return { matched: true, intent: "unsupported_alert", navigateTo: "crypto", reply: "Fiyat ve olay alarmı henüz kalıcı görev olarak bağlı değil. Sahte bir alarm oluşturmayacağım; isterseniz mevcut fiyatı veya Jev kararını şimdi kontrol edebilirim." };
     }
 
     if (/\b(hold|bekle|islem yapma)/i.test(lower)) {
-      return { matched: true, intent: "hold", navigateTo: "crypto", reply: "HOLD kaydedildi. Gerçek emir oluşturulmadı." };
+      return { matched: true, intent: "hold", navigateTo: "crypto", reply: "HOLD. Yeni işlem talep edilmedi." };
     }
 
-    if (buyWords.test(lower) || sellWords.test(lower) || /\b(taslak|isleme basla)/i.test(lower)) {
-      const side = sellWords.test(lower) ? "SELL" : buyWords.test(lower) ? "BUY" : undefined;
-      const coin = selected[0];
-      if (!side || !coin) return { matched: true, intent: "ambiguous_trade", navigateTo: "crypto", reply: "Emir taslağı için coin ve yönü açık söyleyin. Örnek: Bitcoin için 100 USDT'lik alım taslağı hazırla." };
-      const amounts = amountParts(text, coin.symbol);
-      const current = (await this.binance.markets()).find((row) => row.symbol === coin.symbol);
-      const useCurrent = /guncel|simdiki|mevcut fiyat/i.test(lower);
-      const price = amounts.price ?? (useCurrent ? Number(current?.price) : undefined);
-      if (!price) return { matched: true, intent: "ambiguous_trade", navigateTo: "crypto", reply: `${coin.name} ${side === "BUY" ? "alım" : "satış"} taslağı için limit fiyatı da söyleyin veya güncel fiyatı kullan de.` };
-      const quantity = amounts.quantity ?? (amounts.quoteAmount ? amounts.quoteAmount / price : undefined);
-      if (!quantity) return { matched: true, intent: "ambiguous_trade", navigateTo: "crypto", reply: `${coin.name} taslağı için coin miktarı veya USDT tutarı eksik. Miktarı açıkça söyleyin.` };
-      const proposal = await this.binance.createProposal({ symbol: coin.symbol, side, type: "LIMIT", price: String(price), quantity: quantity.toFixed(12), source: "manual", rationale: `Voice Room: ${text}` });
-      return { matched: true, intent: "create_proposal", navigateTo: "crypto", requiresVisualApproval: true, reply: `${coin.name} için ${side === "BUY" ? "alım" : "satış"} taslağı hazırlandı. ${proposal.quantity} adet, limit fiyat ${proposal.price} USDT, yaklaşık toplam ${proposal.notional} USDT. Gerçek emir gönderilmedi. Crypto ekranında ${proposal.approvalPhrase} koduyla açık onay gerekir.`, data: { proposal } };
-    }
+    if (buyWords.test(lower) || sellWords.test(lower) || /\b(taslak|isleme basla)/i.test(lower)) return disabledPrivate("create_proposal");
 
-    return { matched: true, intent: "help", navigateTo: "crypto", reply: "Crypto komutunu anladım ancak yapılacak işlemi netleştiremedim. Bağlantı, bakiye, fiyat, top 10, Jev analizi, işlem geçmişi veya emir taslağı şeklinde söyleyebilirsiniz." };
+    return { matched: true, intent: "help", navigateTo: "crypto", reply: "Crypto komutunu anladım ancak yapılacak işlemi netleştiremedim. Public fiyat, top 10, Jev demo kararı, demo portföyü veya demo işlem geçmişi şeklinde söyleyebilirsiniz. Private Binance erişimi kalıcı kapalı." };
   }
 }
 

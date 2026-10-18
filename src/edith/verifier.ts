@@ -9,6 +9,18 @@ import type {
 } from './core';
 import { readRecentAuditEvents } from './audit';
 import { taskService } from './taskService';
+import {isNativeBoundTask} from './taskService';
+import { BROWSER_TOOL_IDS } from './browserOperatorContract';
+import type { BrowserWorkflowService } from './browserWorkflowService';
+import type { BrowserParentAggregateCap,BrowserParentExecutionCap } from '../../server/browser/browserPrivateContract';
+let nativeVerifier:((task:EdithTask)=>EdithVerificationResult)|undefined;
+export function registerNativeTaskVerifier(verifier:typeof nativeVerifier){nativeVerifier=verifier;}
+let browserParentProducer:Pick<BrowserWorkflowService,'readParentAggregate'|'inspectParentAggregate'|'consumeParentAggregate'|'readNativeParentAggregate'|'inspectNativeParentAggregate'|'consumeNativeParentAggregate'|'readNativeParentContinuation'>|undefined;
+/** Backend composition wires the same retained producer; this registers no owner or evidence records. */
+export function registerBrowserParentVerifier(producer:BrowserWorkflowService):void {
+  if(browserParentProducer&&browserParentProducer!==producer)throw Error('BROWSER_PRODUCER_ALREADY_CONFIGURED');
+  browserParentProducer=producer;
+}
 
 export interface VerifyTaskResult {
   success: boolean;
@@ -52,6 +64,28 @@ function check(
   required = true
 ): EdithVerificationCheck {
   return { id, label, status, evidence, required };
+}
+
+// Classification only denies generic verification; it never issues browser proof.
+function requiresTrustedBrowserEvidence(task: EdithTask): boolean {
+  return task.validationRules?.includes('actual-owned-browser-postcondition')
+    || task.toolsRequired?.some(toolId => (BROWSER_TOOL_IDS as readonly string[]).includes(toolId))
+    || task.plan?.steps.some(step => step.suggestedTools.some(toolId => (BROWSER_TOOL_IDS as readonly string[]).includes(toolId)))
+    || false;
+}
+
+function browserEvidenceRequired(task: EdithTask): EdithVerificationResult {
+  return {
+    id: verificationId(task.id),
+    taskId: task.id,
+    verifier: 'heuristic-v1',
+    status: 'RETRYABLE',
+    checkedAt: new Date().toISOString(),
+    summary: 'Trusted browser producer evidence is required; generic verification cannot certify this task.',
+    checks: [check('trusted-browser-evidence', 'Trusted browser producer evidence', 'RETRYABLE',
+      'Generic verification does not issue or refresh browser receipt authority.')],
+    retryable: true,
+  };
 }
 
 function isTerminalStepStatus(status: string): boolean {
@@ -116,9 +150,20 @@ function finalStatus(checks: EdithVerificationCheck[]): EdithVerificationStatus 
 }
 
 export class VerificationService {
-  verifyTask(taskId: string): VerifyTaskResult {
+  verifyTask(taskId: string,context:{nativeBrowserExecution?:BrowserParentExecutionCap}={}): VerifyTaskResult {
     const task = taskService.getTask(taskId);
     if (!task) return { success: false, taskId, error: 'Task not found.' };
+    if(context.nativeBrowserExecution)return this.verifyNativeBrowserParent(task,context.nativeBrowserExecution);
+    if(isNativeBoundTask(task)){
+      const verification=nativeVerifier?.(task)??{id:verificationId(task.id),taskId:task.id,verifier:'heuristic-v1' as const,status:'RETRYABLE' as const,checkedAt:new Date().toISOString(),summary:'Trusted native postcondition evidence required.',retryable:true,checks:[check('native-authority','Backend native authority','RETRYABLE','No registered current native evidence.')]};
+      return {success:verification.status==='PASS',taskId,status:verification.status,verification,task:taskService.getTask(taskId),error:verification.status==='PASS'?undefined:verification.summary};
+    }
+    const browserAggregate = browserParentProducer?.readParentAggregate(taskId);
+    if (browserAggregate) return this.verifyBrowserParent(task, browserAggregate);
+    if (requiresTrustedBrowserEvidence(task)) {
+      const verification = browserEvidenceRequired(task);
+      return { success: false, taskId, status: verification.status, verification, task, error: verification.summary };
+    }
     if (!this.canVerify(task)) {
       return {
         success: false,
@@ -141,7 +186,64 @@ export class VerificationService {
     };
   }
 
+  private verifyBrowserParent(task: EdithTask, aggregate: BrowserParentAggregateCap): VerifyTaskResult {
+    try {
+      const producer=browserParentProducer!;
+      const view = producer.inspectParentAggregate(aggregate);
+      if (view.taskId !== task.id || view.planId !== task.plan?.id) throw new Error('BROWSER_PARENT_MISMATCH');
+      if (view.commitState === 'reserved') {
+        const current = taskService.getTask(task.id)!;
+        return {success:current.status==='COMPLETED'&&current.verification?.status==='PASS',taskId:task.id,status:current.verification?.status,verification:current.verification,task:current};
+      }
+      const current = taskService.getTask(task.id);
+      if (!current || current.status !== 'RUNNING' || !this.canVerify(current)) throw new Error('BROWSER_PARENT_NOT_AT_BOUNDARY');
+      const checks = [...this.buildChecks(current), ...view.requiredChecks];
+      // The optional language-overlap check remains visible; completion certifies the required finite predicates.
+      const status = checks.filter(candidate=>candidate.required).every(candidate=>candidate.status==='PASS') ? 'PASS' : finalStatus(checks);
+      const verification: EdithVerificationResult = {id:verificationId(task.id),taskId:task.id,verifier:'heuristic-v1',status,checkedAt:new Date().toISOString(),
+        summary:status==='PASS'?'Original declared browser plan predicates and ordinary required checks passed; native physical proof is absent.':'Original browser plan ordinary required checks did not pass.',checks,retryable:status==='RETRYABLE'};
+      if (status !== 'PASS') return {success:false,taskId:task.id,status,verification,task:current,error:verification.summary};
+      const finalView = producer.inspectParentAggregate(aggregate);
+      if (finalView.verificationDigest !== view.verificationDigest || taskService.getTask(task.id)?.status !== 'RUNNING') throw new Error('BROWSER_PARENT_CHANGED');
+      producer.consumeParentAggregate(aggregate, finalView.verificationDigest);
+      taskService.recordVerification(task.id, verification);
+      const persisted = taskService.getTask(task.id);
+      producer.inspectParentAggregate(aggregate);
+      const success = persisted?.status === 'COMPLETED' && persisted.verification?.id === verification.id && persisted.verification.status === 'PASS';
+      return {success,taskId:task.id,status:persisted?.verification?.status,verification:persisted?.verification,task:persisted,error:success?undefined:'Original task changed during verification publication.'};
+    } catch {
+      const verification = browserEvidenceRequired(task);
+      return {success:false,taskId:task.id,status:verification.status,verification,task:taskService.getTask(task.id),error:verification.summary};
+    }
+  }
+
+  private verifyNativeBrowserParent(task:EdithTask,execution:BrowserParentExecutionCap):VerifyTaskResult {
+    try{
+      const producer=browserParentProducer;
+      if(!producer||execution.taskId!==task.id||execution.planId!==task.plan?.id)throw Error('NATIVE_PARENT_MISMATCH');
+      const aggregate=producer.readNativeParentAggregate(execution);
+      const view=producer.inspectNativeParentAggregate(aggregate);
+      const current=taskService.getTask(task.id);
+      if(!current||current.status!=='RUNNING'||!this.canVerify(current)||view.taskId!==task.id||view.planId!==current.plan?.id)throw Error('NATIVE_PARENT_NOT_AT_BOUNDARY');
+      const checks=[...this.buildChecks(current),...view.requiredChecks];
+      const status=checks.filter(item=>item.required).every(item=>item.status==='PASS')?'PASS':finalStatus(checks);
+      const verification:EdithVerificationResult={id:verificationId(task.id),taskId:task.id,verifier:'heuristic-v1',status,checkedAt:new Date().toISOString(),summary:status==='PASS'?'Original native pairs and ordinary required plan checks passed.':'Original native parent required checks did not pass.',checks,retryable:status==='RETRYABLE'};
+      if(status!=='PASS')return {success:false,taskId:task.id,status,verification,task:current,error:verification.summary};
+      const finalView=producer.inspectNativeParentAggregate(aggregate);
+      if(finalView.verificationDigest!==view.verificationDigest||taskService.getTask(task.id)?.status!=='RUNNING')throw Error('NATIVE_PARENT_CHANGED');
+      producer.consumeNativeParentAggregate(aggregate,finalView.verificationDigest);
+      taskService.recordVerification(task.id,verification);
+      const continuation=producer.readNativeParentContinuation(execution),persisted=taskService.getTask(task.id);
+      const success=!('pending' in continuation)&&continuation.success&&persisted?.status==='COMPLETED'&&persisted.verification?.id===verification.id&&persisted.verification.status==='PASS';
+      return {success,taskId:task.id,status:persisted?.verification?.status,verification:persisted?.verification,task:persisted,error:success?undefined:'Native parent changed during publication.'};
+    }catch{
+      const verification=browserEvidenceRequired(task);
+      return {success:false,taskId:task.id,status:verification.status,verification,task:taskService.getTask(task.id),error:verification.summary};
+    }
+  }
+
   evaluate(task: EdithTask): EdithVerificationResult {
+    if (requiresTrustedBrowserEvidence(task)) return browserEvidenceRequired(task);
     const checks = this.buildChecks(task);
     const status = finalStatus(checks);
     const failed = checks.filter((candidate) => candidate.required && candidate.status !== 'PASS');

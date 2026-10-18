@@ -1,5 +1,6 @@
 import { permissionService } from './permissionService';
 import type { CanonicalTaskStatus } from './contracts';
+import type { ReaAnalysisInput, ReaDeepReadonly } from './reaContract';
 
 export type EdithRiskLevel = 0 | 1 | 2 | 3 | 4 | 5;
 export type EdithToolRisk = 'READ' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
@@ -60,7 +61,10 @@ export type BrowserWorkflowAction =
   | 'download_pdf'
   | 'read_pdf'
   | 'upload_file'
-  | 'fill_form';
+  | 'fill_form'
+  | 'title'
+  | 'scroll'
+  | 'new_tab';
 
 export interface BrowserWorkflowRequest {
   action: BrowserWorkflowAction;
@@ -68,8 +72,14 @@ export interface BrowserWorkflowRequest {
   url?: string;
   selectors?: Record<string, string>;
   filePath?: string;
+  sessionId?: string;
+  pageId?: string;
+  /** Logical selector keys must exactly match these explicit field-value keys. */
+  fieldValues?: Record<string, string>;
+  scrollDeltaY?: number;
   verificationGoal: string;
   dryRun?: boolean;
+  /** @deprecated Declarative legacy field only; never grants execution authority. */
   approvalGranted?: boolean;
 }
 
@@ -276,6 +286,21 @@ export interface KnowledgeRecommendation {
 
 export type EdithPlanStepStatus = 'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'SKIPPED';
 
+/** Exact approved input; a persisted plan is data, never execution authority. */
+export interface EdithReaPlannedCall {
+  readonly toolId: 'rea_analysis';
+  readonly args: ReaDeepReadonly<ReaAnalysisInput>;
+}
+
+/** Captured before dispatch. runId is distinct from toolRunId and auditEventId. */
+export interface EdithExecutionIdentity {
+  readonly taskId: string;
+  readonly planId: string;
+  readonly stepId: string;
+  readonly runId: string;
+  readonly attempt: number;
+}
+
 export interface EdithPlanStep {
   id: string;
   title: string;
@@ -287,6 +312,7 @@ export interface EdithPlanStep {
   validationCriteria: string[];
   riskLevel: EdithRiskLevel;
   parallelGroup?: string;
+  reaCall?: EdithReaPlannedCall;
 }
 
 export type EdithContextReferenceType = 'memory' | 'task' | 'tool' | 'tool_run' | 'audit';
@@ -545,6 +571,7 @@ export interface EdithToolResult {
   error?: string;
   structuredOutput?: Record<string, unknown>;
   auditEventId?: string;
+  toolRunId?: string;
   startedAt?: string;
   finishedAt?: string;
   durationMs?: number;

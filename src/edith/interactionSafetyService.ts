@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { BrowserWorkflowAction, EdithRiskLevel } from './core';
+import type { EdithRiskLevel } from './core';
+import { BROWSER_ACTION_MODES, BROWSER_TOOL_POLICY } from './browserOperatorContract';
 import { browserWorkflowService } from './browserWorkflowService';
 import { computerActionService } from './computerActionService';
 import { killSwitchService } from './killSwitch';
@@ -88,17 +89,6 @@ function commandExistsOnPath(command: string): boolean {
   );
 }
 
-const BROWSER_ACTION_MODE: Record<BrowserWorkflowAction, BrowserUseMode> = {
-  search: 'SAFE_NAVIGATION',
-  navigate: 'SAFE_NAVIGATION',
-  extract: 'SAFE_NAVIGATION',
-  screenshot: 'SAFE_NAVIGATION',
-  read_pdf: 'READ_ONLY',
-  download_pdf: 'DOWNLOAD_WITH_APPROVAL',
-  upload_file: 'FORM_FILLING_WITH_APPROVAL',
-  fill_form: 'FORM_FILLING_WITH_APPROVAL',
-};
-
 export class InteractionSafetyService {
   snapshot(): InteractionSafetySnapshot {
     const policy = permissionService.getPolicy();
@@ -177,14 +167,12 @@ export class InteractionSafetyService {
         ...browserCapabilities.map((capability): InteractionCapabilityClassification => ({
           id: `browser_workflow.${capability.action}`,
           area: 'browser',
-          status: capability.runtimeStatus === 'AVAILABLE' ? 'real' : capability.runtimeStatus === 'CONFIGURATION_REQUIRED' ? 'stub' : 'blocked',
-          mode: BROWSER_ACTION_MODE[capability.action],
-          riskLevel: capability.riskLevel,
-          requiredPermissions: capability.requiredPermissions,
+          status: capability.runtimeStatus === 'AVAILABLE' ? 'partial' : capability.runtimeStatus === 'CONFIGURATION_REQUIRED' ? 'stub' : 'blocked',
+          mode: BROWSER_ACTION_MODES[capability.action],
+          riskLevel: BROWSER_TOOL_POLICY.riskLevel,
+          requiredPermissions: [...BROWSER_TOOL_POLICY.requiredPermissions],
           verification: capability.verification,
-          notes: capability.requiresApproval
-            ? 'Requires explicit approval before any browser or filesystem side effect.'
-            : 'Allowed only through the structured browser workflow.',
+          notes: 'Declared browser policy requires trusted tool authorization; runtime metadata/dispatch alignment awaits the browser producer lease.',
         })),
         {
           id: 'voice_pipeline',
@@ -214,14 +202,9 @@ export class InteractionSafetyService {
           reason: 'Mouse, keyboard, window, and app operations are high-risk and require scoped approval plus a bound runtime.',
         },
         {
-          action: 'browser_workflow.download_pdf',
-          permissions: ['network:read', 'browser:control', 'file:write'],
-          reason: 'Download writes a file and must return path, mime type, and size evidence.',
-        },
-        {
-          action: 'browser_workflow.upload_file/fill_form',
-          permissions: ['network:read', 'browser:control'],
-          reason: 'Forms and uploads can submit external data; selectors and final submit need approval.',
+          action: 'browser_workflow.*',
+          permissions: [...BROWSER_TOOL_POLICY.requiredPermissions],
+          reason: 'Browser tool authorization must come from trusted policy/grants. PDF/upload remain unsupported; form filling does not authorize submit.',
         },
         {
           action: 'mark_l.*',

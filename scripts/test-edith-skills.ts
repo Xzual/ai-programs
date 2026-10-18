@@ -15,7 +15,7 @@ try {
   process.env.EDITH_PERSISTENCE = 'json';
   process.env.EDITH_TEST_MODE = 'true';
   process.env.EDITH_TEST_DATA_DIR = path.join(root, 'test-data');
-  process.env.EDITH_OBSIDIAN_PROVIDER_APP_ROOT = previousCwd;
+  process.env.EDITH_OBSIDIAN_PROVIDER_APP_ROOT = path.join(root, 'application');
   process.env.EDITH_TEST_OBSIDIAN_SANDBOX_ROOT = vaultPath;
   process.env.OBSIDIAN_VAULT_PATH = vaultPath;
   process.env.GEMINI_API_KEY = `AIza-fake-${secretMarker}`;
@@ -46,11 +46,11 @@ try {
   const expectedIds = [
     'gemini_text_chat', 'voice_room', 'computer_use', 'crypto_demo_exchange', 'jev_decision_model',
     'obsidian_memory', 'supabase_registry', 'workspace_manager', 'skill_store', 'file_organizer',
-    'browser_research', 'system_status', 'control_center', 'release_builder',
+    'browser_research', 'system_status', 'control_center', 'release_builder', 'rea_analysis',
   ];
 
   const initial = await getSkillRegistry({ forceRefresh: true });
-  assert.equal(initial.skills.length, 14);
+  assert.equal(initial.skills.length, 15);
   assert.deepEqual(initial.skills.map((skill) => skill.id), expectedIds);
   for (const skill of initial.skills) {
     assert.equal(EDITH_SKILL_STATUSES.includes(skill.status), true, `${skill.id} status`);
@@ -239,7 +239,7 @@ try {
       assert.equal(body.includes(root), false, `${endpoint} must not expose absolute test workspace paths.`);
       const parsed = JSON.parse(body) as Record<string, unknown>;
       assert.equal(parsed.success, true, endpoint);
-      if (endpoint === '/api/edith/skills') assert.equal((parsed.skills as unknown[]).length, 14);
+      if (endpoint === '/api/edith/skills') assert.equal((parsed.skills as unknown[]).length, 15);
       if (endpoint === '/api/edith/tools') {
         assert.equal(parsed.authority, 'edithToolRegistry');
         assert.equal((parsed.tools as unknown[]).length, canonicalTools.counts.total);

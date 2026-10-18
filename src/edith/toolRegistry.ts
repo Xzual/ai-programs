@@ -1,3 +1,4 @@
+import { BROWSER_TOOL_POLICY } from './browserOperatorContract';
 import type { EdithSkill, EdithSkillId, SkillRegistrySnapshot, SkillRisk } from './skillRegistry';
 
 export interface EdithCapabilityTool {
@@ -148,12 +149,12 @@ const DEFINITIONS: ToolDefinition[] = [
     limitations: ['Runs only when the vault is enabled, present, and writable.'],
   },
   {
-    id: 'openWebSearch', name: 'Open Web Search', skillId: 'browser_research', riskLevel: 'medium', requiresApproval: false,
+    id: 'openWebSearch', name: 'Open Web Search', skillId: 'browser_research', riskLevel: 'high', requiresApproval: BROWSER_TOOL_POLICY.requiresApproval,
     description: 'Opens a validated web search URL.', adapter: 'edithToolRegistry: browser_search', enableRule: 'configured',
     limitations: ['No autonomous extraction or form submission.'],
   },
   {
-    id: 'openValidatedUrl', name: 'Open Validated URL', skillId: 'browser_research', riskLevel: 'medium', requiresApproval: true,
+    id: 'openValidatedUrl', name: 'Open Validated URL', skillId: 'browser_research', riskLevel: 'high', requiresApproval: BROWSER_TOOL_POLICY.requiresApproval,
     description: 'Opens an HTTP or HTTPS URL after validation.', adapter: 'edithToolRegistry: browser_open', enableRule: 'configured',
     limitations: ['Does not prove page content was read or acted on.'],
   },

@@ -4,16 +4,45 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 
 type Json = Record<string, any>;
 type Session = { cookie: string; csrf: string };
 
 const root = process.cwd();
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'edith-phase4-api-'));
+const tempParent = fs.realpathSync(os.tmpdir());
+const tempRoot = fs.mkdtempSync(path.join(tempParent, 'edith-phase4-api-'));
+const createdTempRoot = fs.realpathSync(tempRoot);
 const ownerToken = crypto.randomBytes(32).toString('base64url');
 let server: ChildProcessWithoutNullStreams | undefined;
 let output = '';
+let serverClosed: Promise<void> | undefined;
+let childClosed = false;
+let childSpawnError: Error | undefined;
+let forcedKill = false;
+
+async function waitForServerClose(timeoutMs: number): Promise<boolean> {
+  if (childClosed) return true;
+  if (!serverClosed) throw new Error('PHASE4_SERVER_CLOSE_TRACKING_REQUIRED');
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    serverClosed!.then(() => { clearTimeout(timer); resolve(true); });
+  });
+}
+
+function removeTemporaryWorkspace(): void {
+  const target = path.resolve(tempRoot);
+  const relative = path.relative(tempParent, target);
+  if (path.dirname(target) !== tempParent || !/^edith-phase4-api-[A-Za-z0-9]+$/.test(relative)
+    || fs.lstatSync(target).isSymbolicLink() || path.relative(createdTempRoot, fs.realpathSync(target)) !== '') {
+    throw new Error('PHASE4_TEMP_CLEANUP_TARGET_INVALID');
+  }
+  // Windows can briefly retain cwd/file handles after child close. Retry only this
+  // verified, uniquely generated fixture directory; exhausted retries fail the test.
+  fs.rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  if (fs.existsSync(target)) throw new Error('PHASE4_TEMP_CLEANUP_INCOMPLETE');
+}
 
 async function port(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -63,10 +92,20 @@ async function mutate(base: string, route: string, payload: unknown, requestHead
 }
 
 async function stop(): Promise<void> {
-  if (!server || server.exitCode !== null) return;
-  server.kill('SIGTERM');
-  await Promise.race([new Promise<void>((resolve) => server?.once('exit', () => resolve())), new Promise((resolve) => setTimeout(resolve, 3_000))]);
-  if (server.exitCode === null) server.kill('SIGKILL');
+  if (!server) return;
+  if (!childClosed && server.exitCode === null && server.signalCode === null) server.kill('SIGTERM');
+  if (!await waitForServerClose(3_000)) {
+    forcedKill = true;
+    server.kill('SIGKILL');
+    if (!await waitForServerClose(2_000)) throw new Error('PHASE4_SERVER_SHUTDOWN_TIMEOUT');
+  }
+  if (childSpawnError) throw new Error('PHASE4_SERVER_SPAWN_FAILED', { cause: childSpawnError });
+  if (server.pid) {
+    let alive = false;
+    try { process.kill(server.pid, 0); alive = true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+    if (alive) throw new Error('PHASE4_SERVER_ORPHAN_DETECTED');
+  }
 }
 
 const playbook = {
@@ -100,8 +139,10 @@ const playbook = {
 try {
   const selectedPort = await port();
   const base = `http://127.0.0.1:${selectedPort}`;
-  const tsx = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-  server = spawn(process.execPath, [tsx, path.join(root, 'server.ts')], {
+  // Direct child, rather than a tsx CLI wrapper with a second server process:
+  // stopping this PID stops the actual fixture server.
+  const tsxLoader = pathToFileURL(path.join(root, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href;
+  server = spawn(process.execPath, ['--import', tsxLoader, path.join(root, 'server.ts')], {
     cwd: tempRoot,
     env: {
       ...process.env,
@@ -112,6 +153,8 @@ try {
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  serverClosed = new Promise<void>((resolve) => server!.once('close', () => { childClosed = true; resolve(); }));
+  server.once('error', (error) => { childSpawnError = error; });
   server.stdout.on('data', (chunk) => { output += chunk.toString(); });
   server.stderr.on('data', (chunk) => { output += chunk.toString(); });
   await ready(base);
@@ -155,15 +198,16 @@ try {
   }
 
   const researchHeaders = headers(base, session, 'phase4-research-replay');
-  response = await mutate(base, '/api/edith/research/run', { query: 'No configured workers', mode: 'DEEP' }, researchHeaders);
-  assert.equal(response.status, 503);
+  const unavailableRequest = { query: 'Blocked local source', mode: 'DEEP', seedUrls: ['http://127.0.0.1/unavailable'] };
+  response = await mutate(base, '/api/edith/research/run', unavailableRequest, researchHeaders);
+  assert.equal(response.status, 422);
   const firstResearch = await body(response);
-  assert.equal(firstResearch.errorCode, 'CONFIGURATION_REQUIRED');
-  assert.equal(firstResearch.data.reasonCodes.includes('RESEARCH_WORKER_CONFIGURATION_REQUIRED'), true);
+  assert.equal(firstResearch.errorCode, 'BLOCKED');
+  assert.equal(firstResearch.data.reasonCodes.includes('NON_PUBLIC_ADDRESS'), true);
   assert.equal(firstResearch.data.run.status, 'failed');
   assert.equal(firstResearch.data.run.claims, undefined);
-  response = await mutate(base, '/api/edith/research/run', { query: 'No configured workers', mode: 'DEEP' }, researchHeaders);
-  assert.equal(response.status, 503);
+  response = await mutate(base, '/api/edith/research/run', unavailableRequest, researchHeaders);
+  assert.equal(response.status, 422);
   const replay = await body(response);
   assert.equal(replay.idempotentReplay, true);
   assert.equal(replay.data.run.runId, firstResearch.data.run.runId);
@@ -232,13 +276,14 @@ try {
     success: true,
     checks: [
       'owner_read_boundary', 'owner_origin_csrf_mutation_boundary', 'invalid_payload', 'idempotency_required_replay_conflict',
-      'ssrf_credentials_private_reserved_metadata', 'research_configuration_required_no_fake_claims', 'bounded_research_list',
+      'ssrf_credentials_private_reserved_metadata', 'research_blocked_no_fake_claims', 'bounded_research_list',
       'journal_configuration_status', 'honest_research_cancellation', 'playbook_definition_idempotency',
       'client_approval_evidence_rejected', 'playbook_execution_configuration_required', 'undo_configuration_required',
       'honest_playbook_cancellation', 'scoped_search_redaction', 'search_limits_sensitive_memory_denied', 'secret_free_logs',
     ],
   }, null, 2));
 } finally {
-  await stop().catch(() => undefined);
-  fs.rmSync(tempRoot, { recursive: true, force: true });
+  await stop();
+  removeTemporaryWorkspace();
+  console.log(JSON.stringify({ phase4Cleanup: { serverPid: server?.pid, childClosed, exitCode: server?.exitCode, signal: server?.signalCode, forcedKill, orphanDetected: false, ownedTempRemoved: true, maxRetries: 5, retryDelayMs: 100 } }));
 }

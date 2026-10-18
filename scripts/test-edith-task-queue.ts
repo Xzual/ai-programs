@@ -62,7 +62,11 @@ try {
   assert.equal(paused?.status, 'BLOCKED');
   assert.equal(paused?.queue?.state, 'resumable');
   assert.equal(paused?.queue?.resumeFromStepId, secondStepId);
-  assert.equal(paused?.timeline.at(-1)?.status, 'BLOCKED');
+  const {projectTaskEventsV2}=await import('../src/edith/contracts');
+  const pauseEvents=projectTaskEventsV2(paused!);
+  assert.equal(pauseEvents.diagnostics.quarantinedEventCount,0);
+  assert.equal(pauseEvents.events.at(-1)?.type,'task.status_changed');
+  assert.equal((pauseEvents.events.at(-1)?.payload as any).toStatus,'BLOCKED');
   assert.equal(taskQueueService.snapshot().resumable.some((task) => task.id === created.id), true);
 
   const taskFile = getEdithPersistenceStore().getPaths().legacyTaskFile;

@@ -1,3 +1,4 @@
+import {getMobileOwnerSessionFixture} from './helpers/mobile-owner-session-fixture';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,6 +32,8 @@ import { CrossDeviceService } from '../server/mobile/crossDeviceService';
 import type { MobileRuntime } from '../server/mobile/runtime';
 import { createMobilePairingRouter } from '../server/routes/mobilePairing';
 
+const mobileOwnerFixture=await getMobileOwnerSessionFixture();
+await mobileOwnerFixture.close(); // Owner session remains active; only the fixture listener closes.
 const suite = 'P256_ECDSA_SHA256_P256_ECDH_HKDF_SHA256_AES256_GCM' as const;
 const v21 = { contractVersion: TASK_CONTRACT_VERSION, amendment: EDITH_CONTRACT_AMENDMENT };
 
@@ -114,7 +117,7 @@ try {
 
   const proof = sign('sha256', Buffer.from(offered.proofPayload), signing.privateKey).toString('base64url');
   pairing.submitProof(offered.pairing.pairingId, proof);
-  pairing.approve(offered.pairing.pairingId, offered.code, request.requestedCommands, { bindingId: 'owner-session-reconciliation', expiresAt: new Date(Date.now() + 60 * 60_000).toISOString() });
+  pairing.approve(offered.pairing.pairingId, offered.code, request.requestedCommands, mobileOwnerFixture.pairingOwnerFor(60 * 60_000));
 
   const app = express();
   app.use(express.json({ limit: '64kb' }));

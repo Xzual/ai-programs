@@ -5,6 +5,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import {parseTaskEventV2,projectTaskEventsV2} from '../src/edith/contracts';
 
 type OwnerSession = { cookie: string; csrf: string };
 type JsonObject = Record<string, any>;
@@ -341,9 +342,12 @@ try {
   assert.equal(activity.contract?.version, 2);
   assert.equal(activity.progress?.taskId, createdTask.task.id);
   assert.equal(Array.isArray(activity.events), true);
-  assert.equal(activity.events.length, 0);
+  assert.equal(activity.events.length, 1);
+  const canonicalCreated=activity.events[0];assert.equal(parseTaskEventV2(canonicalCreated).success,true);assert.equal(canonicalCreated.type,'task.created');assert.equal(canonicalCreated.taskId,createdTask.task.id);assert.equal(canonicalCreated.sequence,1);assert.equal(canonicalCreated.revision,1);assert.equal(activity.eventSequence,1);assert.equal(activity.revision,createdTask.task.revision);
+  const injectedFixture=structuredClone(activity.data.task);injectedFixture.timeline.push({id:'unsupported-own-fixture',type:'tool_started',actor:'legacy-fixture',message:tempRoot},{...canonicalCreated,eventId:'malformed-own-fixture',sequence:'forged',payload:{path:tempRoot}});
+  const injectedPath=path.join(tempRoot,'own-quarantine-task.json');fs.writeFileSync(injectedPath,JSON.stringify(injectedFixture));const injectedProjection=projectTaskEventsV2(JSON.parse(fs.readFileSync(injectedPath,'utf8')));assert.deepEqual(injectedProjection.events,activity.events,'Injected unsupported/malformed rows cannot replace/promote canonical creation');assert.equal(injectedProjection.diagnostics.quarantinedEventCount,Number(activity.eventDiagnostics.quarantinedEventCount)+2);assert.equal(JSON.stringify(injectedProjection.diagnostics).includes(tempRoot),false);
   assert.equal(activity.eventDiagnostics?.scope, 'task');
-  assert.equal(Number(activity.eventDiagnostics?.quarantinedEventCount) >= 2, true);
+  assert.equal(Number(activity.eventDiagnostics?.quarantinedEventCount),0,'Unmodified canonical task has no fake legacy rows');assert.equal(Number(injectedProjection.diagnostics.quarantinedEventCount) >= 2,true,'Explicit unsupported/malformed fixture rows remain quarantined');
   assert.equal(JSON.stringify(activity.eventDiagnostics).includes(tempRoot), false);
 
   response = await mutation(base, 'PATCH', `/api/edith/tasks/${encodeURIComponent(createdTask.task.id)}/status`, { status: 'not-a-real-status' }, protectedHeaders(base, session));

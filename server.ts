@@ -2,6 +2,8 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import http from "http";
+import fs from "node:fs";
+import { initializeBrowserOperatorAdapter } from "./src/edith/browserOperatorAdapter";
 import { edithToolRegistry, executeEdithTool, getEdithToolHealth } from "./src/edith/serverRegistry";
 import { listExternalSkillProjects } from "./src/edith/skills/catalog";
 import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from "./src/edith/audit";
@@ -20,7 +22,8 @@ import { KillSwitchActiveError, killSwitchService } from "./src/edith/killSwitch
 import { permissionService } from "./src/edith/permissionService";
 import { visionObservationService } from "./src/edith/visionService";
 import { computerActionService } from "./src/edith/computerActionService";
-import { browserWorkflowService } from "./src/edith/browserWorkflowService";
+import { createBrowserWorkflowsRouter } from "./server/routes/browserWorkflows";
+import { BROWSER_TOOL_IDS } from "./src/edith/browserOperatorContract";
 import { interruptService } from "./src/edith/interruptService";
 import { confidenceService, patternMemoryService, presenceContextService, sentimentContextService } from "./src/edith/contextSignals";
 import { proactiveService } from "./src/edith/proactiveService";
@@ -35,6 +38,7 @@ import { ProviderError } from "./server/providers/types";
 import type { ProviderHealth } from "./server/providers/types";
 import { createChatRouter } from "./server/routes/chat";
 import { createComputerUseRouter } from "./server/routes/computerUse";
+import { nativeBrowserBodyErrorHandler } from "./server/browser/browserNativeAuthority";
 import { createCryptoRouter } from "./server/routes/crypto";
 import { createHealthRouter } from "./server/routes/health";
 import { createKnowledgeRouter } from "./server/routes/knowledge";
@@ -49,10 +53,14 @@ import { createTasksRouter } from "./server/routes/tasks";
 import { createVoiceRouter } from "./server/routes/voice";
 import { createWorkspaceRouter } from "./server/routes/workspace";
 import { createCloudRouter } from "./server/routes/cloud";
+import { createFilesRouter } from './server/routes/files';
+import { fileService, FileServiceError } from './server/files/fileService';
 import { createResearchRouter } from "./server/routes/research";
 import { createPlaybooksRouter } from "./server/routes/playbooks";
 import { createLocalSearchRouter } from "./server/routes/search";
 import { createMobilePairingRouter } from "./server/routes/mobilePairing";
+import { installReconnectParsers } from "./server/mobile/reconnectContract";
+import { installFilteredFrameParser } from "./server/routes/desktopProducer";
 import { createMobileTasksRouter } from "./server/routes/mobileTasks";
 import { createMobileTransfersRouter } from "./server/routes/mobileTransfers";
 import { createMobileCrossDeviceRouter } from "./server/routes/mobileCrossDevice";
@@ -61,10 +69,58 @@ import { createObsidianProviderRouter } from "./server/routes/obsidianProvider";
 import { createAdvancedExperienceRouter } from "./server/routes/advancedExperience";
 import { getMobileRuntime } from "./server/mobile/runtime";
 import { voiceSessionManager } from "./server/voice/voiceSessionManager";
-import { createOwnerSessionRouter, getOwnerSession, requireOwnerSession, requireProtectedMutation } from "./server/security/ownerSession";
+import { cloudSyncWorker } from './server/cloud/syncWorker';
+import { createOwnerSessionRouter, getOwnerSession, ownerSessionBindingActive, requireOwnerSession, requireProtectedMutation } from "./server/security/ownerSession";
+import { createReaCanonicalTaskBridge } from './src/edith/reaCanonicalTaskBridge';
+import { bindReaRegistryExecution } from './src/edith/serverRegistry';
+import { workspaceManager } from './src/edith/workspaceManager';
+import { randomUUID } from 'node:crypto';
 import { resolveServerHost } from "./server/security/networkPolicy";
 import { appendSecurityAudit } from "./server/security/auditLog";
 import { redactSensitiveText } from "./server/security/redaction";
+
+/** Backend-only startup selection; request bodies and the working directory are never inputs. */
+export function resolveBackendBrowserExecutablePath(): string | undefined {
+  const configured = process.env.EDITH_BROWSER_EXECUTABLE_PATH;
+  if (configured !== undefined) return configured;
+  const pkg = (process as NodeJS.Process & { pkg?: unknown }).pkg;
+  if (!pkg || typeof pkg !== 'object') return undefined;
+
+  // A pkg module filename is virtual. Only its physical backend executable can anchor this path.
+  let physicalRoot: string;
+  try {
+    if (!path.isAbsolute(process.execPath)) throw new Error('CONFIGURATION_REQUIRED');
+    const executable = fs.realpathSync(process.execPath);
+    if (!fs.statSync(executable).isFile()) throw new Error('CONFIGURATION_REQUIRED');
+    physicalRoot = path.dirname(executable);
+  } catch { throw new Error('CONFIGURATION_REQUIRED'); }
+  const candidate = path.join(physicalRoot, 'runtime', 'Packages', 'Playwright-Browsers', 'chromium-1234', 'chrome-win64', 'chrome.exe');
+  let real: string;
+  try { real = fs.realpathSync(candidate); }
+  catch { return candidate; } // Missing distribution remains explicit and unavailable; never autodiscover elsewhere.
+  const relative = path.relative(physicalRoot, real);
+  if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('CONFIGURATION_REQUIRED');
+  return candidate;
+}
+
+// Construct once, before routers bind native sources or any request/readiness can use the adapter.
+export const backendBrowserOperator = initializeBrowserOperatorAdapter({ executablePath: resolveBackendBrowserExecutablePath() });
+
+// One backend-owned instance. Accepted source subsets do not qualify protocol/helper closure.
+// Actual canonical source/registry/metric composition is present; launch qualification remains false.
+export const backendReaCanonical = createReaCanonicalTaskBridge({
+  files:fileService,serverBootId:'rea_boot_'+randomUUID(),
+  readOwner:bindingId=>ownerSessionBindingActive(bindingId)?{ownerId:'owner'}:undefined,
+  currentWorkspace:()=>{const config=workspaceManager.getConfig();return config?{workspaceId:config.workspaceId,workspaceRoot:config.workspaceRoot}:undefined;},
+  isKillSwitchActive:()=>killSwitchService.status().active,
+  readQualification:()=>({ready:false,reasons:[
+    {kind:'qualification_failed',code:'REA_PROTOCOL_GATE_FAILED'},
+    {kind:'qualification_failed',code:'REA_HELPER_CLOSURE_UNQUALIFIED'},
+    {kind:'qualification_failed',code:'REA_QUOTA_QUALIFICATION_UNVERIFIED'},
+  ]}),
+});
+export const backendReaIntegration = backendReaCanonical.integration;
+bindReaRegistryExecution(backendReaCanonical.registry);
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 3000);
@@ -76,7 +132,10 @@ voiceSessionManager.setCapabilityContextProvider(() => buildAssistantRuntimeCont
   assistantPersona: 'JARVIS',
 }));
 
+installReconnectParsers(app);
+installFilteredFrameParser(app);
 app.use(express.json());
+app.use(nativeBrowserBodyErrorHandler);
 app.use(createOwnerSessionRouter());
 app.use(createChatRouter());
 app.use(createComputerUseRouter());
@@ -94,6 +153,7 @@ app.use(createVoiceRouter());
 app.use(createSkillsRouter());
 app.use(createWorkspaceRouter());
 app.use(createCloudRouter());
+app.use(createFilesRouter(undefined,undefined,undefined,undefined,backendReaIntegration));
 app.use(createResearchRouter());
 app.use(createPlaybooksRouter());
 app.use(createLocalSearchRouter());
@@ -288,14 +348,7 @@ app.post("/api/edith/computer/actions", (req, res) => {
   res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
 });
 
-app.get("/api/edith/browser/workflows/capabilities", (_req, res) => {
-  res.json({ success: true, capabilities: browserWorkflowService.capabilities() });
-});
-
-app.post("/api/edith/browser/workflows", async (req, res) => {
-  const result = await browserWorkflowService.run(req.body ?? {}, "edith-api");
-  res.status(result.success ? 200 : result.errorCode === "PERMISSION_DENIED" ? 403 : 400).json(result);
-});
+app.use(createBrowserWorkflowsRouter());
 
 app.get("/api/edith/integrations/capabilities", (_req, res) => {
   res.json({ success: true, capabilities: sensitiveIntegrationService.capabilities() });
@@ -1035,7 +1088,9 @@ app.post("/api/tools/execute", ...requireProtectedMutation, async (req, res) => 
   const edithTool = edithToolRegistry.get(toolId);
   if (edithTool) {
     const result = await executeEdithTool(toolId, args as Record<string, unknown>, {
-      actor,
+      actor: (BROWSER_TOOL_IDS as readonly string[]).includes(toolId)
+        ? getOwnerSession(req)!.bindingId
+        : actor,
     });
     const blockedByKillSwitch = result.structuredOutput?.disabledCapability === 'tool_execution';
     return res.status(result.success ? 200 : blockedByKillSwitch ? 423 : 403).json(result);
@@ -1104,28 +1159,18 @@ app.post("/api/tools/execute", ...requireProtectedMutation, async (req, res) => 
     // ════════════════════════════════════════════════════════════════════════
 
     case "list_dir": {
-      const dirPath = args.path || "/workspace/documents";
-      return res.json({
-        success: true,
-        toolId,
-        result: JSON.stringify({
-          path: dirPath,
-          files: [
-            { name: "notlar.txt",       type: "file",      size: "2.4 KB",  modified: "2026-08-12" },
-            { name: "proje_ozeti.md",   type: "file",      size: "14.1 KB", modified: "2026-08-11" },
-            { name: "veri_analizi.csv", type: "file",      size: "88.0 KB", modified: "2026-08-10" },
-            { name: "yedekler",         type: "directory", items: 3,        modified: "2026-08-01" },
-          ],
-        }, null, 2),
-      });
+      try {
+        if (args.path) throw new FileServiceError('FILE_SCOPE_DENIED',403);
+        const output = fileService.search(args.query ?? '',args.limit ?? 50);
+        return res.json({success:true,toolId,result:JSON.stringify(output),structuredOutput:output});
+      } catch (error) { return res.status(error instanceof FileServiceError ? error.status : 503).json({success:false,toolId,errorCode:error instanceof FileServiceError ? error.code : 'FILES_UNAVAILABLE'}); }
     }
 
     case "read_file": {
-      const fileName = args.fileName || "notlar.txt";
-      return res.json({
-        success: true, toolId,
-        result: `[OKUNDU: ${fileName}]\n\nEDITH Sistem Notları:\n- Yerel Ollama LLM yapılandırması tamamlandı.\n- Bellek ve ses modülleri aktif.\n- Güvenli araç izinleri kullanıcı onayına bağlıdır.`,
-      });
+      try {
+        const output = fileService.read(args.fileId ?? args.id ?? '');
+        return res.json({success:true,toolId,result:output.text,structuredOutput:output});
+      } catch (error) { return res.status(error instanceof FileServiceError ? error.status : 503).json({success:false,toolId,errorCode:error instanceof FileServiceError ? error.code : 'FILE_READ_UNAVAILABLE'}); }
     }
 
     case "export_markdown": {
@@ -1747,6 +1792,16 @@ ${gFlightsUrl}`;
 // Start Express Server with Vite middleware
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    // EDITH_API_TERMINAL_GUARD_BEGIN
+    // Embedded Vite inherits the standalone /api proxy; unmatched API paths must not proxy back into this server.
+    app.use((req, res, next) => {
+      if (req.url.startsWith("/api")) {
+        res.status(404).json({ success: false, errorCode: "API_ROUTE_NOT_FOUND" });
+        return;
+      }
+      next();
+    });
+    // EDITH_API_TERMINAL_GUARD_END
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1783,6 +1838,7 @@ async function startServer() {
   }
 
   const server = http.createServer(app);
+  cloudSyncWorker.start();
   voiceSessionManager.handleUpgrade(server);
   mobileRuntime.realtime.handleUpgrade(server);
   let shuttingDown = false;
@@ -1793,8 +1849,9 @@ async function startServer() {
     obsidianVaultService.stopWatcher();
     voiceSessionManager.shutdown();
     mobileRuntime.realtime.shutdown();
+    const queueStopped = cloudSyncWorker.shutdown();
     cryptoService.stop(`EDITH server ${signal}`);
-    server.close(() => process.exit(exitCode));
+    server.close(() => { void queueStopped.then(() => process.exit(exitCode), () => process.exit(exitCode)); });
     setTimeout(() => process.exit(exitCode), 5000).unref();
   };
   process.once("SIGINT", () => shutdown("SIGINT", 130));

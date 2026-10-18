@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import express from 'express';
+import { createOwnerSessionRouter } from '../server/security/ownerSession';
 import type { AddressInfo } from 'node:net';
 import { WebSocket } from 'ws';
 import {
@@ -45,6 +47,8 @@ const connected = getVoiceRoomCapabilitySnapshot({
   liveConnectorBound: true,
   ttsOutputConnected: true,
   bargeInEnabled: true,
+  localReady: true,
+  runtimeStatus: 'connected',
 });
 
 assert.equal(connected.runtimeStatus, 'connected');
@@ -85,14 +89,34 @@ assert.equal(liveStatus.keyPresent, Boolean(process.env.GEMINI_API_KEY));
 assert.equal('apiKey' in liveStatus, false);
 assert.equal('GEMINI_API_KEY' in liveStatus, false);
 
-const socketServer = createServer();
+process.env.EDITH_OWNER_TOKEN = 'isolated-voice-room-owner';
+const app = express(); app.use(express.json()); app.use(createOwnerSessionRouter());
+const socketServer = createServer(app);
 voiceSessionManager.handleUpgrade(socketServer);
 await new Promise<void>((resolve) => socketServer.listen(0, '127.0.0.1', resolve));
 const address = socketServer.address() as AddressInfo;
-const socket = new WebSocket(`ws://127.0.0.1:${address.port}/api/voice/live/ws`);
+const origin = `http://127.0.0.1:${address.port}`;
+const login = await fetch(origin+'/api/security/session',{method:'POST',headers:{origin,authorization:'Bearer isolated-voice-room-owner'}});
+assert.equal(login.status,201);
+const sessionBody = await login.json() as any;
+const cookie = login.headers.get('set-cookie')!.split(';')[0];
+async function denied(headers: Record<string,string>, protocols = ['edith.voice.v1']) {
+  const attempt = new WebSocket(`ws://127.0.0.1:${address.port}/api/voice/live/ws`,protocols,{headers});
+  await new Promise<void>((resolve,reject) => { attempt.once('open',() => { attempt.close(); reject(new Error('Unauthorized voice socket opened')); }); attempt.once('unexpected-response',(_req,res) => { assert.equal(res.statusCode,401); res.resume(); attempt.terminate(); resolve(); }); attempt.on('error',() => {}); });
+}
+await denied({origin});
+await denied({origin,cookie});
+await denied({origin:'https://foreign.invalid',cookie},['edith.voice.v1',`csrf.${sessionBody.session.csrfToken}`]);
+await denied({origin,cookie:'edith_owner_session=%E0%A4%A'},['edith.voice.v1','csrf.invalid']);
+const socket = new WebSocket(`ws://127.0.0.1:${address.port}/api/voice/live/ws`, ['edith.voice.v1',`csrf.${sessionBody.session.csrfToken}`], {headers:{origin,cookie:login.headers.get('set-cookie')!.split(';')[0]}});
 try {
   await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   assert.equal(voiceSessionManager.status().connected, false, 'An open socket is not a ready Gemini Live session.');
+  const closed = new Promise<number>(resolve => socket.once('close',code => resolve(code)));
+  const logout = await fetch(origin+'/api/security/session',{method:'DELETE',headers:{origin,cookie,'x-edith-csrf-token':sessionBody.session.csrfToken}});
+  assert.equal(logout.status,200);
+  assert.equal(await closed,4003,'Owner logout must close the bound voice socket.');
+  await denied({origin,cookie},['edith.voice.v1',`csrf.${sessionBody.session.csrfToken}`]);
 } finally {
   socket.close();
   await new Promise<void>((resolve) => socketServer.close(() => resolve()));
@@ -120,7 +144,8 @@ assert.equal(voiceRoomStateAfterServerStatus('idle', true), 'speaking');
 assert.equal(voiceRoomStateAfterServerStatus('idle', false), 'idle');
 assert.equal(voiceRoomRuntimeStatusAfterServerState('connecting', 'connected'), 'connecting');
 assert.equal(voiceRoomRuntimeStatusAfterServerState('idle', 'connecting'), 'connecting');
-assert.equal(voiceRoomRuntimeStatusAfterServerState('idle', 'connected'), 'connected');
+assert.equal(voiceRoomRuntimeStatusAfterServerState('idle', 'connected', true), 'connected');
+assert.equal(voiceRoomRuntimeStatusAfterServerState('idle', 'offline'), 'offline');
 
 const managedEvents: Array<Record<string, unknown>> = [];
 const managedCallbackHistory: GeminiLiveCallbacks[] = [];
@@ -200,6 +225,9 @@ console.log(JSON.stringify({
     'voice_room_capability_context_provider_bound',
     'voice_room_uses_shared_edith_core_protocol',
     'voice_room_socket_without_live_session_is_not_connected',
+    'voice_room_upgrade_requires_owner_cookie_same_origin_csrf_protocol',
+    'voice_room_malformed_cookie_denied_without_crash',
+    'voice_room_owner_logout_closes_bound_socket_and_denies_reuse',
     'voice_room_frontend_service_event_parsing_and_pcm_conversion',
     'voice_room_websocket_url_and_failure_codes',
     'voice_room_audio_chunks_do_not_overwrite_provider_state',

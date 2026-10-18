@@ -1,3 +1,4 @@
+import {hudSafeId,isTaskHudScopeV1} from './taskHudContracts';
 import type { EdithTask } from './core';
 import {
   EDITH_CONTRACT_SCHEMA,
@@ -19,6 +20,20 @@ export interface TaskActivityV2View {
   task: TaskV2View;
   events: TypedTaskEventV2[];
   progress: TaskProgressSnapshot;
+  history: { state: 'empty' | 'contiguous' | 'gap'; missingSequences: number[]; quarantinedEvents: number };
+}
+
+export function isVerifiedTaskSuccess(task: TaskV2View): boolean {
+  const verification = task.verification;
+  return task.status === 'COMPLETED' && task.progress.terminal && task.progress.verificationStatus === 'PASS'
+    && verification?.taskId === task.id && verification.status === 'PASS'
+    && typeof verification.id === 'string' && Boolean(verification.id.trim()) && verification.verifier === 'heuristic-v1'
+    && Number.isFinite(Date.parse(verification.checkedAt)) && typeof verification.summary === 'string' && verification.retryable === false
+    && Array.isArray(verification.checks)
+    && verification.checks.every(check => check && typeof check.id === 'string' && Boolean(check.id.trim()) && typeof check.label === 'string'
+      && typeof check.required === 'boolean' && typeof check.evidence === 'string' && ['PASS', 'FAIL', 'PARTIAL', 'RETRYABLE'].includes(check.status))
+    && verification.checks.some(check => check.required && check.status === 'PASS' && Boolean(check.evidence.trim()))
+    && verification.checks.every(check => !check.required || (check.status === 'PASS' && Boolean(check.evidence.trim())));
 }
 
 export class TaskContractError extends Error {
@@ -39,7 +54,7 @@ const TASK_PRIORITIES = new Set(['low', 'normal', 'high', 'urgent']);
 const PLAN_STEP_STATUSES = new Set(['PENDING', 'READY', 'RUNNING', 'COMPLETED', 'FAILED', 'SKIPPED']);
 
 function requireV2Envelope(value: unknown): Record<string, unknown> {
-  if (!isRecord(value) || !isRecord(value.contract) || !isRecord(value.data)) {
+  if (!isRecord(value) || value.success !== true || !isRecord(value.contract) || !isRecord(value.data)) {
     throw new TaskContractError('Görev servisi geçerli bir V2 zarfı döndürmedi.', 'TASK_V2_ENVELOPE_REQUIRED');
   }
   if (value.contract.schema !== EDITH_CONTRACT_SCHEMA || value.contract.version !== EDITH_CONTRACT_VERSION) {
@@ -107,7 +122,7 @@ export function parseTaskListV2(value: unknown): TaskV2View[] {
 export function parseTaskActivityV2(value: unknown): TaskActivityV2View {
   const data = requireV2Envelope(value);
   const task = parseTask({ ...(isRecord(data.task) ? data.task : {}), progress: data.progress });
-  if (!Array.isArray(data.events)) {
+  if (!Array.isArray(data.events) || data.events.length > 4096) {
     throw new TaskContractError('V2 activity event listesi eksik.', 'TASK_EVENTS_REQUIRED');
   }
   const events = data.events.map((event): TypedTaskEventV2 => {
@@ -121,7 +136,19 @@ export function parseTaskActivityV2(value: unknown): TaskActivityV2View {
     }
     return parsed.value;
   });
-  return { task, progress: task.progress, events };
+  const sorted = [...events].sort((a, b) => a.sequence - b.sequence);
+  if (new Set(events.map(event => event.eventId)).size !== events.length || new Set(events.map(event => event.sequence)).size !== events.length) {
+    throw new TaskContractError('Activity olayları duplicate veya çelişkili.', 'TASK_EVENT_DUPLICATE');
+  }
+  const missingSequences: number[] = [];
+  let expected = 1;
+  for (const event of sorted) {
+    if (event.sequence !== expected) missingSequences.push(expected);
+    expected = event.sequence + 1;
+  }
+  if (expected <= task.eventSequence) missingSequences.push(expected);
+  const quarantinedEvents = isRecord(data.eventDiagnostics) && finiteInteger(data.eventDiagnostics.quarantinedEventCount) ? Number(data.eventDiagnostics.quarantinedEventCount) : 0;
+  return { task, progress: task.progress, events: sorted, history: { state: missingSequences.length || quarantinedEvents ? 'gap' : events.length ? 'contiguous' : 'empty', missingSequences, quarantinedEvents } };
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -136,16 +163,19 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 export async function fetchTaskListV2(signal?: AbortSignal): Promise<TaskV2View[]> {
-  const response = await fetch('/api/edith/tasks', { signal, headers: { Accept: 'application/json' } });
+  const response = await fetch('/api/edith/tasks', { credentials: 'include', signal, headers: { Accept: 'application/json' } });
   return parseTaskListV2(await readJson(response));
 }
 
 export async function fetchTaskActivityV2(taskId: string, signal?: AbortSignal): Promise<TaskActivityV2View> {
   const response = await fetch(`/api/edith/tasks/${encodeURIComponent(taskId)}/activity`, {
     signal,
+    credentials: 'include',
     headers: { Accept: 'application/json' },
   });
-  return parseTaskActivityV2(await readJson(response));
+  const activity = parseTaskActivityV2(await readJson(response));
+  if (activity.task.id !== taskId) throw new TaskContractError('Activity yanıtı istenen göreve ait değil.', 'TASK_ACTIVITY_REQUEST_MISMATCH');
+  return activity;
 }
 
 export function isNetworkTaskError(error: unknown): boolean {
@@ -163,4 +193,25 @@ export function taskErrorMessage(error: unknown): string {
 
 export function latestTaskEvent(events: TaskEventV2[]): TaskEventV2 | undefined {
   return [...events].sort((left, right) => right.sequence - left.sequence)[0];
+}
+
+function requireHudScope(value:unknown,workspaceId:string):void {
+ if(!hudSafeId(workspaceId)||!isRecord(value)||!isTaskHudScopeV1(value.hud)||value.hud.workspaceId!==workspaceId)throw new TaskContractError('HUD owner/workspace kapsamı doğrulanamadı.','TASK_HUD_FORBIDDEN');
+}
+export function parseTaskHudListV1(value:unknown,workspaceId:string):TaskV2View[] {
+ requireHudScope(value,workspaceId);return parseTaskListV2(value);
+}
+export function parseTaskHudActivityV1(value:unknown,workspaceId:string):TaskActivityV2View {
+ requireHudScope(value,workspaceId);return parseTaskActivityV2(value);
+}
+/** Explicit scoped polling. An old server ignoring the query fails the mandatory envelope check. */
+export async function fetchTaskHudListV1(workspaceId:string,signal?:AbortSignal):Promise<TaskV2View[]> {
+ const response=await fetch('/api/edith/tasks?view=hud-v1',{credentials:'include',signal,cache:'no-store',headers:{Accept:'application/json'}});
+ return parseTaskHudListV1(await readJson(response),workspaceId);
+}
+export async function fetchTaskHudActivityV1(taskId:string,workspaceId:string,signal?:AbortSignal):Promise<TaskActivityV2View> {
+ const response=await fetch('/api/edith/tasks/'+encodeURIComponent(taskId)+'/activity?view=hud-v1',{credentials:'include',signal,cache:'no-store',headers:{Accept:'application/json'}});
+ const activity=parseTaskHudActivityV1(await readJson(response),workspaceId);
+ if(activity.task.id!==taskId)throw new TaskContractError('Activity yanıtı istenen göreve ait değil.','TASK_ACTIVITY_REQUEST_MISMATCH');
+ return activity;
 }

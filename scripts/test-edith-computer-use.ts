@@ -15,7 +15,7 @@ import { interactionSafetyService } from '../src/edith/interactionSafetyService'
 import { computerActionService } from '../src/edith/computerActionService';
 import { consumeSseChunk } from '../src/edith/sseStream';
 import { createKillSwitchRouter, isValidKillSwitchDeactivationConfirmation } from '../server/routes/killSwitch';
-import { createOwnerSessionRouter } from '../server/security/ownerSession';
+import { createOwnerSessionRouter, getSoleActiveOwnerSession } from '../server/security/ownerSession';
 
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = (input, init) => nativeFetch(input, {
@@ -41,13 +41,15 @@ assert.equal(operatorStateForAction('moveMouse'), 'moving');
 assert.equal(operatorStateForAction('clickMouse'), 'clicking');
 assert.equal(operatorStateForAction('typeText'), 'typing');
 assert.equal(operatorStateForAction('scroll'), 'scrolling');
-const serializedEvent = createComputerOperatorEvent('typing', 'Native typing\nstarted', { text: 'AIza-secret-value-that-must-not-appear' });
+// Deterministic provider-shaped test input, never sourced from an account or environment.
+const syntheticProviderKey = ['AI', 'za'].join('') + 'SyntheticComputerUseFixture'.padEnd(35, 'X');
+const serializedEvent = createComputerOperatorEvent('typing', 'Native typing\nstarted', { text: syntheticProviderKey });
 assert.equal(serializedEvent.type, 'typing');
 assert.equal(serializedEvent.contractVersion, 2);
 assert.equal(Number.isSafeInteger(serializedEvent.sequence), true);
 assert.equal(serializedEvent.message?.includes('\n'), false);
 assert.match(serializedEvent.textPreview ?? '', /^\[redacted \d+ chars\]$/);
-assert.equal(JSON.stringify(serializedEvent).includes('AIza-secret'), false);
+assert.equal(JSON.stringify(serializedEvent).includes(syntheticProviderKey.slice(0, 11)), false);
 assert.equal(createComputerOperatorEvent('typing', 'Safe test', { text: 'EDITH_COMPUTER_USE_OK' }).textPreview, 'EDITH_COMPUTER_USE_OK');
 assert.equal(JSON.parse(JSON.stringify(serializedEvent)).type, 'typing');
 assert.equal(createComputerOperatorEvent('error', 'Safe failure').safeMessage, 'Safe failure');
@@ -127,13 +129,12 @@ try {
     headers: { authorization: 'Bearer wrong-native-bridge-token-value' },
   });
   assert.equal(wrongNativeSafety.status, 401);
-  const nativeSafety = await fetch(`${base}/api/computer-use/native-safety`, {
+  const unscopedNativeSafety = await fetch(`${base}/api/computer-use/native-safety`, {
     headers: { authorization: `Bearer ${bridgeToken}` },
   });
-  assert.equal(nativeSafety.status, 200);
-  const nativeSafetyBody = await nativeSafety.json() as Record<string, unknown>;
-  assert.equal(typeof nativeSafetyBody.killSwitchActive, 'boolean');
-  assert.equal(JSON.stringify(nativeSafetyBody).includes(bridgeToken), false);
+  assert.equal(unscopedNativeSafety.status, 400);
+  assert.equal((await unscopedNativeSafety.json() as { errorCode: string }).errorCode, 'NATIVE_STOP_INPUT_INVALID');
+  assert.equal(unscopedNativeSafety.headers.get('cache-control'), 'no-store');
 
   const unconfirmedDeactivate = await fetch(`${base}/api/edith/kill-switch/deactivate`, {
     method: 'POST',
@@ -361,6 +362,89 @@ try {
   const stoppedEvents = await fetch(`${base}/api/computer-use/events`).then((response) => response.json()) as { events: Array<Record<string, unknown>> };
   assert.equal(stoppedEvents.events.some((entry) => entry.type === 'stopped'), true);
   assert.deepEqual(stoppedEvents.events.map((entry) => entry.sequence), [1, 2]);
+  // Enroll through the production HTTP route using the owner established above.
+  // Run after the existing runtime/event assertions so kill transitions cannot mask them.
+  const nativeHeaders = { authorization: `Bearer ${bridgeToken}`, 'content-type': 'application/json' };
+  const safetyUrl = `${base}/api/computer-use/native-safety`;
+  const setKill = async (active: boolean) => {
+    const response = await fetch(`${base}/api/edith/kill-switch/${active ? 'activate' : 'deactivate'}`, {
+      method: 'POST', headers: ownerHeaders,
+      body: JSON.stringify(active ? {} : { confirmation: 'DISABLE_KILL_SWITCH' }),
+    });
+    assert.equal(response.status, 200);
+  };
+  let retirement: Record<string, string | number> | undefined;
+  let scopedHeaders: Record<string, string> | undefined;
+  try {
+    if (initialStatus.killSwitch === true) await setKill(false);
+    const activeOwner = getSoleActiveOwnerSession();
+    assert.ok(activeOwner);
+    const enrollment = {
+      schema: 'edith.native-mobile/1', nativeSessionId: 'computer-use-test-native-session',
+      ownerBindingId: activeOwner.bindingId, originalGeneration: 7,
+      sessionExpiresAt: new Date(Math.min(Date.now() + 60_000, activeOwner.expiresAt)).toISOString(),
+      nativeBootNonce: 'computer-use-test-native-boot',
+    };
+    const wrongOwner = await fetch(`${safetyUrl}/session`, {
+      method: 'POST', headers: nativeHeaders, body: JSON.stringify({ ...enrollment, ownerBindingId: 'forged-owner-binding' }),
+    });
+    assert.equal(wrongOwner.status, 403);
+    assert.equal((await wrongOwner.json() as { errorCode: string }).errorCode, 'NATIVE_STOP_OWNER_INVALID');
+    const registered = await fetch(`${safetyUrl}/session`, {
+      method: 'POST', headers: nativeHeaders, body: JSON.stringify(enrollment),
+    });
+    assert.equal(registered.status, 201);
+    const membership = await registered.json() as { safetySessionRef: string; expiresAt: string };
+    assert.match(membership.safetySessionRef, /^safety-[a-f0-9-]+$/);
+    assert.equal(membership.expiresAt, enrollment.sessionExpiresAt);
+    scopedHeaders = { ...nativeHeaders, 'x-edith-safety-session': membership.safetySessionRef };
+    retirement = {
+      schema: enrollment.schema, safetySessionRef: membership.safetySessionRef,
+      nativeSessionId: enrollment.nativeSessionId, nativeBootNonce: enrollment.nativeBootNonce,
+      originalGeneration: enrollment.originalGeneration,
+    };
+    const unknownScope = await fetch(safetyUrl, {
+      headers: { ...nativeHeaders, 'x-edith-safety-session': 'safety-unknown-computer-use-test' },
+    });
+    assert.equal(unknownScope.status, 410);
+    assert.equal((await unknownScope.json() as { errorCode: string }).errorCode, 'NATIVE_STOP_SCOPE_UNAVAILABLE');
+    for (const killActive of [false, true]) {
+      if (killActive) await setKill(true);
+      const nativeSafety = await fetch(safetyUrl, { headers: scopedHeaders });
+      assert.equal(nativeSafety.status, 200);
+      assert.equal(nativeSafety.headers.get('cache-control'), 'no-store');
+      const nativeSafetyBody = await nativeSafety.json() as Record<string, unknown>;
+      assert.deepEqual(nativeSafetyBody, { success: true, killSwitchActive: killActive });
+      for (const secret of [bridgeToken, ownerToken, activeOwner.bindingId, ownerSession.session.csrfToken]) {
+        assert.equal(JSON.stringify(nativeSafetyBody).includes(secret), false);
+      }
+    }
+    const enrollmentWhileKilled = await fetch(`${safetyUrl}/session`, {
+      method: 'POST', headers: nativeHeaders, body: JSON.stringify(enrollment),
+    });
+    assert.equal(enrollmentWhileKilled.status, 423);
+    assert.equal((await enrollmentWhileKilled.json() as { errorCode: string }).errorCode, 'KILL_SWITCH_ACTIVE');
+    const mismatchedRetire = await fetch(`${safetyUrl}/session/retire`, {
+      method: 'POST', headers: { ...nativeHeaders, 'x-edith-safety-session': 'safety-wrong-scope' },
+      body: JSON.stringify(retirement),
+    });
+    assert.equal(mismatchedRetire.status, 401);
+    assert.equal((await mismatchedRetire.json() as { errorCode: string }).errorCode, 'NATIVE_STOP_SCOPE_INVALID');
+  } finally {
+    try {
+      if (retirement && scopedHeaders) {
+        const retired = await fetch(`${safetyUrl}/session/retire`, {
+          method: 'POST', headers: scopedHeaders, body: JSON.stringify(retirement),
+        });
+        assert.equal(retired.status, 200);
+        const retiredSafety = await fetch(safetyUrl, { headers: scopedHeaders });
+        assert.equal(retiredSafety.status, 410);
+        assert.equal((await retiredSafety.json() as { errorCode: string }).errorCode, 'NATIVE_STOP_SCOPE_UNAVAILABLE');
+      }
+    } finally {
+      await setKill(initialStatus.killSwitch === true);
+    }
+  }
   console.log(JSON.stringify({
     success: true,
     scenarios: [
@@ -372,6 +456,9 @@ try {
       'desktop_header_spoof_rejected',
       'owner_session_required_for_stop',
       'native_safety_bridge_fail_closed',
+      'native_safety_requires_registered_owner_scope',
+      'native_safety_reports_kill_and_rejects_enrollment_while_killed',
+      'native_safety_retirement_scope_and_redaction',
       'virtual_desktop_negative_coordinates_supported',
       'canonical_realtime_event_order_and_redaction_enforced',
       'no_secret_in_status',

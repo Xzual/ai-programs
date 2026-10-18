@@ -71,12 +71,19 @@ function mapResponseError(status: number, payload: unknown): CloudRegistryError 
   const code = providerCode ? `SUPABASE_${providerCode.toUpperCase()}` : 'SUPABASE_REQUEST_FAILED';
   return new CloudRegistryError(providerMessage || `Supabase request failed with status ${status}.`, code, status >= 500 ? 503 : 400, status >= 500);
 }
+function mapPushResponseError(status: number,payload: unknown): CloudRegistryError {
+  const code=text((payload as any)?.errorCode);
+  const allowed=new Set(['CONFIGURATION_REQUIRED','AUTH_REQUIRED','AUTH_UNAVAILABLE','PUSH_INPUT_INVALID','PUSH_REGISTRATION_INVALID','PAYLOAD_TOO_LARGE','DEVICE_NOT_AUTHORIZED','RESOURCE_NOT_AUTHORIZED','PUSH_REGISTRATION_REQUIRED','PUSH_IDEMPOTENCY_CONFLICT','PUSH_OUTCOME_UNKNOWN','PUSH_RETRY_WAIT','PUSH_PREVIOUSLY_REJECTED','PUSH_REGISTRATION_REVOKED','PUSH_PROVIDER_REJECTED','PUSH_STORAGE_UNAVAILABLE','PUSH_SERVICE_UNAVAILABLE']);
+  if(allowed.has(code))return new CloudRegistryError('Push operation was not accepted.',code,status,code==='PUSH_RETRY_WAIT' || code==='AUTH_UNAVAILABLE');
+  return mapResponseError(status,payload);
+}
 
 export class SupabaseRegistry implements RegistryService {
   private readonly baseUrl: string;
   private readonly anonKey: string;
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
+  private readonly pushFunction: string;
 
   constructor(options: SupabaseRegistryOptions = {}) {
     const env = options.env ?? process.env;
@@ -84,10 +91,31 @@ export class SupabaseRegistry implements RegistryService {
     this.anonKey = text(env.SUPABASE_ANON_KEY);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? Number.parseInt(env.SUPABASE_TIMEOUT_MS || '6000', 10);
+    this.pushFunction = text(env.EDITH_SUPABASE_PUSH_FUNCTION);
   }
 
   configured(): boolean {
     return Boolean(this.baseUrl && this.anonKey);
+  }
+
+  pushStatus() {
+    const configured = this.configured() && /^[a-zA-Z0-9_-]{1,64}$/.test(this.pushFunction);
+    return { configured, status: configured ? 'UNVERIFIED' as const : 'CONFIGURATION_REQUIRED' as const, transportBound: true };
+  }
+
+  async sendPush(token: string, input: { deviceId: string; eventId: string; kind: 'task' | 'transfer'; resourceId: string }): Promise<{ accepted: true; receiptId: string }> {
+    if (!this.pushStatus().configured) throw new CloudRegistryError('Supabase push function configuration is required.','CONFIGURATION_REQUIRED',503);
+    let result:any;
+    try { result=await this.request(`/functions/v1/${this.pushFunction}`, { method: 'POST', headers: { 'Idempotency-Key': input.eventId }, body: JSON.stringify(input) },token); }
+    catch(error) { if(error instanceof CloudRegistryError && ['PROVIDER_TIMEOUT','NETWORK_ERROR','MALFORMED_RESPONSE'].includes(error.code))throw new CloudRegistryError('Push outcome requires reconciliation.','PUSH_OUTCOME_UNKNOWN',409);throw error; }
+    if (result?.accepted !== true || typeof result.receiptId !== 'string' || !result.receiptId || result.receiptId.length > 256) throw new CloudRegistryError('Push provider did not acknowledge acceptance.','PUSH_NOT_ACKNOWLEDGED',502,true);
+    return { accepted: true, receiptId: result.receiptId };
+  }
+  async registerPush(token: string, input: { action: 'register' | 'revoke'; deviceId: string; registrationToken?: string; consent?: true }): Promise<{ registered: boolean; revoked: boolean }> {
+    if (!this.pushStatus().configured) throw new CloudRegistryError('Supabase push function configuration is required.','CONFIGURATION_REQUIRED',503);
+    const result=await this.request(`/functions/v1/${this.pushFunction}`,{method:'POST',body:JSON.stringify(input)},token) as any;
+    if (result?.success !== true || result.registered !== (input.action==='register') || result.revoked !== (input.action==='revoke')) throw new CloudRegistryError('Push registration was not acknowledged.','PUSH_NOT_ACKNOWLEDGED',502);
+    return {registered:result.registered,revoked:result.revoked};
   }
 
   async status(): Promise<CloudRegistryStatus> {
@@ -197,7 +225,7 @@ export class SupabaseRegistry implements RegistryService {
       if (raw) {
         try { payload = JSON.parse(raw); } catch { throw new CloudRegistryError('Supabase returned malformed JSON.', 'MALFORMED_RESPONSE', 502); }
       }
-      if (!response.ok) throw mapResponseError(response.status, payload);
+      if (!response.ok) throw path.startsWith('/functions/v1/') ? mapPushResponseError(response.status,payload) : mapResponseError(response.status, payload);
       return payload ?? (allowEmpty ? {} : []);
     } catch (error) {
       throw this.normalizeError(error);

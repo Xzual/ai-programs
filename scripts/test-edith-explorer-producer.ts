@@ -1,0 +1,124 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import express from 'express';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { FileService, type ExplorerDirectoryHandle } from '../server/files/fileService';
+import { ExplorerEffectService, type ExplorerNativeConsumer, type ExplorerNativeRequest } from '../server/files/explorerEffectService';
+import { createFilesRouter } from '../server/routes/files';
+import { createOwnerSessionRouter, getSoleActiveOwnerSession } from '../server/security/ownerSession';
+import { killSwitchService } from '../src/edith/killSwitch';
+
+// All fixture mutations are confined to this test's disposable OS directory.
+// This consumer simulates effects; it is neither a Windows Explorer implementation nor physical acceptance.
+const temp=fs.mkdtempSync(path.join(os.tmpdir(),'edith-explorer-'));
+const root=path.join(temp,'workspace'),other=path.join(temp,'other');fs.mkdirSync(root);fs.mkdirSync(other);
+for(const name of ['kaynak','hedef','diğer','vault'])fs.mkdirSync(path.join(root,name));
+fs.writeFileSync(path.join(root,'vault','hidden.md'),'hidden');
+fs.symlinkSync(other,path.join(root,'escape'),process.platform==='win32'?'junction':'dir');
+const service=new FileService(()=>[{id:'workspace',path:root},{id:'artifacts',path:other}]);
+let mode='normal',calls=0,release:(()=>void)|undefined,entered:(()=>void)|undefined;
+let retention:{path:string;identity:string;contentSha256:string;generatedIdentity:string;generatedSha256:string}|undefined;
+const simulated:ExplorerNativeConsumer={async execute(r:ExplorerNativeRequest){
+  calls++;if(mode==='wait'){entered?.();await new Promise<void>(resolve=>release=resolve);}
+  if(mode==='race')fs.writeFileSync(r.destinationPath,'user-created target');
+  r.revalidate();
+  if(mode==='noeffect')return {operationId:r.operationId,nonce:r.nonce,actionId:'fixture-no-effect'};
+  if(r.operation==='copy')fs.copyFileSync(r.sourcePath,r.destinationPath,fs.constants.COPYFILE_EXCL);
+  else if(r.operation==='move'||(r.operation==='undo'&&r.reverseOf==='move'))fs.renameSync(r.sourcePath,r.destinationPath);
+  else if(mode==='obsolete-delete')fs.unlinkSync(r.sourcePath); // Negative fixture only: must never verify.
+  else {
+    assert.equal(r.reverseOf,'copy');assert.ok(r.quarantine);assert.ok(r.registerQuarantine);assert.ok(r.readback);
+    const generated=r.readback().source;assert.ok(generated);
+    const originalPath=path.join(root,'kaynak',path.basename(r.sourcePath)),originalBytes=fs.readFileSync(originalPath);
+    assert.notEqual(r.destinationPath,originalPath,'Undo-copy cannot overwrite the original');
+    fs.mkdirSync(r.quarantine.directoryPath);const registered=r.registerQuarantine();assert.equal(registered.destinationPath,r.destinationPath);
+    r.revalidate();fs.renameSync(r.sourcePath,r.destinationPath);
+    const retained=r.readback().destination;assert.ok(retained);
+    assert.equal(retained.identity,generated.identity);assert.equal(retained.contentSha256,generated.contentSha256);assert.equal(retained.device,generated.device);assert.equal(retained.sizeBytes,generated.sizeBytes);
+    assert.deepEqual(fs.readFileSync(originalPath),originalBytes,'Original source bytes stay unchanged');
+    retention={path:r.destinationPath,identity:retained.identity,contentSha256:retained.contentSha256,generatedIdentity:generated.identity,generatedSha256:generated.contentSha256};
+  }
+  if(mode==='source-after')fs.writeFileSync(r.sourcePath,'concurrent source change after native effect');
+  const parent=r.operation==='undo'&&r.reverseOf==='copy'?null:service.searchDirectories().directories.find(d=>path.resolve(service.resolveExplorerDirectory(d.id).absolutePath)===path.dirname(r.destinationPath));
+  const actual=r.operation==='undo'&&r.reverseOf==='copy'?r.readback!().destination:parent?service.inspectExplorerEntry(service.resolveExplorerDirectory(parent.id),path.basename(r.destinationPath)):null;
+  return {operationId:r.operationId,nonce:mode==='badnonce'?'forged':r.nonce,actionId:'fixture-own-temp-action',destinationIdentity:actual?.identity};
+}};
+let now=Date.now();const effects=new ExplorerEffectService(service,simulated,()=>now),missing=new ExplorerEffectService(service);
+const app=express();app.use(express.json());app.use(createOwnerSessionRouter());app.use(createFilesRouter(service,undefined,undefined,effects));
+const unbound=express();unbound.use(express.json());unbound.use(createFilesRouter(service));
+app.use('/unbound',unbound);
+const server=createServer(app);process.env.EDITH_OWNER_TOKEN='isolated-explorer-owner';
+let serial=0;const checks:string[]=[];
+try {
+  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const origin=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const login=await fetch(origin+'/api/security/session',{method:'POST',headers:{origin,authorization:'Bearer isolated-explorer-owner'}});assert.equal(login.status,201);
+  const body=await login.json() as any;const cookie=login.headers.get('set-cookie')!.split(';')[0];
+  const headers={origin,cookie,'content-type':'application/json','x-edith-csrf-token':body.session.csrfToken};const owner=getSoleActiveOwnerSession()!;
+  const request=async(url:string,input?:unknown,key?:string)=>{const response=await fetch(origin+url,{method:input===undefined?'GET':'POST',headers:{...headers,...(key?{'x-idempotency-key':key}:{})},body:input===undefined?undefined:JSON.stringify(input)});return {status:response.status,data:await response.json() as any};};
+  const dirs=await request('/api/files/explorer/directories');assert.equal(dirs.status,200);assert.ok(dirs.data.directories.length>=5);assert.equal(JSON.stringify(dirs.data).includes(temp),false);assert.equal(dirs.data.directories.some((d:any)=>/escape|vault/.test(d.relativePath)),false);
+  const destination=dirs.data.directories.find((d:any)=>d.relativePath==='hedef').id;
+  assert.equal((await fetch(origin+'/api/files/explorer/directories',{headers:{origin}})).status,401);
+  assert.equal((await fetch(origin+'/api/files/explorer/directories',{headers:{...headers,origin:'https://foreign.invalid'}})).status,403);
+  assert.equal((await request('/api/files/explorer/directories?root=../')).status,400);
+  assert.equal((await request('/api/files/explorer/directories?limit=101')).status,400);
+  assert.equal(service.searchDirectories('',1).truncated,true);
+  assert.throws(()=>service.resolveExplorerDirectory('../escape'),/DIRECTORY_ID_INVALID/);
+  checks.push('bounded actual directories, opaque IDs, Unicode, exclusions, auth/origin/query');
+  const file=(name:string,text='İstanbul 🧪 actual bounded content')=>{fs.writeFileSync(path.join(root,'kaynak',name),text);return service.search(name).files.find(f=>f.name===name)!.id;};
+  const plan=async(operation:'copy'|'move',name:string)=>{const sourceFileId=file(name);return request('/api/files/explorer/plans',{operation,sourceFileId,destinationDirectoryId:destination},'fixture-key-'+ ++serial);};
+  const execute=(id:string)=>request('/api/files/explorer/plans/'+id+'/execute',{});
+  const undo=async(receipt:string)=>request('/api/files/explorer/plans',{operation:'undo',undoReceiptId:receipt},'fixture-key-'+ ++serial);
+  const p=await plan('copy','çalışma.md');assert.equal(p.status,200);assert.equal(p.data.state,'proposed');assert.equal(JSON.stringify(p).includes(temp),false);
+  const originalInput={operation:'copy',sourceFileId:service.search('çalışma.md').files.find(f=>f.relativePath==='kaynak/çalışma.md')!.id,destinationDirectoryId:destination};
+  const duplicate=await request('/api/files/explorer/plans',originalInput,'fixture-key-1');assert.equal(duplicate.data.operationId,p.data.operationId);
+  assert.equal((await request('/api/files/explorer/plans',{...originalInput,operation:'move'},'fixture-key-1')).status,409);
+  assert.equal((await request('/api/files/explorer/plans',{...originalInput,sourcePath:temp},'fixture-path')).status,400);
+  assert.equal((await fetch(origin+'/api/files/explorer/plans',{method:'POST',headers:{origin,cookie,'content-type':'application/json'},body:JSON.stringify(originalInput)})).status,403);
+  assert.equal((await request('/api/files/explorer/plans/'+p.data.operationId+'/execute',{nonce:'forged',receipt:{completed:true}})).status,400);
+  const result=await execute(p.data.operationId);assert.equal(result.status,200);assert.equal(result.data.state,'verified');assert.equal(result.data.completed,true);assert.equal(result.data.physicalAcceptance,false);assert.ok(result.data.undoReceiptId);
+  assert.equal((await execute(p.data.operationId)).status,409);
+  const u=await undo(result.data.undoReceiptId);assert.equal(u.status,200);assert.equal((await execute(u.data.operationId)).data.state,'verified');assert.equal(fs.existsSync(path.join(root,'hedef','çalışma.md')),false);assert.equal((await undo(result.data.undoReceiptId)).status,409);
+  assert.ok(retention);assert.equal(fs.existsSync(retention.path),true);assert.equal(retention.identity,retention.generatedIdentity);assert.equal(retention.contentSha256,retention.generatedSha256);assert.deepEqual(fs.readFileSync(retention.path),fs.readFileSync(path.join(root,'kaynak','çalışma.md')));
+  const obsoleteCopy=await plan('copy','obsolete-delete.md'),obsoleteCopyResult=await execute(obsoleteCopy.data.operationId);assert.equal(obsoleteCopyResult.data.state,'verified');
+  const obsoleteUndo=await undo(obsoleteCopyResult.data.undoReceiptId);assert.equal(obsoleteUndo.status,200);mode='obsolete-delete';const obsoleteResult=await execute(obsoleteUndo.data.operationId);mode='normal';assert.equal(obsoleteResult.data.errorCode,'EXPLORER_QUARANTINE_READBACK_FAILED');assert.notEqual(obsoleteResult.data.completed,true);assert.equal(obsoleteResult.data.undoReceiptId,undefined);assert.equal(effects.read(obsoleteUndo.data.operationId,owner.bindingId).state,'unverified');
+  checks.push('undo-copy same-volume quarantine retains generated bytes/SHA/identity and original unchanged; obsolete delete never verifies');
+  const mv=await plan('move','move.md'),mvr=await execute(mv.data.operationId);assert.equal(mvr.data.state,'verified');assert.equal(fs.existsSync(path.join(root,'kaynak','move.md')),false);
+  const mvu=await undo(mvr.data.undoReceiptId);assert.equal((await execute(mvu.data.operationId)).data.state,'verified');assert.equal(fs.existsSync(path.join(root,'kaynak','move.md')),true);
+  checks.push('mounted copy/move/readback/undo, idempotency, CSRF, private paths and receipt rejection, single use');
+  const changed=await plan('copy','changed.md');fs.writeFileSync(path.join(root,'kaynak','changed.md'),'user changed');assert.equal((await execute(changed.data.operationId)).data.errorCode,'EXPLORER_SOURCE_CHANGED');
+  const occupied=await plan('copy','occupied.md');fs.writeFileSync(path.join(root,'hedef','occupied.md'),'keep user target');assert.equal((await execute(occupied.data.operationId)).data.errorCode,'EXPLORER_DESTINATION_EXISTS');assert.equal(fs.readFileSync(path.join(root,'hedef','occupied.md'),'utf8'),'keep user target');
+  const race=await plan('copy','race.md');mode='race';assert.equal((await execute(race.data.operationId)).data.errorCode,'EXPLORER_DESTINATION_EXISTS');assert.equal(effects.read(race.data.operationId,owner.bindingId).state,'unverified');mode='normal';
+  const falseEffect=await plan('copy','noeffect.md');mode='noeffect';assert.equal((await execute(falseEffect.data.operationId)).data.errorCode,'EXPLORER_EFFECT_READBACK_FAILED');mode='normal';
+  const bad=await plan('copy','nonce.md');mode='badnonce';assert.equal((await execute(bad.data.operationId)).data.errorCode,'EXPLORER_NATIVE_RECEIPT_INVALID');mode='normal';
+  const changedUndo=await plan('copy','undo-changed.md'),cur=await execute(changedUndo.data.operationId);fs.writeFileSync(path.join(root,'hedef','undo-changed.md'),'user changed generated file');assert.equal((await undo(cur.data.undoReceiptId)).data.errorCode,'EXPLORER_UNDO_TARGET_CHANGED');
+  const sourceAfter=await plan('copy','source-after.md');mode='source-after';assert.equal((await execute(sourceAfter.data.operationId)).data.errorCode,'EXPLORER_EFFECT_READBACK_FAILED');mode='normal';
+  const sameBytes=await plan('copy','identity.md'),sameBytesResult=await execute(sameBytes.data.operationId);const generatedPath=path.join(root,'hedef','identity.md'),bytes=fs.readFileSync(generatedPath);fs.renameSync(generatedPath,generatedPath+'.old');fs.writeFileSync(generatedPath,bytes);assert.equal((await undo(sameBytesResult.data.undoReceiptId)).data.errorCode,'EXPLORER_UNDO_TARGET_CHANGED');
+  const undoMove=await plan('move','undo-occupied.md'),undoMoveResult=await execute(undoMove.data.operationId);fs.writeFileSync(path.join(root,'kaynak','undo-occupied.md'),'user-created reverse target');assert.equal((await undo(undoMoveResult.data.undoReceiptId)).data.errorCode,'EXPLORER_UNDO_TARGET_CHANGED');
+  const cancelled=await plan('copy','cancel.md');assert.equal((await request('/api/files/explorer/plans/'+cancelled.data.operationId+'/cancel',{})).data.state,'cancelled');assert.equal((await execute(cancelled.data.operationId)).status,409);
+  const expired=await plan('copy','expired.md');now+=120001;assert.equal((await execute(expired.data.operationId)).status,409);assert.equal(effects.read(expired.data.operationId,owner.bindingId).state,'expired');now=Date.now();
+  checks.push('source change, no overwrite, TOCTOU revalidation, missing effect, wrong nonce, changed undo, cancellation, expiry');
+  const crossRoot=dirs.data.directories.find((d:any)=>d.rootId==='artifacts').id;assert.throws(()=>effects.propose({...originalInput,destinationDirectoryId:crossRoot} as any,owner.bindingId,owner.expiresAt,'fixture-wrongroot'),/EXPLORER_ROOT_MISMATCH/);
+  const secret=file('ordinary.json','{"apiKey":"fixture-secret"}');assert.throws(()=>service.resolveExplorerFile(secret),/FILE_SECRET_CONTENT_DENIED/);
+  fs.writeFileSync(path.join(temp,'external.md'),'outside');fs.linkSync(path.join(temp,'external.md'),path.join(root,'kaynak','hard.md'));assert.equal(service.search('hard.md').files.length,0);
+  const dirHandle=service.resolveExplorerDirectory(destination);const originalResolve=service.resolveExplorerDirectory.bind(service);service.resolveExplorerDirectory=(id:string):ExplorerDirectoryHandle=>({...originalResolve(id),device:'synthetic-cross-volume-branch'});
+  assert.throws(()=>effects.propose({operation:'move',sourceFileId:file('volume.md'),destinationDirectoryId:destination},owner.bindingId,owner.expiresAt,'fixture-volume'),/EXPLORER_CROSS_VOLUME_UNSUPPORTED/);service.resolveExplorerDirectory=originalResolve;
+  const replaceId=service.searchDirectories('diğer').directories[0].id;fs.rmdirSync(path.join(root,'diğer'));fs.symlinkSync(other,path.join(root,'diğer'),process.platform==='win32'?'junction':'dir');assert.throws(()=>service.resolveExplorerDirectory(replaceId),/FILE_SCOPE_DENIED/);
+  assert.throws(()=>effects.read(p.data.operationId,'foreign-owner'),/OWNER_SESSION_REQUIRED/);
+  checks.push('root mismatch, secret, hardlink, junction substitution, synthetic cross-volume denial, owner isolation');
+  const absentInput={operation:'copy' as const,sourceFileId:file('unbound.md'),destinationDirectoryId:destination};const absent=missing.propose(absentInput,owner.bindingId,owner.expiresAt,'fixture-unbound');await assert.rejects(()=>missing.execute(absent.operationId,owner.bindingId),/EXPLORER_NATIVE_CONSUMER_CONFIGURATION_REQUIRED/);
+  // Default router factory is also mounted; its native consumer is honestly unbound.
+  const defaultPlan=await request('/unbound/api/files/explorer/plans',absentInput,'fixture-default');assert.equal(defaultPlan.status,200);assert.equal(defaultPlan.data.adapterRegistered,true);assert.equal(defaultPlan.data.nativeConsumerBound,false);assert.equal(defaultPlan.data.consumerState,'configuration_required');assert.equal((await request('/unbound/api/files/explorer/plans/'+defaultPlan.data.operationId+'/execute',{})).status,501);
+  const concurrent=await plan('copy','concurrent.md');const before=calls;const parallel=await Promise.all([effects.execute(concurrent.data.operationId,owner.bindingId),effects.execute(concurrent.data.operationId,owner.bindingId).catch(e=>e)]);assert.equal(calls,before+1);assert.equal(parallel[1].code,'EXPLORER_PLAN_REPLAY');
+  const cancelAwait=await plan('copy','cancel-await.md');mode='wait';const cancelGate=new Promise<void>(resolve=>entered=resolve);const cancelPending=execute(cancelAwait.data.operationId);await cancelGate;await request('/api/files/explorer/plans/'+cancelAwait.data.operationId+'/cancel',{});assert.equal((await cancelPending).data.errorCode,'EXPLORER_PLAN_REVOKED');release!();mode='normal';assert.equal(fs.existsSync(path.join(root,'hedef','cancel-await.md')),false);
+  const expireAwait=await plan('copy','expire-await.md');mode='wait';const expireGate=new Promise<void>(resolve=>entered=resolve);const expirePending=execute(expireAwait.data.operationId);await expireGate;now+=120001;assert.equal(effects.read(expireAwait.data.operationId,owner.bindingId).state,'expired');assert.equal((await expirePending).data.errorCode,'EXPLORER_PLAN_EXPIRED');release!();now=Date.now();mode='normal';assert.equal(fs.existsSync(path.join(root,'hedef','expire-await.md')),false);
+  const killed=await plan('copy','kill.md');mode='wait';const gate=new Promise<void>(resolve=>entered=resolve);const pending=execute(killed.data.operationId);await gate;killSwitchService.activate('isolated explorer await test');assert.equal((await pending).data.errorCode,'KILL_SWITCH_ACTIVE');release!();killSwitchService.deactivate();mode='normal';assert.equal(effects.read(killed.data.operationId,owner.bindingId).state,'cancelled');assert.equal(fs.existsSync(path.join(root,'hedef','kill.md')),false);
+  const killBefore=await plan('copy','kill-before.md');const beforeKillCalls=calls;killSwitchService.activate('isolated explorer pre-dispatch test');assert.equal((await execute(killBefore.data.operationId)).data.errorCode,'KILL_SWITCH_ACTIVE');assert.equal(calls,beforeKillCalls);killSwitchService.deactivate();
+  const closeService=new ExplorerEffectService(service,simulated);const closedPlan=closeService.propose({operation:'copy',sourceFileId:file('closed.md'),destinationDirectoryId:destination},owner.bindingId,owner.expiresAt,'fixture-closed');closeService.close();await assert.rejects(()=>closeService.execute(closedPlan.operationId,owner.bindingId),/EXPLORER_SERVICE_CLOSED/);
+  const logout=await plan('copy','logout.md');mode='wait';const logoutGate=new Promise<void>(resolve=>entered=resolve);const pendingLogout=execute(logout.data.operationId);await logoutGate;
+  const logoutResponse=await fetch(origin+'/api/security/session',{method:'DELETE',headers});assert.equal(logoutResponse.status,200);release!();assert.equal((await pendingLogout).data.errorCode,'OWNER_SESSION_REQUIRED');assert.equal(fs.existsSync(path.join(root,'hedef','logout.md')),false);
+  checks.push('default mounted 501, one dispatch under concurrent replay, kill and owner revocation across await');
+  console.log(JSON.stringify({success:true,checks,consumer:'own-temporary-files-only simulation',crossVolume:'synthetic metadata branch only',physicalAcceptance:false}));
+} finally {effects.close();missing.close();await new Promise<void>(resolve=>server.close(()=>resolve()));server.closeAllConnections();if(!path.resolve(temp).startsWith(path.resolve(os.tmpdir())+path.sep))throw Error('TEMP_BOUNDARY');fs.rmSync(temp,{recursive:true,force:true});}

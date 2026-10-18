@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import path from 'node:path';
 import type {
   EdithTask,
   KnowledgeGraphNode,
@@ -13,7 +13,7 @@ import { memoryService } from './memoryService';
 import { getEdithPersistenceStore } from './persistence';
 import { edithToolRegistry, getEdithToolHealth } from './serverRegistry';
 import { normalizeKnowledgeTitle, slugifyKnowledgeId } from './obsidianParser';
-import { workspaceManager } from './workspaceManager';
+import { obsidianProviderConfigService, type KnowledgeVaultProvider } from './obsidianProviderService';
 import type { ResultCardProductionOptions, SharedResultCardProducerService } from './sharedResultCardProducer';
 import type { SharedResultCardV2 } from './contracts';
 
@@ -31,6 +31,7 @@ function relationshipId(from: string, to: string, type: KnowledgeGraphRelationsh
 
 export class KnowledgeGraphService {
   private lastRuntimeIngestAt = 0;
+  private lastVaultPath = '';
 
   snapshot(filters: {
     query?: string;
@@ -43,9 +44,32 @@ export class KnowledgeGraphService {
   } = {}): KnowledgeGraphSnapshot {
     this.refreshRuntimeGraph();
     const store = getEdithPersistenceStore();
+    const provider = obsidianProviderConfigService.provider();
+    const activeRecords = this.activeObsidianRecords(provider);
+    const visibleObsidianIds = new Set<string>();
+    if (provider) visibleObsidianIds.add('vault:obsidian');
+    for (const record of activeRecords) {
+      visibleObsidianIds.add(record.entityId);
+      let folder = '';
+      for (const segment of record.folder.split('/').filter(Boolean)) {
+        folder = folder ? `${folder}/${segment}` : segment;
+        visibleObsidianIds.add(`folder:${slugifyKnowledgeId(folder)}`);
+      }
+      for (const tag of record.tags) visibleObsidianIds.add(`tag:${slugifyKnowledgeId(tag)}`);
+      for (const attachment of record.attachments) visibleObsidianIds.add(`attachment:${slugifyKnowledgeId(`${record.path}-${attachment}`)}`);
+    }
+    const indexedIds = new Set(activeRecords.map((record) => record.entityId));
+    const linkedTitles = new Set(activeRecords.flatMap((record) => record.links).map(slugifyKnowledgeId));
+    const projectSectionIds = new Set((store.listKnowledgeRelationships?.() ?? [])
+      .filter((edge) => !edge.deletedAt && indexedIds.has(edge.from)).map((edge) => edge.to));
     const normalizedQuery = filters.query?.trim().toLocaleLowerCase('tr-TR');
     const nodes = (store.listKnowledgeNodes?.() ?? [])
       .filter((node) => !node.deletedAt)
+      .filter((node) => node.source !== 'obsidian' || Boolean(provider) && (
+        visibleObsidianIds.has(node.id) || !node.path && (
+          linkedTitles.has(slugifyKnowledgeId(node.title)) || Boolean(node.properties.projectSection) && projectSectionIds.has(node.id)
+        )
+      ))
       .filter((node) => !filters.nodeType || node.type === filters.nodeType)
       .filter((node) => !filters.folder || node.folder === filters.folder)
       .filter((node) => !filters.tag || node.tags.includes(filters.tag))
@@ -118,8 +142,7 @@ export class KnowledgeGraphService {
   }
 
   findNode(id: string): KnowledgeGraphNode | undefined {
-    this.refreshRuntimeGraph();
-    return (getEdithPersistenceStore().listKnowledgeNodes?.() ?? []).find((node) => node.id === id && !node.deletedAt);
+    return this.snapshot({ limit: Number.MAX_SAFE_INTEGER }).nodes.find((node) => node.id === id);
   }
 
   createSharedResultCard(
@@ -152,9 +175,8 @@ export class KnowledgeGraphService {
     const ragHub = this.upsertNode({ id: 'note:rag-engine', title: 'RAG Engine', type: 'Note', source: 'rag', importance: 0.85 });
     this.upsertRelationship({ from: core.id, to: memoryHub.id, type: 'references', source: 'edith', evidence: 'EDITH uses Memory Engine.' });
     this.upsertRelationship({ from: core.id, to: ragHub.id, type: 'references', source: 'rag', evidence: 'EDITH uses RAG Engine.' });
-    const configuredVaultPath = workspaceManager.getResolvedPaths()?.obsidianVaultPath ?? '';
-    const vaultAvailable = Boolean(configuredVaultPath && fs.existsSync(configuredVaultPath));
-    if (vaultAvailable) {
+    const provider = obsidianProviderConfigService.provider();
+    if (provider) {
       const obsidianVault = this.upsertNode({
         id: 'vault:obsidian',
         title: 'Obsidian Vault',
@@ -164,7 +186,7 @@ export class KnowledgeGraphService {
         properties: { role: 'external_knowledge_vault', configured: true },
       });
       this.upsertRelationship({ from: core.id, to: obsidianVault.id, type: 'synchronized_with', source: 'obsidian', evidence: 'EDITH indexes the configured Obsidian vault.' });
-      this.ingestObsidianStructure(obsidianVault.id);
+      this.ingestObsidianStructure(obsidianVault.id, provider);
     } else {
       const staleVault = (getEdithPersistenceStore().listKnowledgeNodes?.() ?? []).find((node) => node.id === 'vault:obsidian' && !node.deletedAt);
       if (staleVault) getEdithPersistenceStore().upsertKnowledgeNode?.({ ...staleVault, deletedAt: now(), properties: { ...staleVault.properties, configured: false } });
@@ -222,10 +244,12 @@ export class KnowledgeGraphService {
 
   private refreshRuntimeGraph(): void {
     const currentTime = Date.now();
-    if (currentTime - this.lastRuntimeIngestAt < 5_000) return;
+    const vaultPath = obsidianProviderConfigService.activeVaultPath() ?? '';
+    if (currentTime - this.lastRuntimeIngestAt < 5_000 && vaultPath === this.lastVaultPath) return;
     try {
       this.ingestEdithRuntime();
       this.lastRuntimeIngestAt = currentTime;
+      this.lastVaultPath = vaultPath;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!/database is (?:locked|busy)/i.test(message)) throw error;
@@ -235,9 +259,16 @@ export class KnowledgeGraphService {
     }
   }
 
-  private ingestObsidianStructure(vaultId: string): void {
-    const index = getEdithPersistenceStore().listObsidianNoteIndex?.() ?? [];
-    const activeRecords = index.filter((record) => !record.deletedAt);
+  private activeObsidianRecords(provider: KnowledgeVaultProvider | undefined) {
+    if (!provider) return [];
+    return (getEdithPersistenceStore().listObsidianNoteIndex?.() ?? []).filter((record) => {
+      if (record.deletedAt || path.resolve(record.absolutePath) !== path.resolve(provider.root, record.path)) return false;
+      try { return provider.exists(record.path); } catch { return false; }
+    });
+  }
+
+  private ingestObsidianStructure(vaultId: string, provider: KnowledgeVaultProvider): void {
+    const activeRecords = this.activeObsidianRecords(provider);
     const folders = new Set<string>();
     for (const record of activeRecords) {
       const folderParts = record.folder.split('/').filter(Boolean);

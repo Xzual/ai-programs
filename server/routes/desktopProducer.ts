@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { Router, type Request } from 'express';
+import express, { Router, type Request, type Express } from 'express';
 import {
   REALTIME_EVENT_NAMES,
   parseCrossDeviceAudioHandoffV2,
@@ -21,7 +21,8 @@ import { killSwitchService } from '../../src/edith/killSwitch';
 import { knowledgeGraphService } from '../../src/edith/knowledgeGraphService';
 import { SharedResultCardProducerService, type ArtifactEvidenceV2, type ErrorAttentionEvidenceV2 } from '../../src/edith/sharedResultCardProducer';
 import { taskService } from '../../src/edith/taskService';
-import { DesktopProducerService, type RetentionReceipt } from '../mobile/desktopProducerService';
+import { DesktopProducerService, sharedDesktopProducerService, type RetentionReceipt } from '../mobile/desktopProducerService';
+import { NATIVE_MOBILE_SCHEMA, FRAME_UPLOAD_PATH, parseFilteredScope, parseFilteredFrame, parseSourcePinManifest, parseSourcePinReapproval, parseReceiverPinRegistration, parseOutboundChunk, parseTransferChunkRead, parseTransferControl, parseReceiverCommit, nativeObject, nativeLineage, canonicalNative } from '../mobile/nativeProducerContract';
 import { getMobileRuntime, type MobileRuntime } from '../mobile/runtime';
 import type { MobileSessionContext } from '../mobile/types';
 import { getOwnerSession, onOwnerSessionInvalidated, ownerSessionBindingActive, requireOwnerSession, requireProtectedMutation } from '../security/ownerSession';
@@ -31,7 +32,8 @@ import { getAdvancedExperienceRuntime, type AdvancedExperienceRuntime, type Adva
 const SAFE_ID = /^[A-Za-z0-9._-]{1,256}$/;
 const SHA256 = /^[a-f0-9]{64}$/i;
 const producers = new Map<string, SharedResultCardProducerService>();
-export const desktopProducerService = new DesktopProducerService();
+export const desktopProducerService = sharedDesktopProducerService;
+const frameAuthentication=new WeakMap<Request,{session:ReturnType<DesktopProducerService['authorize']>;context:MobileSessionContext}>();
 let ownerListenerInstalled = false;
 
 export function revokeDesktopProducerAuthority(): void {
@@ -76,6 +78,25 @@ function errorStatus(error: unknown): { status: number; errorCode: string } {
   return { status, errorCode };
 }
 
+/** Only the exact frame upload is parsed here; existing global body limits stay unchanged. */
+export function installFilteredFrameParser(app:Express,options:{runtime?:MobileRuntime;service?:DesktopProducerService;killSwitchActive?:()=>boolean}={}):void {
+  app.post(FRAME_UPLOAD_PATH,(req,res,next)=>{
+    res.setHeader('Cache-Control','no-store');
+    try{
+      const runtime=options.runtime??getMobileRuntime(),service=options.service??runtime.desktopProducer??desktopProducerService;
+      if((options.killSwitchActive??(()=>killSwitchService.status().active))()){service.revokeAll();throw Error('KILL_SWITCH_ACTIVE');}
+      const bridge=process.env.EDITH_DESKTOP_BRIDGE_TOKEN,supplied=bearer(req);
+      if(!loopback(req)||!bridge||!supplied||!safeEqual(bridge,supplied)||Object.keys(req.query).length||(req.get('origin')&&req.get('origin')!==`${req.protocol}://${req.get('host')}`))throw Error('DESKTOP_PRODUCER_UNAUTHORIZED');
+      const session=service.authorize(req.get('x-edith-producer-session'),Number(req.get('x-edith-producer-sequence')));
+      if(!ownerSessionBindingActive(session.ownerSessionBindingId))throw Error('DESKTOP_PRODUCER_SESSION_INVALID');
+      const context=runtime.pairing.revalidateContext(service.sessionContext(session));
+      frameAuthentication.set(req,{session,context});
+      const parser=express.json({limit:72*1024,strict:true,inflate:false});
+      parser(req,res,error=>{if(error){frameAuthentication.delete(req);res.status((error as any).type==='entity.too.large'?413:400).json({success:false,errorCode:'LIVE_VIEW_FRAME_BODY_INVALID'});}else next();});
+    }catch(error){const mapped=errorStatus(error);res.status(mapped.status).json({success:false,errorCode:mapped.errorCode,safeMessage:'Frame upload authority rejected.'});}
+  });
+}
+
 function exactObject(value: unknown, keys: string[]): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value)
     && Object.keys(value as Record<string, unknown>).every((key) => keys.includes(key)));
@@ -118,7 +139,8 @@ export function createDesktopProducerRouter(options: {
 } = {}): Router {
   const router = Router();
   const runtime = options.runtime ?? getMobileRuntime();
-  const service = options.service ?? desktopProducerService;
+  const service = options.service ?? runtime.desktopProducer ?? desktopProducerService;
+  runtime.crossDevice.setTransferAuthority(runtime.transfers);
   const killSwitchActive = options.killSwitchActive ?? (() => killSwitchService.status().active);
   const bootstrapLoopback = options.bootstrapLoopback ?? loopback;
   const producerLoopback = options.producerLoopback ?? loopback;
@@ -159,6 +181,9 @@ export function createDesktopProducerRouter(options: {
     const bridge = process.env.EDITH_DESKTOP_BRIDGE_TOKEN;
     const supplied = bearer(req);
     if (!producerLoopback(req) || !bridge || !supplied || !safeEqual(bridge, supplied)) throw new Error('DESKTOP_PRODUCER_UNAUTHORIZED');
+    if(Object.keys(req.query).length||(req.get('origin')&&req.get('origin')!==`${req.protocol}://${req.get('host')}`))throw Error('DESKTOP_PRODUCER_UNAUTHORIZED');
+    const preauthenticated=frameAuthentication.get(req);
+    if(preauthenticated){frameAuthentication.delete(req);if(!ownerSessionBindingActive(preauthenticated.session.ownerSessionBindingId))throw Error('DESKTOP_PRODUCER_SESSION_INVALID');runtime.pairing.revalidateContext(preauthenticated.context);return preauthenticated;}
     const sequence = Number(req.get('x-edith-producer-sequence'));
     const session = service.authorize(req.get('x-edith-producer-session'), sequence);
     if (!ownerSessionBindingActive(session.ownerSessionBindingId)) {
@@ -168,6 +193,47 @@ export function createDesktopProducerRouter(options: {
     const context = runtime.pairing.revalidateContext(service.sessionContext(session));
     return { session, context };
   };
+
+  const privateOperation=(operation:(auth:ReturnType<typeof authenticate>,req:Request)=>unknown,status=200)=>(req:Request,res:any)=>{
+    res.setHeader('Cache-Control','no-store');
+    try{const auth=authenticate(req),data=operation(auth,req);runtime.pairing.revalidateContext(auth.context);res.status(status).json({success:true,data});}
+    catch(error){const mapped=errorStatus(error);const code=/^[A-Z0-9_]+$/.test(mapped.errorCode)?mapped.errorCode:'NATIVE_PRODUCER_REQUEST_FAILED';res.status(/EXPIRED/.test(code)?410:/CONFLICT|CHECKPOINT|GENERATION/.test(code)?409:/CAPACITY/.test(code)?429:/REQUIRED/.test(code)?428:mapped.status).json({success:false,errorCode:code,safeMessage:'Native producer request rejected.'});}
+  };
+  router.post('/api/edith/mobile/desktop-producer/transfer/intent',privateOperation(({session,context},req)=>{
+    if(!nativeObject(req.body,['idempotencyKey']))throw Error('TRANSFER_INTENT_INVALID');
+    if(!context.device.allowedCommands.includes('file.download'))throw Error('DEVICE_COMMAND_NOT_ALLOWED');
+    return runtime.transfers.createOutboundIntent(context,req.body.idempotencyKey);
+  },201));
+  router.post('/api/edith/mobile/desktop-producer/transfer/source',privateOperation(({session,context},req)=>{
+    const parsed=parseSourcePinManifest(req.body);if(parsed.success===false)throw Error(parsed.errorCode);
+    service.assertLineage(session,parsed.value.lineage);const descriptor=runtime.transfers.bindNativeOutbound(session,parsed.value);
+    return {descriptor,checkpoint:runtime.transfers.checkpoint(session,descriptor.transferId),transfer:runtime.crossDevice.syncMobileTransfer(context,descriptor)};
+  },201));
+  router.post('/api/edith/mobile/desktop-producer/transfer/:id/reapprove',privateOperation(({session},req)=>{const parsed=parseSourcePinReapproval(req.body);if(parsed.success===false||parsed.value.transferId!==req.params.id)throw Error('TRANSFER_SOURCE_REAPPROVAL_INVALID');service.assertLineage(session,parsed.value.lineage);return runtime.transfers.reapproveNativePin(session,parsed.value);}));
+  router.post('/api/edith/mobile/desktop-producer/transfer/:id/receiver-pin',privateOperation(({session},req)=>{const parsed=parseReceiverPinRegistration(req.body);if(parsed.success===false||parsed.value.transferId!==req.params.id)throw Error('TRANSFER_RECEIVER_PIN_INVALID');return runtime.transfers.registerReceiverPin(session,parsed.value);}));
+  router.post('/api/edith/mobile/desktop-producer/transfer/chunk',privateOperation(({session},req)=>{const parsed=parseOutboundChunk(req.body);if(parsed.success===false)throw Error(parsed.errorCode);service.assertLineage(session,parsed.value.lineage);return runtime.transfers.putOutboundChunk(session,parsed.value);},202));
+  router.post('/api/edith/mobile/desktop-producer/transfer/:id/read',privateOperation(({session},req)=>{const parsed=parseTransferChunkRead(req.body);if(parsed.success===false||parsed.value.transferId!==req.params.id)throw Error('TRANSFER_READ_INVALID');return runtime.transfers.readStagedInbound(session,req.params.id,parsed.value);}));
+  router.post('/api/edith/mobile/desktop-producer/transfer/receiver-commit',privateOperation(({session,context},req)=>{const parsed=parseReceiverCommit(req.body);if(parsed.success===false)throw Error(parsed.errorCode);const descriptor=runtime.transfers.commitReceiver(session,parsed.value.transferId,parsed.value);return {descriptor,checkpoint:runtime.transfers.checkpoint(session,descriptor.transferId),transfer:runtime.crossDevice.syncMobileTransfer(context,descriptor)};}));
+  router.post('/api/edith/mobile/desktop-producer/transfer/:id/checkpoint',privateOperation(({session},req)=>{
+    if(!nativeObject(req.body,['schema','lineage','manifestDigest'])||req.body.schema!==NATIVE_MOBILE_SCHEMA||!nativeLineage(req.body.lineage))throw Error('TRANSFER_CHECKPOINT_INVALID');
+    const record=runtime.transfers.readAuthorityRecord(req.params.id);if(!record?.nativeTransfer||record.nativeTransfer.manifestDigest!==req.body.manifestDigest||canonicalNative(record.nativeTransfer.lineage)!==canonicalNative(req.body.lineage))throw Error('TRANSFER_CHECKPOINT_INVALID');
+    return runtime.transfers.checkpoint(session,req.params.id);
+  }));
+  router.post('/api/edith/mobile/desktop-producer/transfer/:id/cancel',privateOperation(({session},req)=>{const parsed=parseTransferControl(req.body);if(parsed.success===false||parsed.value.transferId!==req.params.id)throw Error('TRANSFER_CONTROL_INVALID');return runtime.transfers.cancel(session,req.params.id,parsed.value);}));
+  router.post('/api/edith/mobile/desktop-producer/live-view/scope',privateOperation(({session,context},req)=>{
+    const parsed=parseFilteredScope(req.body);if(parsed.success===false)throw Error(parsed.errorCode);
+    if(!context.device.allowedCommands.includes('live_view.start'))throw Error('DEVICE_COMMAND_NOT_ALLOWED');
+    const current=runtime.crossDevice.getLiveView(context,parsed.value.liveViewId);
+    if(current.generation!==parsed.value.leaseGeneration||Date.parse(parsed.value.expiresAt)>Date.parse(current.view.expiresAt))throw Error('LIVE_VIEW_SCOPE_GENERATION_INVALID');
+    return service.registerFilteredScope(session,parsed.value);
+  },201));
+  router.post(FRAME_UPLOAD_PATH,privateOperation(({session,context},req)=>{
+    const parsed=parseFilteredFrame(req.body);if(parsed.success===false)throw Error(parsed.errorCode);
+    const authorize=()=>{if(killSwitchActive()){service.revokeAll();throw Error('KILL_SWITCH_ACTIVE');}if(!ownerSessionBindingActive(session.ownerSessionBindingId))throw Error('DESKTOP_PRODUCER_SESSION_INVALID');runtime.pairing.revalidateContext(context);const current=runtime.crossDevice.getLiveView(context,parsed.value.liveViewId);if(current.generation!==parsed.value.leaseGeneration)throw Error('LIVE_VIEW_SCOPE_GENERATION_INVALID');};
+    const frame=service.putFilteredFrame(session,parsed.value,authorize);
+    const liveView=runtime.crossDevice.markFilteredFrame(context,frame.liveViewId,frame.leaseGeneration,frame.observedAt);
+    return {liveView,frameId:frame.frameId,sequence:frame.sequence,expiresAt:frame.expiresAt};
+  },202));
 
   const ingest = <T>(parser: (value: unknown) => { success: true; value: T } | { success: false; errorCode: string }, apply: (auth: ReturnType<typeof authenticate>, value: T) => unknown, event?: string) => (req: Request, res: any) => {
     try {

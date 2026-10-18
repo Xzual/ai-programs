@@ -83,6 +83,7 @@
     "desktop:prepare": "npm run vite:build && npm run desktop:sidecar",
     "desktop:portable": "node scripts/package-edith-portable.mjs",
     "desktop:portable:verify": "node scripts/verify-edith-portable.mjs",
+    "desktop:candidate": "node scripts/build-edith-candidate.mjs",
     "smoke:edith-desktop-release": "node scripts/test-edith-desktop-release.mjs",
     "test:edith-desktop-python-lock": "node scripts/test-edith-desktop-python-lock.mjs",
     "test:edith-portable-security": "node scripts/test-edith-portable-security.mjs",

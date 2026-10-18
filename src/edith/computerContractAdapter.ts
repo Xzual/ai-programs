@@ -21,6 +21,7 @@ import {
   type DesktopExpectedEffectV2,
   type DesktopObservationV2,
   type DesktopOperatorSessionV2,
+  type DesktopVerificationContextV2,
   type ParseResult,
   type RealtimeEventName,
   type RetryDecisionV2,
@@ -29,13 +30,24 @@ import {
 } from './contracts';
 import type {
   ComputerActionResult,
+  ComputerOcrReadback,
   ComputerDesktopAction,
   ComputerDesktopStatus,
   ComputerObservation,
 } from './computerDesktopClient';
+// Internal local pipeline registration: callers supply no receipt proof fields.
+const validatedOcrReadbacks=new WeakMap<object,()=>boolean>();
+export function registerValidatedOcrReadback(receipt:ComputerOcrReadback,isCurrent:()=>boolean):void {
+  validatedOcrReadbacks.set(receipt,isCurrent);
+}
+export function isValidatedComputerOcrReadback(value:unknown):value is ComputerOcrReadback {
+  if(!value||typeof value!=='object')return false;
+  return validatedOcrReadbacks.get(value)?.()===true;
+}
+
 
 const V21 = { contractVersion: TASK_CONTRACT_VERSION, amendment: EDITH_CONTRACT_AMENDMENT } as const;
-const ACTION_KINDS: DesktopActionKindV2[] = ['moveMouse', 'clickMouse', 'typeText', 'pressKey', 'hotkey', 'scroll', 'launchApp'];
+const ACTION_KINDS: DesktopActionKindV2[] = ['moveMouse', 'clickMouse', 'typeText', 'pressKey', 'hotkey', 'scroll', 'launchApp', 'dragMouse', 'doubleClickMouse'];
 
 export class ComputerContractError extends Error {
   constructor(public readonly errorCode: string, message: string) {
@@ -212,8 +224,10 @@ async function textFingerprint(text: string): Promise<string> {
 }
 
 function expectedEffect(request: ComputerDesktopAction): DesktopExpectedEffectV2 {
+  if(request.action==='focusApp')return 'foreground_window_focused';
   if (request.action === 'moveMouse') return 'cursor_moved';
   if (request.action === 'launchApp') return 'foreground_window_changed';
+  if(request.action==='typeText')return 'text_inserted';
   return 'visual_change';
 }
 
@@ -223,6 +237,11 @@ export async function toDesktopActionV2(
   identity: ActionIdentityInput = {},
   now = Date.now(),
 ): Promise<DesktopActionV2> {
+  if(request.action==='dragMouse'||request.action==='doubleClickMouse'){
+    const allowed=['action','target','actionId','idempotencyKey','attempt','button',...(request.action==='dragMouse'?['dragStart','dragEnd','dragDurationMs','destinationTarget']:['x','y'])];
+    if(Object.keys(request).some(key=>!allowed.includes(key)))throw new ComputerContractError('DESKTOP_ATOMIC_PARAMETERS_INVALID','Atomic request contains unknown or irrelevant parameters.');
+  }
+  if(request.action==='focusApp'&&Object.keys(request).some(key=>!['action','applicationId','focusTarget','actionId','idempotencyKey','attempt'].includes(key)))throw new ComputerContractError('DESKTOP_FOCUS_PARAMETERS_INVALID','Focus request contains irrelevant or unknown parameters.');
   const deadline = Math.min(now + 5_000, Date.parse(context.observation.expiresAt), Date.parse(context.approval.expiresAt));
   const action: DesktopActionV2 = {
     ...V21,
@@ -233,17 +252,23 @@ export async function toDesktopActionV2(
     observationId: context.observation.observationId,
     observationGeneration: context.observation.generation,
     kind: request.action,
-    coordinates: request.action === 'moveMouse' || request.action === 'clickMouse' ? { x: request.x, y: request.y } : undefined,
-    button: request.action === 'clickMouse' ? request.button ?? 'left' : undefined,
+    target: request.target,
+    coordinates: ['moveMouse','clickMouse','doubleClickMouse'].includes(request.action) && 'x' in request ? { x: request.x, y: request.y } : undefined,
+    button: request.action === 'clickMouse' || request.action==='doubleClickMouse' || request.action==='dragMouse' ? request.button ?? 'left' : undefined,
+    dragStart:request.action==='dragMouse'?request.dragStart:undefined,
+    dragEnd:request.action==='dragMouse'?request.dragEnd:undefined,
+    dragDurationMs:request.action==='dragMouse'?request.dragDurationMs:undefined,
+    destinationTarget:request.action==='dragMouse'?request.destinationTarget:undefined,
     key: request.action === 'pressKey' ? request.key : undefined,
     keys: request.action === 'hotkey' ? request.keys : undefined,
     textLength: request.action === 'typeText' ? Array.from(request.text).length : undefined,
     textFingerprint: request.action === 'typeText' ? await textFingerprint(request.text) : undefined,
     scrollDelta: request.action === 'scroll' ? request.delta : undefined,
-    applicationId: request.action === 'launchApp' ? request.app : undefined,
+    applicationId: request.action === 'launchApp' ? request.app : request.action==='focusApp'?request.applicationId:undefined,
+    focusTarget:request.action==='focusApp'?request.focusTarget:undefined,
     expectedEffect: expectedEffect(request),
     deadlineAt: iso(deadline),
-    retryBudget: { maxAttempts: 2, attempt: identity.attempt ?? 1, backoffMs: 250 },
+    retryBudget: { maxAttempts: request.target?.provenance==='ocr'||request.action==='dragMouse'||request.action==='doubleClickMouse'||request.action==='typeText'||request.action==='focusApp'?1:2, attempt: identity.attempt ?? 1, backoffMs: 250 },
   };
   return parsed(parseDesktopActionV2(action, {
     now: iso(now),
@@ -257,6 +282,11 @@ export function toActionDispatchV2(
   result: ComputerActionResult,
   now = Date.now(),
 ): ActionDispatchV2 {
+  const focusedNoop=action.kind==='focusApp'&&result.focusReadback?.matched===true
+    &&result.focusReadback.source==='native_operator'&&result.focusReadback.applicationId===action.applicationId
+    &&result.focusReadback.windowId===action.focusTarget?.windowId&&result.focusReadback.windowProcessId===action.focusTarget?.processId
+    &&result.focusReadback.imagePathFingerprint===action.focusTarget?.imagePathFingerprint;
+  const dispatched=result.dispatchStatus==='dispatched'&&(result.injected||focusedNoop);
   const dispatch: ActionDispatchV2 = {
     ...V21,
     dispatchId: `dispatch-${result.actionId}`,
@@ -266,11 +296,13 @@ export function toActionDispatchV2(
     approvalId: action.approvalId,
     observationId: action.observationId,
     observationGeneration: action.observationGeneration,
-    status: result.injected && result.dispatchStatus === 'dispatched' ? 'dispatched' : 'failed',
+    status: dispatched ? 'dispatched' : 'failed',
     attempt: action.retryBudget.attempt,
     dispatchedAt: iso(now),
     nativeCommandId: result.actionId,
-    errorCode: result.injected ? undefined : 'NATIVE_DISPATCH_FAILED',
+    errorCode:dispatched?undefined:result.errorCode??(result.dispatchStatus==='failed'?'NATIVE_DISPATCH_INTERRUPTED':'NATIVE_DISPATCH_FAILED'),
+    partialInputInjected:result.partialInputInjected,
+    releaseConfirmed:result.releaseConfirmed,
   };
   return parsed(parseActionDispatchV2(dispatch));
 }
@@ -303,17 +335,36 @@ export function toActionVerificationV2(
   result: ComputerActionResult,
   postObservation: DesktopObservationV2 | undefined,
   now = Date.now(),
+  preObservation?:DesktopObservationV2,
 ): ActionVerificationV2 {
   const evidence: ActionVerificationEvidenceV2[] = [];
-  if (result.verification === 'cursor_position_confirmed') evidence.push({ kind: 'cursor_position', matched: true, observationId: postObservation?.observationId, confidence: 1 });
-  if (result.verification === 'post_observation_changed') evidence.push({
+  const ocrAction=action.target?.provenance==='ocr'||action.target?.targetId.startsWith('ocr-');
+  const receipt=result.ocrReadback;
+  const verifiedOcr=ocrAction&&isValidatedComputerOcrReadback(receipt)&&receipt.matched===true
+    &&action.kind==='clickMouse'&&action.button==='left'&&action.retryBudget.attempt===1&&action.retryBudget.maxAttempts===1
+    &&dispatch.actionId===action.actionId&&dispatch.sessionId===action.sessionId&&dispatch.observationId===action.observationId&&dispatch.observationGeneration===action.observationGeneration
+    &&dispatch.approvalId===action.approvalId&&dispatch.idempotencyKey===action.idempotencyKey&&dispatch.attempt===1
+    &&dispatch.status==='dispatched'&&dispatch.partialInputInjected!==true&&dispatch.releaseConfirmed!==false&&result.injected===true
+    &&receipt.targetId===action.target?.targetId&&receipt.canonicalActionId===action.actionId
+    &&receipt.preObservationId===action.observationId&&receipt.preGeneration===action.observationGeneration
+    &&receipt.postObservationId===postObservation?.observationId&&receipt.postGeneration===postObservation?.generation
+    &&preObservation?.sessionId===action.sessionId&&postObservation?.sessionId===action.sessionId
+    &&preObservation.observationId===receipt.preObservationId&&preObservation.generation===receipt.preGeneration
+    &&preObservation.foreground.hwndFingerprint===receipt.windowId&&preObservation.foreground.processId===receipt.windowProcessId
+    &&postObservation.foreground.hwndFingerprint===receipt.windowId&&postObservation.foreground.processId===receipt.windowProcessId;
+  const status=ocrAction&&result.verificationStatus==='verified'&&!verifiedOcr?'partial':result.verificationStatus;
+  if (!ocrAction&&result.verification === 'cursor_position_confirmed') evidence.push({ kind: 'cursor_position', matched: true, observationId: postObservation?.observationId, confidence: 1 });
+  if (verifiedOcr) evidence.push({kind:'visual_change',matched:true,source:'native_operator',observationId:postObservation?.observationId,confidence:1});
+  else if (result.verification === 'post_observation_changed') evidence.push({
     kind: action.expectedEffect === 'foreground_window_changed' ? 'foreground_window_changed' : 'visual_change',
-    matched: result.verificationStatus === 'verified',
+    matched: status === 'verified',
     observationId: postObservation?.observationId,
-    confidence: result.verificationStatus === 'verified' ? 1 : 0.5,
+    confidence: status === 'verified' ? 1 : 0.5,
   });
   if (result.verification === 'input_injected_outcome_unverified') evidence.push({ kind: 'input_injected', matched: false, confidence: 0 });
   if (result.verification === 'process_started') evidence.push({ kind: 'process_started', matched: false, confidence: 0.5 });
+  if(!ocrAction&&result.textReadback)evidence.push({kind:'text_readback',...result.textReadback,observationId:postObservation?.observationId,confidence:result.textReadback.matched?1:0});
+  if(!ocrAction&&result.focusReadback)evidence.push({kind:'foreground_window_focused',...result.focusReadback,observationId:postObservation?.observationId,confidence:result.focusReadback.matched?1:0});
   const verification: ActionVerificationV2 = {
     ...V21,
     verificationId: `verification-${dispatch.dispatchId}`,
@@ -324,12 +375,13 @@ export function toActionVerificationV2(
     preObservationGeneration: action.observationGeneration,
     postObservationId: postObservation?.observationId,
     postObservationGeneration: postObservation?.generation,
-    status: result.verificationStatus,
+    status,
     evidence,
-    confidence: result.verificationStatus === 'verified' ? 1 : result.verificationStatus === 'partial' ? 0.5 : 0,
+    confidence: status === 'verified' ? 1 : status === 'partial' ? 0.5 : 0,
     verifiedAt: iso(now),
   };
-  return parsed(parseActionVerificationV2(verification));
+  const context:DesktopVerificationContextV2|undefined=preObservation&&postObservation?{action,preObservation,postObservation,dispatch}:undefined;
+  return parsed(parseActionVerificationV2(verification,context));
 }
 
 export function toPendingActionVerificationV2(
@@ -378,6 +430,9 @@ export function toRetryDecisionV2(
 
 export class DesktopRealtimeEventStream {
   private sequence = 0;
+  private observations=new Map<string,DesktopObservationV2>();
+  private actions=new Map<string,DesktopActionV2>();
+  private dispatches=new Map<string,ActionDispatchV2>();
 
   constructor(
     private readonly streamId: string,
@@ -385,7 +440,7 @@ export class DesktopRealtimeEventStream {
   ) {}
 
   emit<K extends RealtimeEventName>(event: K, payload: TypedRealtimeEnvelopeV2<K>['payload'], causationId?: string): TypedRealtimeEnvelopeV2<K> {
-    const sequence = ++this.sequence;
+    const sequence = this.sequence+1;
     const envelope = {
       schema: EDITH_CONTRACT_SCHEMA,
       version: EDITH_CONTRACT_VERSION,
@@ -400,7 +455,16 @@ export class DesktopRealtimeEventStream {
       replayed: false,
       payload,
     } as TypedRealtimeEnvelopeV2<K>;
-    return parsed(parseRealtimeEnvelopeV2_1(envelope)) as TypedRealtimeEnvelopeV2<K>;
+    const verification=payload as unknown as ActionVerificationV2;
+    const action=this.actions.get(verification.actionId),preObservation=this.observations.get(verification.preObservationId),postObservation=this.observations.get(verification.postObservationId??'');
+    const context=event===REALTIME_EVENT_NAMES.DESKTOP_ACTION_VERIFICATION&&action&&preObservation&&postObservation?{action,preObservation,postObservation,dispatch:this.dispatches.get(verification.dispatchId)}:undefined;
+    const result=parsed(parseRealtimeEnvelopeV2_1(envelope,{desktopVerificationContext:context})) as TypedRealtimeEnvelopeV2<K>;
+    this.sequence=sequence;
+    if(event===REALTIME_EVENT_NAMES.DESKTOP_OBSERVATION){const observation=payload as unknown as DesktopObservationV2;this.observations.set(observation.observationId,observation);}
+    if(event===REALTIME_EVENT_NAMES.DESKTOP_ACTION_REQUESTED){const action=payload as unknown as DesktopActionV2;this.actions.set(action.actionId,action);}
+    if(event===REALTIME_EVENT_NAMES.DESKTOP_ACTION_DISPATCH){const dispatch=payload as unknown as ActionDispatchV2;this.dispatches.set(dispatch.dispatchId,dispatch);}
+    for(const map of [this.observations,this.actions,this.dispatches])while(map.size>100)map.delete(map.keys().next().value!);
+    return result;
   }
 }
 
@@ -418,6 +482,11 @@ function idempotencyBinding(action: DesktopActionV2): string {
     observationId: action.observationId,
     observationGeneration: action.observationGeneration,
     kind: action.kind,
+    target: action.target,
+    dragStart:action.dragStart,
+    dragEnd:action.dragEnd,
+    dragDurationMs:action.dragDurationMs,
+    destinationTarget:action.destinationTarget,
     coordinates: action.coordinates,
     button: action.button,
     key: action.key,
@@ -426,6 +495,8 @@ function idempotencyBinding(action: DesktopActionV2): string {
     textFingerprint: action.textFingerprint,
     scrollDelta: action.scrollDelta,
     applicationId: action.applicationId,
+    focusTarget:action.focusTarget,
+    focusDeadlineAt:action.kind==='focusApp'?action.deadlineAt:undefined,
     expectedEffect: action.expectedEffect,
     attempt: action.retryBudget.attempt,
   });

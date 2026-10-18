@@ -59,7 +59,19 @@ export function classifyResearchAddress(address: string): ResearchTargetClass {
   if (normalized.startsWith('fc') || normalized.startsWith('fd')) return 'private';
   if (normalized.startsWith('ff') || normalized.startsWith('2001:db8:')) return 'reserved';
   const mapped = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  return mapped ? classifyIpv4(mapped[1]) : 'public';
+  if (mapped) return classifyIpv4(mapped[1]);
+  const halves = normalized.split('::');
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves[1] ? halves[1].split(':') : [];
+  const words = [...left, ...Array(halves.length === 2 ? 8 - left.length - right.length : 0).fill('0'), ...right].map((word) => parseInt(word, 16));
+  if (words.length !== 8) return 'unknown';
+  if (words.slice(0, 5).every((word) => word === 0) && words[5] === 0xffff) {
+    return classifyIpv4(`${words[6] >>> 8}.${words[6] & 255}.${words[7] >>> 8}.${words[7] & 255}`);
+  }
+  // Only globally routable unicast; reject transition/special-purpose encodings.
+  if (words[0] < 0x2000 || words[0] > 0x3fff || words[0] === 0x2002
+    || (words[0] === 0x2001 && (words[1] <= 0x01ff || words[1] === 0x0db8)) || words[0] === 0x3fff) return 'reserved';
+  return 'public';
 }
 
 export class ResearchSsrfPolicy {

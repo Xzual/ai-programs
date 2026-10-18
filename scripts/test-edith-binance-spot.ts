@@ -1,82 +1,77 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { BinanceSpotError, BinanceSpotService, DEFAULT_BINANCE_SPOT_WATCHLIST } from "../server/crypto/binanceSpotService";
+import { killSwitchService } from "../src/edith/killSwitch";
 
 const original = { ...process.env };
-process.env.BINANCE_API_KEY = "test-key-never-return";
-process.env.BINANCE_API_SECRET = "test-secret-never-return";
+process.env.BINANCE_API_KEY = "fixture-key";
+process.env.BINANCE_API_SECRET = "fixture-secret";
 process.env.BINANCE_SPOT_ENABLED = "true";
 process.env.BINANCE_SPOT_LIVE_ENABLED = "true";
-process.env.BINANCE_SPOT_BASE_URL = "https://api.binance.com";
 delete process.env.BINANCE_SPOT_ALLOWED_SYMBOLS;
-
-const calls: Array<{ method: string; url: URL }> = [];
+process.env.EDITH_CRYPTO_RUNTIME_DATA_DIR = path.join(process.env.EDITH_TEST_DATA_DIR!, "crypto");
+const calls: Array<{ method: string; url: URL; headers: Headers }> = [];
+let release: () => void = () => {};
+let pendingPublic = false;
+const gate = new Promise<void>(resolve => { release = resolve; });
 const mockFetch = async (input: string | URL | Request, init?: RequestInit) => {
-  const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-  const method = (init?.method || "GET").toUpperCase();
-  calls.push({ method, url });
-  if (url.pathname === "/api/v3/exchangeInfo") return new Response(JSON.stringify({ symbols: [{
-    symbol: url.searchParams.get("symbol"), status: "TRADING", isSpotTradingAllowed: true,
-    filters: [
-      { filterType: "PRICE_FILTER", tickSize: "0.01" },
-      { filterType: "LOT_SIZE", stepSize: "0.001", minQty: "0.001", maxQty: "1000" },
-      { filterType: "MIN_NOTIONAL", minNotional: "5" },
-    ],
-  }] }), { status: 200 });
-  if (url.pathname === "/api/v3/time") return new Response(JSON.stringify({ serverTime: Date.now() }), { status: 200 });
-  if (url.pathname === "/api/v3/order" && method === "POST") return new Response(JSON.stringify({ orderId: 42, status: "NEW" }), { status: 200 });
-  if (url.pathname === "/api/v3/account") return new Response(JSON.stringify({ canTrade: true, accountType: "SPOT", permissions: ["SPOT"], balances: [] }), { status: 200 });
-  return new Response(JSON.stringify({ code: -1 }), { status: 404 });
+  const url = new URL(String(input));
+  const method = init?.method || "GET";
+  calls.push({ method, url, headers: new Headers(init?.headers) });
+  assert.equal(method, "GET");
+  assert.ok(["/api/v3/ticker/price", "/api/v3/ticker/24hr"].includes(url.pathname), "only public market requests are possible");
+  assert.equal(new Headers(init?.headers).has("X-MBX-APIKEY"), false);
+  assert.equal(url.searchParams.has("signature"), false);
+  assert.equal(init?.redirect, "error");
+  if (pendingPublic) await gate;
+  return new Response(JSON.stringify([{ symbol: "BTCUSDT", price: "50000", priceChangePercent: "1", quoteVolume: "1000" }]));
 };
-
+const isDisabled = (e: any) => e instanceof BinanceSpotError && e.code === "demo_only" && e.status === 423;
 try {
   const service = new BinanceSpotService(mockFetch as typeof fetch);
   assert.deepEqual(service.watchlist(), [...DEFAULT_BINANCE_SPOT_WATCHLIST]);
-  assert.equal(JSON.stringify(service.status()).includes("test-key-never-return"), false);
-  assert.equal(JSON.stringify(service.status()).includes("test-secret-never-return"), false);
-  assert.equal(service.status().withdrawalsEnabled, false);
-  assert.equal(service.status().futuresEnabled, false);
-  assert.equal(service.status().marginEnabled, false);
+  const status = service.status();
+  assert.equal(status.mode, "DEMO_ONLY");
+  for (const flag of [status.configured, status.enabled, status.liveEnabled, status.privateRequestsEnabled, status.realOrderEndpointsAvailable]) assert.equal(flag, false);
+  assert.equal(JSON.stringify(status).includes("fixture-key"), false);
+  assert.equal(JSON.stringify(status).includes("fixture-secret"), false);
+  const account = await service.account();
+  assert.equal(account.status, "disabled");
+  assert.equal(account.canTrade, false);
+  assert.deepEqual(account.balances, []);
+  assert.deepEqual(await service.openOrders("BTCUSDT"), []);
+  assert.equal(service.latestProposal(), undefined);
+  await assert.rejects(() => service.createProposal({ symbol: "BTCUSDT", side: "BUY", quantity: "1", price: "50000" }), isDisabled);
+  const results = await Promise.allSettled([service.approve("legacy-id", "legacy-phrase"), service.approve("legacy-id", "legacy-phrase")]);
+  assert.ok(results.every(result => result.status === "rejected" && isDisabled(result.reason)));
+  await assert.rejects(() => service.approve("legacy-id", "legacy-phrase"), isDisabled);
+  assert.throws(() => service.reject("legacy-id"), isDisabled);
+  assert.throws(() => service.getProposal("legacy-id"), isDisabled);
+  assert.equal(calls.length, 0, "private and approval attempts never call fetch, even with legacy enabled/key settings");
 
-  await assert.rejects(() => service.createProposal({ symbol: "AVAXUSDT", side: "BUY", price: "100", quantity: "1" }), (error: any) => error instanceof BinanceSpotError && error.code === "symbol_not_allowed");
-  await assert.rejects(() => service.createProposal({ symbol: "BTCUSDT", side: "BUY", type: "MARKET", price: "100", quantity: "1" }), (error: any) => error.code === "order_type_not_allowed");
-
-  const proposal = await service.createProposal({ symbol: "BTCUSDT", side: "BUY", type: "LIMIT", price: "100.129", quantity: "0.1234", source: "jev" });
-  assert.equal(proposal.price, "100.12");
-  assert.equal(proposal.quantity, "0.123");
-  assert.equal(proposal.state, "AWAITING_APPROVAL");
-  assert.equal(calls.some((call) => call.method === "POST" && call.url.pathname === "/api/v3/order"), false, "proposal must not submit an order");
-  await assert.rejects(() => service.approve(proposal.id, "wrong"), (error: any) => error.code === "approval_phrase_invalid");
-  const submitted = await service.approve(proposal.id, proposal.approvalPhrase);
-  assert.equal(submitted.state, "SUBMITTED");
-  assert.equal(submitted.exchangeOrderId, "42");
-  await assert.rejects(() => service.approve(proposal.id, proposal.approvalPhrase), (error: any) => error.code === "proposal_already_consumed");
-  assert.equal(calls.filter((call) => call.method === "POST" && call.url.pathname === "/api/v3/order").length, 1, "duplicate approval must not resubmit");
-  assert.equal(calls.some((call) => call.url.pathname.includes("withdraw")), false);
-  assert.equal(calls.some((call) => call.url.pathname.includes("fapi") || call.url.pathname.includes("margin")), false);
-
-  const blocked = await service.createProposal({ symbol: "ETHUSDT", side: "SELL", price: "2000", quantity: "0.01" });
+  pendingPublic = true;
+  const publicRead = service.markets();
   service.setKillSwitch(true);
-  await assert.rejects(() => service.approve(blocked.id, blocked.approvalPhrase), (error: any) => error.code === "kill_switch_active");
-
-  let postAttempts = 0;
-  const recoveryFetch = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
-    const method = (init?.method || "GET").toUpperCase();
-    if (url.pathname === "/api/v3/exchangeInfo") return mockFetch(input, init);
-    if (url.pathname === "/api/v3/time") return mockFetch(input, init);
-    if (url.pathname === "/api/v3/account") return new Response(JSON.stringify({ canTrade: true, accountType: "SPOT", permissions: ["SPOT"], balances: [] }), { status: 200 });
-    if (url.pathname === "/api/v3/order" && method === "POST") { postAttempts += 1; return new Response(JSON.stringify({ code: -1007 }), { status: 504 }); }
-    if (url.pathname === "/api/v3/order" && method === "GET") return new Response(JSON.stringify({ orderId: 77, status: "NEW" }), { status: 200 });
-    return new Response("{}", { status: 404 });
-  };
-  const recovery = new BinanceSpotService(recoveryFetch as typeof fetch);
-  const uncertain = await recovery.createProposal({ symbol: "ETHUSDT", side: "BUY", price: "2000", quantity: "0.01" });
-  const recovered = await recovery.approve(uncertain.id, uncertain.approvalPhrase);
-  assert.equal(recovered.state, "SUBMITTED");
-  assert.equal(recovered.exchangeOrderId, "77");
-  assert.equal(postAttempts, 1, "unknown execution must be queried, never blindly retried");
-
-  console.log("PASS Binance Global Spot approval boundary, filters, idempotency, recovery, and secret isolation");
-} finally {
-  process.env = original;
-}
+  await assert.rejects(() => service.approve("legacy-id", "legacy-phrase"), isDisabled);
+  release();
+  const markets = await publicRead;
+  assert.equal(markets[0].price, "50000");
+  assert.equal(service.status().killSwitch, true);
+  assert.equal(service.status().localKillSwitch, true);
+  const localPath = path.join(process.env.EDITH_CRYPTO_RUNTIME_DATA_DIR!, "kill-switch.json");
+  assert.equal(JSON.parse(fs.readFileSync(localPath, "utf8")).active, true);
+  service.setKillSwitch(false);
+  assert.equal(service.status().killSwitch, false);
+  killSwitchService.activate("fixture global stop", "test");
+  service.setKillSwitch(false);
+  assert.equal(service.status().killSwitch, true, "local resume cannot override global stop");
+  killSwitchService.deactivate("test");
+  assert.equal(service.status().killSwitch, false);
+  fs.writeFileSync(localPath, "invalid-state");
+  assert.equal(service.status().killSwitch, true, "unreadable local safety state fails closed");
+  service.setKillSwitch(false);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.filter(call => call.method !== "GET" || /account|order/.test(call.url.pathname)).length, 0);
+  console.log("PASS demo-only Binance compatibility, zero private/order attempts, concurrent/replay approvals disabled, stop-during-await, global/local coupling, public-only transport");
+} finally { process.env = original; }

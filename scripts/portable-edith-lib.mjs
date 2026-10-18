@@ -60,9 +60,29 @@ export function isExcludedCryptoResource(relative) {
     || /(?:^|\/)test[^/]*\.py$/i.test(normalized);
 }
 
+// Public module paths only; admission does not authenticate the staged bytes.
+const PIP_CACHE_MODULE_FILES = new Set([
+  'Lib/site-packages/pip/_vendor/cachecontrol/caches/__init__.py',
+  'Lib/site-packages/pip/_vendor/cachecontrol/caches/file_cache.py',
+  'Lib/site-packages/pip/_vendor/cachecontrol/caches/redis_cache.py',
+]);
+
 export function isExcludedPythonRuntime(relative) {
   const normalized = relative.replaceAll('\\', '/');
-  return normalized.split('/').includes('__pycache__') || /\.(?:pyc|pyo)$/i.test(normalized);
+  if (PIP_CACHE_MODULE_FILES.has(normalized)) return false;
+  const parts = normalized.toLowerCase().split('/');
+  const stateDirectories = new Set([
+    '__pycache__', '.cache', 'cache', 'caches', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+    '.git', '.venv', '.aws', '.ssh', '.azure', 'logs', 'log', 'vault', 'backups', 'backup',
+    'userdata', 'user-data', 'user_data',
+  ]);
+  return parts.some((part) => stateDirectories.has(part)
+    || /^\.env(?:\..*)?$/.test(part)
+    || /\.(?:env|pyc|pyo)$/.test(part)
+    || /\.(?:db|sqlite|sqlite2|sqlite3)(?:[-.](?:wal|shm|journal))?$/.test(part)
+    || /\.(?:wal|shm|log)(?:\.\d+)?$/.test(part)
+    || /^(?:\.?credentials?|\.?secrets?|\.?credential[-_]?store|\.?secret[-_]?store|api[-_]?keys?|access[-_]?tokens?|refresh[-_]?tokens?|auth[-_]?tokens?|private[-_]?keys?|passwords?)(?:\.(?:json|ya?ml|toml|ini|conf|txt|pem|key))?$/.test(part)
+    || /^(?:pip\.ini|pip\.conf|pyvenv\.cfg|\.netrc|\.pypirc|\.envrc)$/.test(part));
 }
 
 export function assertCryptoResourcesSafe(directory) {

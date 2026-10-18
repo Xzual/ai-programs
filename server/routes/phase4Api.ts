@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { Request } from 'express';
 import { EDITH_CONTRACT_AMENDMENT, EDITH_CONTRACT_SCHEMA, EDITH_CONTRACT_VERSION, validateNoSecretMaterial } from '../../src/edith/contracts';
 import { getEdithPersistenceStore } from '../../src/edith/persistence';
@@ -9,6 +10,11 @@ import { ResearchService } from '../../src/edith/researchService';
 import { PlaybookService } from '../../src/edith/playbookService';
 import { LocalSearchService } from '../../src/edith/localSearchService';
 import { sanitizeSensitiveValue } from '../../src/edith/securityRedaction';
+import { BoundedResearchAcquisitionWorker } from '../../src/edith/researchAcquisitionAdapter';
+import { RegistryPlaybookExecutionAdapter } from '../../src/edith/playbookExecutionAdapter';
+import { getOwnerSession } from '../security/ownerSession';
+import { Phase4IdempotencyStore } from './phase4IdempotencyStore';
+export { Phase4IdempotencyStore } from './phase4IdempotencyStore';
 
 export const PHASE4_API_CONTRACT = Object.freeze({
   schema: EDITH_CONTRACT_SCHEMA,
@@ -32,31 +38,6 @@ export interface Phase4ApiResult {
   body: Record<string, unknown>;
 }
 
-interface IdempotencyEntry {
-  fingerprint: string;
-  result: Promise<Phase4ApiResult>;
-}
-
-export class Phase4IdempotencyStore {
-  private readonly entries = new Map<string, IdempotencyEntry>();
-
-  execute(scope: string, key: string, body: unknown, operation: () => Promise<Phase4ApiResult>): { replayed: boolean; result: Promise<Phase4ApiResult> } | undefined {
-    const fingerprint = createHash('sha256').update(JSON.stringify(body ?? null)).digest('hex');
-    const compound = `${scope}:${key}`;
-    const existing = this.entries.get(compound);
-    if (existing) {
-      if (existing.fingerprint !== fingerprint) return undefined;
-      return { replayed: true, result: existing.result };
-    }
-    const result = operation().catch((error) => {
-      this.entries.delete(compound);
-      throw error;
-    });
-    this.entries.set(compound, { fingerprint, result });
-    return { replayed: false, result };
-  }
-}
-
 let defaultRuntime: Phase4ApiRuntime | undefined;
 
 export function getPhase4ApiRuntime(): Phase4ApiRuntime {
@@ -68,18 +49,20 @@ export function getPhase4ApiRuntime(): Phase4ApiRuntime {
     const status = obsidianProviderConfigService.status();
     return status.state === 'READY' && status.writable ? obsidianProviderConfigService.provider() : undefined;
   });
+  const acquisition = new BoundedResearchAcquisitionWorker();
+  const execution = new RegistryPlaybookExecutionAdapter();
   defaultRuntime = {
     persistence,
-    research: new ResearchService(persistence, [], undefined, journal),
-    playbooks: new PlaybookService(persistence),
+    research: new ResearchService(persistence, [acquisition], acquisition.resolver, journal),
+    playbooks: new PlaybookService(persistence, execution, execution),
     search: new LocalSearchService(local, persistence),
     get journalConfigured() {
       const status = obsidianProviderConfigService.status();
       return status.state === 'READY' && status.writable;
     },
-    researchConfigured: false,
-    playbookExecutionConfigured: false,
-    idempotency: new Phase4IdempotencyStore(),
+    researchConfigured: acquisition.available,
+    playbookExecutionConfigured: execution.available,
+    idempotency: new Phase4IdempotencyStore(path.join(local.getPaths().dataDir, 'phase4-idempotency.sqlite')),
   };
   return defaultRuntime;
 }
@@ -95,9 +78,21 @@ export function idempotencyKey(req: Request): string | undefined {
 }
 
 function redactLocalPaths(value: string): string {
-  return value
-    .replace(/(?:[A-Za-z]:[\\/]|\\\\)(?:[^\s`"']+[\\/])+[^\s`"']*/g, '[REDACTED_LOCAL_PATH]')
-    .replace(/\/(?:Users|home|var|tmp|etc)\/(?:[^\s`"']+\/)*[^\s`"']*/g, '[REDACTED_LOCAL_PATH]');
+  // Consume complete HTTP URLs before considering a drive-letter path: the s:/
+  // inside https:// is not a local path. Preserve safe URI spelling/provenance.
+  return value.replace(/https?:\/\/[^\s`"'<>]+|(?:[A-Za-z]:[\\/]|\\\\)[^\s`"'<>)]+|\/(?:Users|home|var|tmp|etc|opt|usr|srv|mnt|media|root|run|private|Volumes|workspace|data)\/(?:[^\s`"'<>)]+)?/gi, (match) => {
+    if (!/^https?:\/\//i.test(match)) return '[REDACTED_LOCAL_PATH]';
+    let url: URL;
+    try { url = new URL(match); } catch { return '[REDACTED_INVALID_URL]'; }
+    const sensitiveKey = /^(?:token|access_token|refresh_token|api[_-]?key|apikey|key|signature|secret|password|credential|authorization|cookie)$/i;
+    const localValue = /(?:^|[\s("'=])(?:[A-Za-z]:[\\/]|\\\\)|^\/(?:Users|home|var|tmp|etc|opt|usr|srv|mnt|media|root|run|private|Volumes|workspace|data)(?:\/|$)/i;
+    if (url.username || url.password || [...url.searchParams].some(([key, item]) => sensitiveKey.test(key) || localValue.test(item)
+      || sanitizeSensitiveValue(item) !== item || /https?:\/\/[^\s/]*@/i.test(item))) return '[REDACTED_SENSITIVE_URL]';
+    let fragment: string;
+    try { fragment = decodeURIComponent(url.hash.slice(1)); } catch { return '[REDACTED_INVALID_URL]'; }
+    if (localValue.test(fragment) || sanitizeSensitiveValue(fragment) !== fragment) return '[REDACTED_SENSITIVE_URL]';
+    return match;
+  });
 }
 
 export function redactPhase4Payload<T>(value: T): T {
@@ -150,7 +145,23 @@ export async function executeIdempotent(
 ): Promise<{ replayed: boolean; result: Phase4ApiResult } | { errorCode: 'IDEMPOTENCY_KEY_REQUIRED' | 'IDEMPOTENCY_KEY_REUSED' }> {
   const key = idempotencyKey(req);
   if (!key) return { errorCode: 'IDEMPOTENCY_KEY_REQUIRED' };
-  const pending = runtime.idempotency.execute(scope, key, req.body, operation);
+  const owner = getOwnerSession(req);
+  if (!owner) return { errorCode: 'IDEMPOTENCY_KEY_REQUIRED' };
+  // The local application has one authenticated owner. A fresh authenticated session
+  // may read a prior result after restart; it never inherits authority to rerun it.
+  let pending: ReturnType<Phase4IdempotencyStore['execute']>;
+  try { pending = runtime.idempotency.execute(`${owner.actor}:${scope}`, key, req.body, async () => {
+    try { return await operation(); }
+    catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const code = message.includes('kill switch') ? 'KILL_SWITCH_ACTIVE' : message.includes('OWNER_SESSION_REQUIRED') ? 'OWNER_SESSION_REQUIRED' : 'PRODUCER_EXECUTION_FAILED';
+      return { status: code === 'OWNER_SESSION_REQUIRED' ? 401 : code === 'KILL_SWITCH_ACTIVE' ? 423 : 500,
+        body: errorEnvelope(req, code, 'Execution stopped. Review persisted task and artifact evidence before another attempt.') };
+    }
+  }); } catch {
+    return { replayed: false, result: { status: 503, body: errorEnvelope(req, 'DURABLE_STORE_UNAVAILABLE', 'The durable request store could not reserve execution. No new operation was started.') } };
+  }
   if (!pending) return { errorCode: 'IDEMPOTENCY_KEY_REUSED' };
-  return { replayed: pending.replayed, result: await pending.result };
+  try { return { replayed: pending.replayed, result: await pending.result }; }
+  catch { return { replayed: pending.replayed, result: { status: 409, body: errorEnvelope(req, 'IDEMPOTENCY_OUTCOME_UNKNOWN', 'Execution evidence must be reconciled before another attempt.') } }; }
 }

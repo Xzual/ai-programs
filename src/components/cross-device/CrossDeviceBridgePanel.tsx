@@ -1,4 +1,5 @@
 import React from 'react';
+import type { SharedResultCardV2 } from '../../edith/contracts';
 import {
   Activity,
   Eye,
@@ -18,7 +19,129 @@ import {
   type CrossDeviceBridgeSnapshot,
   type CrossDeviceCapabilityState,
   type CrossDeviceFrame,
+  type ResultCardSourceReference,
 } from '../../edith/crossDeviceDesktopBridge';
+
+export interface ResearchSharedResultPanelProps {
+  sourceReference: { type: 'research'; id: string };
+  onOpenSource?: (id: string) => void;
+}
+
+export function researchCardPublicationScope(snapshot: CrossDeviceBridgeSnapshot | null, target: string, source: string, now = Date.now()): string {
+  const device = snapshot?.devices.find(row => row.deviceId === target);
+  if (!source || !target || !snapshot?.ownerAuthorized || snapshot.killSwitchActive !== false || snapshot.capabilities.resultCards !== 'available' || !device || device.trustStatus !== 'trusted' || !device.ownerSessionBindingId || !(Date.parse(device.ownerBindingExpiresAt ?? '') > now)) return '';
+  return JSON.stringify([source, target, device.ownerSessionBindingId, device.workspaceId, device.ownerBindingExpiresAt]);
+}
+
+// The same gate drives the mounted component and its bounded transport fixtures.
+export class ResearchCardPublicationGate {
+  private epoch = 0;
+  private scope = '';
+  private pending = false;
+  private identity = '';
+  card: SharedResultCardV2 | null = null;
+  setScope(scope: string) {
+    if (scope !== this.scope) { this.clear(); this.scope = scope; this.identity = ''; }
+  }
+  clear() { this.epoch += 1; this.card = null; }
+  get busy() { return this.pending; }
+  async publish(bridge: Pick<CrossDeviceDesktopBridge, 'publishResultCard'>, target: string, sourceId: string, owner?: { ownerSessionBindingId?: string; workspaceId?: string }): Promise<'accepted' | 'stale' | 'busy'> {
+    if (this.pending) return 'busy';
+    if (!this.scope || !target || !sourceId) throw new Error('RESULT_CARD_SCOPE_REQUIRED');
+    const epoch = this.epoch;
+    this.identity ||= `research-card-${crypto.randomUUID()}`;
+    const reference: ResultCardSourceReference = { cardId: this.identity, source: { type: 'research', id: sourceId } };
+    this.pending = true;
+    this.card = null;
+    try {
+      const { shared } = await bridge.publishResultCard(target, reference);
+      if (epoch !== this.epoch) return 'stale';
+      if (shared.cardId !== reference.cardId || shared.targetDeviceId !== target || shared.provenance.sourceType !== 'research' || shared.provenance.sourceId !== sourceId) throw new Error('RESULT_CARD_CORRELATION_INVALID');
+      if (owner && (shared.ownerSessionBindingId !== owner.ownerSessionBindingId || (owner.workspaceId && shared.workspaceId !== owner.workspaceId))) throw new Error('RESULT_CARD_OWNER_CHANGED');
+      this.card = shared;
+      return 'accepted';
+    } catch (error) { if (epoch !== this.epoch) return 'stale'; throw error; }
+    finally { this.pending = false; }
+  }
+}
+
+export function ResearchPublishedCard({ card, onOpen, onDismiss }: { card: SharedResultCardV2; onOpen?: () => void; onDismiss: () => void }) {
+  const canOpen = card.actions.some(action => action.action === 'open' && action.available && !action.requiresApproval);
+  return <article aria-label="Published research result card" className="mt-3 rounded-lg border border-cyan-400/25 p-3 text-xs text-slate-200">
+    <p role="status">Backend publication accepted (201). Phone delivery is unverified.</p>
+    <h4 className="mt-2 font-semibold">{card.title}</h4>
+    <p className="whitespace-pre-wrap break-words">{card.summary}</p>
+    <p>Outcome: {card.outcome} · Provenance: {card.provenance.verified ? 'verified' : 'unverified'} · Revision: {card.revision}</p>
+    <p className="break-all">Source: {card.provenance.sourceId} · Target: {card.targetDeviceId}</p>
+    <div className="mt-2 flex gap-2"><ControlButton disabled={!canOpen || !onOpen} onClick={() => onOpen?.()}>Open local research</ControlButton><ControlButton onClick={onDismiss}>Dismiss card</ControlButton></div>
+  </article>;
+}
+
+export function ResearchSharedResultPanel({ sourceReference, onOpenSource }: ResearchSharedResultPanelProps) {
+  // Card publication is HTTP-only; diagnostics must not bootstrap unrelated native producers.
+  const bridge = React.useMemo(() => new CrossDeviceDesktopBridge({ tauriAvailable: () => false }), []);
+  const gate = React.useMemo(() => new ResearchCardPublicationGate(), []);
+  const [snapshot, setSnapshot] = React.useState<CrossDeviceBridgeSnapshot | null>(null);
+  const [target, setTarget] = React.useState('');
+  const [card, setCard] = React.useState<SharedResultCardV2 | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [notice, setNotice] = React.useState('Select a device explicitly. Device eligibility is checked by the backend.');
+  const alive = React.useRef(false);
+  const refreshEpoch = React.useRef(0);
+  const selection = React.useRef('');
+  const source = sourceReference.id;
+  const device = snapshot?.devices.find(row => row.deviceId === target);
+  const scope = researchCardPublicationScope(snapshot, target, source);
+  const eligible = Boolean(scope);
+  gate.setScope(scope);
+  const visibleCard = gate.card === card && (!card?.expiresAt || Date.parse(card.expiresAt) > Date.now()) ? card : null;
+  React.useEffect(() => {
+    alive.current = true;
+    const clear = () => { refreshEpoch.current += 1; gate.clear(); selection.current = ''; setTarget(''); setSnapshot(null); setCard(null); setNotice('Publication scope cleared. Refresh devices before publishing.'); };
+    const refresh = async () => {
+      const epoch = ++refreshEpoch.current;
+      try {
+        const next = await bridge.refresh();
+        if (!alive.current || epoch !== refreshEpoch.current) return;
+        setSnapshot(next);
+        if (!next.devices.some(row => row.deviceId === selection.current)) { selection.current = ''; setTarget(''); gate.clear(); setCard(null); }
+      } catch { if (alive.current && epoch === refreshEpoch.current) clear(); }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    const events = ['edith-owner-logout', 'edith-cross-device-stop', 'edith-computer-stop', 'pagehide'];
+    events.forEach(event => window.addEventListener(event, clear));
+    return () => { alive.current = false; refreshEpoch.current += 1; gate.clear(); window.clearInterval(timer); events.forEach(event => window.removeEventListener(event, clear)); };
+  }, [bridge, gate, source]);
+  React.useEffect(() => {
+    setCard(null);
+  }, [scope]);
+  React.useEffect(() => {
+    const expiry = Math.min(Date.parse(device?.ownerBindingExpiresAt ?? '') || Infinity, Date.parse(card?.expiresAt ?? '') || Infinity);
+    if (!Number.isFinite(expiry)) return;
+    const timer = window.setTimeout(() => { gate.clear(); setCard(null); setSnapshot(null); }, Math.max(0, expiry - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [scope, gate, card?.expiresAt]);
+  const publish = async () => {
+    if (!eligible || gate.busy) return;
+    setBusy(true); setNotice('Publishing the selected persisted research result…');
+    try {
+      const result = await gate.publish(bridge, target, source, device);
+      if (alive.current && result === 'accepted') { setCard(gate.card); setNotice('Backend publication accepted; phone delivery is unverified.'); }
+    } catch { if (alive.current) { gate.clear(); setCard(null); setNotice('Publication was not accepted. No delivery is claimed.'); } }
+    finally { if (alive.current) setBusy(false); }
+  };
+  return <section aria-label="Share selected research result" className="mt-4 rounded-lg border border-white/10 bg-slate-950/35 p-3">
+    <h3 className="text-sm font-semibold text-slate-100">Share selected research result</h3>
+    <label className="mt-2 block text-xs text-slate-300">Mobile target<select aria-label="Research result mobile target" value={target} disabled={busy || !snapshot?.devices.length} onChange={event => { gate.clear(); setCard(null); selection.current = event.target.value; setTarget(event.target.value); }} className="ml-2 rounded bg-slate-900 p-2">
+      <option value="">{snapshot?.devices.length ? 'Select a device' : 'No device available'}</option>
+      {snapshot?.devices.map(row => <option key={row.deviceId} value={row.deviceId}>{row.displayName} ({row.trustStatus})</option>)}
+    </select></label>
+    <div className="mt-2"><ControlButton disabled={busy || !eligible || Boolean(visibleCard)} onClick={() => void publish()}>Publish research card</ControlButton></div>
+    <p role="status" className="mt-2 text-xs text-slate-400">{notice}</p>
+    {visibleCard && <ResearchPublishedCard card={visibleCard} onOpen={onOpenSource && visibleCard.provenance.sourceId === source ? () => onOpenSource(source) : undefined} onDismiss={() => { gate.clear(); setCard(null); }} />}
+  </section>;
+}
 
 type Tone = 'success' | 'warning' | 'danger' | 'muted';
 

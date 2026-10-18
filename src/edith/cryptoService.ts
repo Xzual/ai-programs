@@ -4,6 +4,8 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'child_pro
 import { randomBytes } from 'crypto';
 import { appendAuditEvent, createAuditEvent } from './audit';
 import { workspaceManager } from './workspaceManager';
+import { resolvePersistenceDataDir } from './persistence';
+import { resolveEdithCryptoPython } from '../../scripts/edith-crypto-python.mjs';
 
 export interface CryptoAgentStatus {
   dashboardUrl: string;
@@ -34,6 +36,7 @@ const REQUIRED_CRYPTO_RESOURCES = [
   'src/config.py',
   'src/dashboard.py',
   'src/demo_portfolio.py',
+  'src/demo_safety.py',
   'src/jev_adapter.py',
   'src/market_service.py',
   'templates/dashboard.html',
@@ -53,6 +56,9 @@ function hasCompleteCryptoManifest(candidate: string): boolean {
 }
 
 function resolveCryptoProjectPath(): string {
+  // An explicitly configured resource tree must pass its own manifest; do not
+  // conceal stale packaged resources by substituting the development tree.
+  if (process.env.EDITH_CRYPTO_RESOURCE_DIR?.trim()) return path.resolve(process.env.EDITH_CRYPTO_RESOURCE_DIR);
   const packagedResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
   const candidates = [
     process.env.EDITH_CRYPTO_RESOURCE_DIR,
@@ -60,7 +66,7 @@ function resolveCryptoProjectPath(): string {
     process.env.EDITH_APP_RESOURCE_DIR ? path.join(process.env.EDITH_APP_RESOURCE_DIR, 'crypto') : undefined,
     packagedResourcesPath ? path.join(packagedResourcesPath, 'crypto') : undefined,
     path.join(process.cwd(), 'resources', 'crypto'),
-    path.join(process.cwd(), 'crypto'),
+    !isPackagedRuntime() ? path.join(process.cwd(), 'crypto') : undefined,
   ].filter((candidate): candidate is string => Boolean(candidate?.trim()))
     .map((candidate) => path.resolve(candidate));
   const uniqueCandidates = [...new Set(candidates)];
@@ -82,33 +88,15 @@ function isPackagedRuntime(): boolean {
     || Boolean((process as NodeJS.Process & { resourcesPath?: string }).resourcesPath);
 }
 
-function existingAbsoluteFile(candidate: string | undefined): string | undefined {
-  if (!candidate || !path.isAbsolute(candidate)) return undefined;
-  try {
-    return fs.statSync(candidate).isFile() ? path.resolve(candidate) : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 function resolvePythonPath(): string {
-  const explicit = process.env.EDITH_CRYPTO_PYTHON_PATH?.trim();
-  if (explicit) {
-    const resolved = existingAbsoluteFile(explicit);
-    if (!resolved) throw new Error('runtime_missing');
-    return resolved;
-  }
   const resourceRoot = process.env.EDITH_APP_RESOURCE_DIR
     || (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-  const candidates = [
-    resourceRoot ? path.join(resourceRoot, 'python', 'python.exe') : undefined,
-    path.join(PROJECT_PATH, '..', 'python', 'python.exe'),
-    path.join(PROJECT_PATH, '.venv', 'Scripts', 'python.exe'),
-    path.join(process.cwd(), '.venv', 'Scripts', 'python.exe'),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  const existing = candidates.map(existingAbsoluteFile).find(Boolean);
-  if (isPackagedRuntime() && !existing) throw new Error('runtime_missing');
-  return existing ?? (process.platform === 'win32' ? 'py' : 'python');
+  return resolveEdithCryptoPython(process.cwd(), {
+    ...process.env,
+    EDITH_PACKAGED: isPackagedRuntime() ? 'true' : 'false',
+    EDITH_CRYPTO_RESOURCE_DIR: PROJECT_PATH,
+    EDITH_APP_RESOURCE_DIR: resourceRoot,
+  });
 }
 
 export class CryptoService {
@@ -124,6 +112,10 @@ export class CryptoService {
 
   async status(): Promise<CryptoAgentStatus> {
     const base = this.baseStatus();
+    if (!hasCompleteCryptoManifest(PROJECT_PATH)) {
+      return { ...base, healthy: false, error: 'Crypto runtime resources are incomplete or unavailable.', errorCode: 'resource_missing' };
+    }
+    if (base.errorCode === 'runtime_missing') return base;
     try {
       const healthResponse = await this.fetchWithTimeout(`${DASHBOARD_URL}/api/health`);
       const health = healthResponse.ok ? await healthResponse.json() : undefined;
@@ -157,10 +149,10 @@ export class CryptoService {
     try {
       pythonPath = resolvePythonPath();
     } catch {
-      return { ...current, error: 'Packaged Crypto Python runtime is unavailable.', errorCode: 'runtime_missing' };
+      return { ...current, error: 'Vetted Crypto Python runtime is unavailable.', errorCode: 'runtime_missing' };
     }
     const dependencyProbe = spawnSync(pythonPath, [
-      '-I', '-c', 'import flask, ccxt, pandas, requests, dotenv, feedparser',
+      '-I', '-B', '-c', 'import flask, ccxt, pandas, requests, dotenv, feedparser',
     ], { cwd: PROJECT_PATH, windowsHide: true, stdio: 'ignore', timeout: 10_000 });
     if (dependencyProbe.error || dependencyProbe.status !== 0) {
       return { ...current, pythonPath, error: 'Crypto Python dependencies are unavailable.', errorCode: 'dependency_missing' };
@@ -175,7 +167,7 @@ export class CryptoService {
     out.write(`\n[${new Date().toISOString()}] Starting crypto agent: ${reason}\n`);
 
     const internalToken = randomBytes(32).toString('base64url');
-    const child = spawn(pythonPath, [SCRIPT_PATH], {
+    const child = spawn(pythonPath, ['-I', '-B', SCRIPT_PATH], {
       cwd: PROJECT_PATH,
       windowsHide: true,
       env: {
@@ -183,10 +175,13 @@ export class CryptoService {
         PYTHONUNBUFFERED: '1',
         PYTHONUTF8: '1',
         PYTHONIOENCODING: 'utf-8',
+        PYTHONDONTWRITEBYTECODE: '1',
         EDITH_CRYPTO_AUTOSTART: 'true',
         EDITH_CRYPTO_RESOURCE_DIR: PROJECT_PATH,
         EDITH_CRYPTO_PROJECT_PATH: PROJECT_PATH,
         EDITH_CRYPTO_RUNTIME_DATA_DIR: RUNTIME_DATA_PATH,
+        EDITH_CRYPTO_GLOBAL_KILL_SWITCH_PATH: path.join(resolvePersistenceDataDir(), 'kill-switch.json'),
+        EDITH_CRYPTO_LOCAL_KILL_SWITCH_PATH: path.join(RUNTIME_DATA_PATH, 'kill-switch.json'),
         CRYPTO_MODE: 'OBSERVER_ONLY',
         TRADING_MODE: 'OBSERVER_ONLY',
         CRYPTO_TRADING_ENABLED: 'false',
@@ -213,8 +208,9 @@ export class CryptoService {
     this.internalToken = internalToken;
     this.child = child;
     this.startedAt = new Date().toISOString();
-    child.stdout.pipe(out);
-    child.stderr.pipe(out);
+    // Either stdio stream can finish first; only process close owns log closure.
+    child.stdout.pipe(out, { end: false });
+    child.stderr.pipe(out, { end: false });
     child.on('error', () => {
       if (this.child === child) {
         this.child = undefined;
@@ -222,7 +218,6 @@ export class CryptoService {
       }
       this.lastExit = { code: null, signal: null, at: new Date().toISOString() };
       out.write(`\n[${this.lastExit.at}] Crypto agent failed to start.\n`);
-      out.end();
     });
     child.on('exit', (code, signal) => {
       this.lastExit = { code, signal, at: new Date().toISOString() };
@@ -231,8 +226,8 @@ export class CryptoService {
         this.internalToken = undefined;
       }
       out.write(`\n[${this.lastExit.at}] Crypto agent exited: code=${code} signal=${signal}\n`);
-      out.end();
     });
+    child.once('close', () => out.end());
     this.registerShutdownHooks();
     this.audit('crypto.autostart', reason, 'success');
 
@@ -241,7 +236,7 @@ export class CryptoService {
 
     return {
       ...readyStatus,
-      managedProcessRunning: true,
+      managedProcessRunning: readyStatus.managedProcessRunning,
       startedAt: this.startedAt,
       error: readyStatus.healthy ? readyStatus.error : readyStatus.error ?? 'Crypto service started but health endpoint did not become ready.',
     };
@@ -308,7 +303,7 @@ export class CryptoService {
       logPath: LOG_PATH,
       startedAt: this.startedAt,
       lastExit: this.lastExit,
-      ...(runtimeError ? { errorCode: runtimeError, error: 'Packaged Crypto Python runtime is unavailable.' } : {}),
+      ...(runtimeError ? { errorCode: runtimeError, error: 'Vetted Crypto Python runtime is unavailable.' } : {}),
     };
   }
 

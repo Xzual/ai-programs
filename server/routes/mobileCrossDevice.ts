@@ -16,6 +16,8 @@ import { getOwnerSession, requireOwnerSession, requireProtectedMutation } from '
 import { createDeviceAuth, encryptedBody, encryptedResponse, mobileContext, requireSecureMobileTransport } from '../mobile/middleware';
 import { getMobileRuntime, type MobileRuntime } from '../mobile/runtime';
 import type { MobileSessionContext } from '../mobile/types';
+import { sharedDesktopProducerService, type DesktopProducerService } from '../mobile/desktopProducerService';
+import { ownerSessionBindingActive } from '../security/ownerSession';
 
 function crossDeviceError(error: unknown) {
   const errorCode = error instanceof Error ? error.message : 'CROSS_DEVICE_REQUEST_FAILED';
@@ -51,7 +53,23 @@ export function createMobileCrossDeviceRouter(options: { runtime?: MobileRuntime
   const runtime = options.runtime ?? getMobileRuntime();
   const killSwitchActive = options.killSwitchActive ?? (() => killSwitchService.status().active);
   const deviceAuth = createDeviceAuth(runtime);
+  const producer=runtime.desktopProducer??sharedDesktopProducerService;
+  runtime.crossDevice.setTransferAuthority(runtime.transfers);
   router.use('/api/mobile', requireSecureMobileTransport);
+
+  router.get('/api/mobile/cross-device/live-view/:liveViewId/frame',deviceAuth,(req,res)=>{
+    res.setHeader('Cache-Control','no-store');
+    try{
+      if(Object.keys(req.query).length||req.get('content-length')&&Number(req.get('content-length'))>0)throw Error('LIVE_VIEW_FRAME_REQUEST_INVALID');
+      if(killSwitchActive()){producer.revokeAll();throw Error('LIVE_VIEW_SCOPE_EXPIRED');}
+      const context=mobileContext(req);if(!context.device.allowedCommands.includes('live_view.start'))throw Error('DEVICE_COMMAND_NOT_ALLOWED');
+      const current=runtime.crossDevice.getLiveView(context,req.params.liveViewId);
+      const authorize=()=>{runtime.pairing.revalidateContext(context);if(!ownerSessionBindingActive(context.device.ownerBinding.ownerSessionId)){producer.revokeOwner(context.device.ownerBinding.ownerSessionId);throw Error('LIVE_VIEW_SCOPE_EXPIRED');}const latest=runtime.crossDevice.getLiveView(context,req.params.liveViewId);if(latest.generation!==current.generation)throw Error('LIVE_VIEW_SCOPE_GENERATION_INVALID');};
+      const frame=producer.getFilteredFrame(context,req.params.liveViewId,current.generation,authorize);
+      if(!frame)return res.status(204).end();
+      authorize();return res.json(encryptedResponse(req,runtime,`live_view.frame:${req.params.liveViewId}`,frame));
+    }catch(error){const mapped=crossDeviceError(error);res.status(/EXPIRED|STOPPED/.test(mapped.body.errorCode)?410:/GENERATION/.test(mapped.body.errorCode)?409:mapped.status).json(mapped.body);}
+  });
 
   router.get('/api/mobile/cross-device/capabilities', deviceAuth, (req, res) => {
     res.json(encryptedResponse(req, runtime, 'cross_device.capabilities', {
@@ -206,6 +224,7 @@ export function createMobileCrossDeviceRouter(options: { runtime?: MobileRuntime
   router.post('/api/edith/mobile/cross-device/live-view/:liveViewId/stop', ...requireProtectedMutation, (req, res) => {
     try {
       const liveView = runtime.crossDevice.stopLiveViewByOwner(getOwnerSession(req)!.bindingId, req.params.liveViewId);
+      producer.clearFilteredFrame(req.params.liveViewId);
       res.json({ success: true, data: { liveView } });
     } catch (error) { const mapped = crossDeviceError(error); res.status(mapped.status).json(mapped.body); }
   });

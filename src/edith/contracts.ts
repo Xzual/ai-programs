@@ -1,3 +1,4 @@
+import {isTaskObservedMetricsV1, type TaskObservedMetricsV1} from './taskHudContracts';
 export const EDITH_CONTRACT_SCHEMA = 'edith.shared' as const;
 export const EDITH_CONTRACT_VERSION = 2 as const;
 export const TASK_CONTRACT_VERSION = 2 as const;
@@ -85,7 +86,7 @@ export interface TaskEventPayloadMapV2 {
   'task.status_changed': { fromStatus: CanonicalTaskStatus; toStatus: CanonicalTaskStatus; reasonCode?: string };
   'task.step_updated': { stepId: string; status: string; attempt?: number };
   'task.tool_started': { toolId: string; runId: string; riskLevel?: number };
-  'task.tool_completed': { toolId: string; runId: string; outcome: 'success' | 'failure' | 'cancelled'; errorCode?: string };
+  'task.tool_completed': { toolId: string; runId: string; outcome: 'success' | 'failure' | 'cancelled'; errorCode?: string; observedMetrics?: TaskObservedMetricsV1 };
   'task.verification_completed': { verificationId: string; status: 'PASS' | 'FAIL' | 'PARTIAL' | 'RETRYABLE' };
   'task.recovery_started': { recoveryId: string; attempt: number; classification: string };
   'task.completed': { resultArtifactIds?: string[] };
@@ -1104,7 +1105,7 @@ export interface SemanticTargetV2 {
   physicalBounds?: DesktopBoundsV2;
 }
 
-export type DesktopActionKindV2 = 'moveMouse' | 'clickMouse' | 'typeText' | 'pressKey' | 'hotkey' | 'scroll' | 'launchApp';
+export type DesktopActionKindV2 = 'moveMouse' | 'clickMouse' | 'typeText' | 'pressKey' | 'hotkey' | 'scroll' | 'launchApp' | 'dragMouse' | 'doubleClickMouse' | 'focusApp';
 
 export interface ScopedApprovalV2 {
   contractVersion: typeof TASK_CONTRACT_VERSION;
@@ -1130,9 +1131,19 @@ export type DesktopExpectedEffectV2 =
   | 'cursor_moved'
   | 'visual_change'
   | 'foreground_window_changed'
+  | 'foreground_window_focused'
   | 'input_injected'
   | 'process_started'
+  | 'text_inserted'
   | 'none';
+
+export interface DesktopFocusTargetV2 {
+  windowId:string;
+  processId:number;
+  imagePathFingerprint:string;
+  observationId:string;
+  observationGeneration:number;
+}
 
 export interface DesktopActionV2 {
   contractVersion: typeof TASK_CONTRACT_VERSION;
@@ -1145,6 +1156,10 @@ export interface DesktopActionV2 {
   observationGeneration: number;
   kind: DesktopActionKindV2;
   target?: SemanticTargetV2;
+  destinationTarget?: SemanticTargetV2;
+  dragStart?: DesktopPointV2;
+  dragEnd?: DesktopPointV2;
+  dragDurationMs?: number;
   coordinates?: DesktopPointV2;
   button?: 'left' | 'right' | 'middle';
   key?: string;
@@ -1153,6 +1168,7 @@ export interface DesktopActionV2 {
   textFingerprint?: string;
   scrollDelta?: number;
   applicationId?: string;
+  focusTarget?:DesktopFocusTargetV2;
   expectedEffect: DesktopExpectedEffectV2;
   deadlineAt: string;
   retryBudget: {
@@ -1177,14 +1193,27 @@ export interface ActionDispatchV2 {
   dispatchedAt: string;
   nativeCommandId?: string;
   errorCode?: string;
+  partialInputInjected?: boolean;
+  /** True only after independent button-state readback; SendInput UP alone is insufficient. */
+  releaseConfirmed?: boolean;
 }
 
 export interface ActionVerificationEvidenceV2 {
-  kind: 'cursor_position' | 'foreground_window_changed' | 'visual_change' | 'input_injected' | 'process_started';
+  kind: 'cursor_position' | 'foreground_window_changed' | 'visual_change' | 'input_injected' | 'process_started' | 'text_readback' | 'foreground_window_focused';
   matched: boolean;
   observationId?: string;
   confidence?: number;
+  source?: 'uia' | 'native_operator';
+  applicationId?:'spotify'|'steam'|'explorer';
+  imagePathFingerprint?:string;
+  windowId?: string;
+  windowProcessId?: number;
+  preTextFingerprint?: string;
+  postTextFingerprint?: string;
+  expectedTextFingerprint?: string;
 }
+
+export interface DesktopVerificationContextV2 {action:DesktopActionV2;preObservation:DesktopObservationV2;postObservation:DesktopObservationV2;dispatch?:ActionDispatchV2}
 
 export interface ActionVerificationV2 {
   contractVersion: typeof TASK_CONTRACT_VERSION;
@@ -1714,8 +1743,8 @@ export function validateNoSecretMaterial(value: unknown): ParseResult<true> {
 const DESKTOP_OPERATOR_STATES: DesktopOperatorStateV2[] = [
   'observing', 'planning', 'moving', 'clicking', 'typing', 'scrolling', 'verifying', 'success', 'error', 'stopped',
 ];
-const DESKTOP_ACTION_KINDS: DesktopActionKindV2[] = ['moveMouse', 'clickMouse', 'typeText', 'pressKey', 'hotkey', 'scroll', 'launchApp'];
-const DESKTOP_EFFECTS: DesktopExpectedEffectV2[] = ['cursor_moved', 'visual_change', 'foreground_window_changed', 'input_injected', 'process_started', 'none'];
+const DESKTOP_ACTION_KINDS: DesktopActionKindV2[] = ['moveMouse', 'clickMouse', 'typeText', 'pressKey', 'hotkey', 'scroll', 'launchApp', 'dragMouse', 'doubleClickMouse','focusApp'];
+const DESKTOP_EFFECTS: DesktopExpectedEffectV2[] = ['cursor_moved', 'visual_change', 'foreground_window_changed','foreground_window_focused', 'input_injected', 'process_started', 'none', 'text_inserted'];
 
 function confidence(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
@@ -1865,6 +1894,14 @@ export function parseScopedApprovalV2(
   return { success: true, value: value as ScopedApprovalV2 };
 }
 
+export function parseDesktopFocusTargetV2(value:unknown,observation?:DesktopObservationV2):ParseResult<DesktopFocusTargetV2>{
+  if(!isRecord(value)||Object.keys(value).some(key=>!['windowId','processId','imagePathFingerprint','observationId','observationGeneration'].includes(key))
+    ||!safeId(value.windowId)||!finiteInteger(value.processId,1)||typeof value.imagePathFingerprint!=='string'||!/^[a-f0-9]{64}$/.test(value.imagePathFingerprint)
+    ||!safeId(value.observationId)||!finiteInteger(value.observationGeneration,1))return invalid('DESKTOP_FOCUS_TARGET_INVALID','Focus target requires exact window/process/image fingerprint and observation metadata.');
+  if(observation&&(value.observationId!==observation.observationId||value.observationGeneration!==observation.generation))return invalid('DESKTOP_FOCUS_TARGET_STALE','Focus target belongs to another observation.');
+  return {success:true,value:value as unknown as DesktopFocusTargetV2};
+}
+
 export function parseDesktopActionV2(
   value: unknown,
   options: { now?: string; observation?: DesktopObservationV2; approval?: ScopedApprovalV2 } = {},
@@ -1879,15 +1916,41 @@ export function parseDesktopActionV2(
     return invalid('DESKTOP_ACTION_INVALID', 'Desktop action identity, generation binding, expected effect, or deadline is invalid.');
   }
   const retry = row.retryBudget;
+  if(row.kind==='focusApp'){
+    const allowed=['contractVersion','amendment','actionId','idempotencyKey','sessionId','approvalId','observationId','observationGeneration','kind','applicationId','focusTarget','expectedEffect','deadlineAt','retryBudget'];
+    const focus=parseDesktopFocusTargetV2(row.focusTarget,options.observation);
+    if(Object.keys(row).some(key=>row[key]!==undefined&&!allowed.includes(key))||!['spotify','steam','explorer'].includes(String(row.applicationId))||row.expectedEffect!=='foreground_window_focused'||retry.maxAttempts!==1||retry.attempt!==1||Object.keys(retry).some(key=>!['maxAttempts','attempt','backoffMs'].includes(key)))return invalid('DESKTOP_FOCUS_PARAMETERS_INVALID','Focus requires explicit installed app target and single attempt.');
+    if(focus.success===false)return focus as ParseResult<DesktopActionV2>;
+    if(focus.value.observationId!==row.observationId||focus.value.observationGeneration!==row.observationGeneration)return invalid('DESKTOP_FOCUS_TARGET_STALE','Focus action and target must bind the same generation.');
+  }else if(row.focusTarget!==undefined||row.expectedEffect==='foreground_window_focused')return invalid('DESKTOP_FOCUS_PARAMETERS_INVALID','Focus target/effect are valid only for focusApp.');
+  if(row.expectedEffect==='text_inserted' && (row.kind!=='typeText' || retry.maxAttempts!==1 || retry.attempt!==1))return invalid('DESKTOP_TEXT_PARAMETERS_INVALID','Text insertion requires typed text with a single attempt.');
   if (![1, 2].includes(Number(retry.maxAttempts)) || !finiteInteger(retry.attempt, 1) || Number(retry.attempt) > Number(retry.maxAttempts)
     || !finiteInteger(retry.backoffMs) || Number(retry.backoffMs) > 30_000) return invalid('DESKTOP_RETRY_BUDGET_INVALID', 'Desktop action retry budget must be bounded to one or two attempts.');
   if (timestampExpired(row.deadlineAt as string, options.now)) return invalid('DESKTOP_ACTION_DEADLINE_EXPIRED', 'Desktop action deadline has expired.');
+  const atomic = row.kind === 'dragMouse' || row.kind === 'doubleClickMouse';
+  if (atomic) {
+    const allowed = ['contractVersion','amendment','actionId','idempotencyKey','sessionId','approvalId','observationId','observationGeneration','kind','target','button','expectedEffect','deadlineAt','retryBudget', ...(row.kind === 'dragMouse' ? ['dragStart','dragEnd','dragDurationMs','destinationTarget'] : ['coordinates'])];
+    if(Object.keys(row).some(key=>row[key]!==undefined && !allowed.includes(key)) || (row.button!==undefined && !['left','right'].includes(String(row.button)))) return invalid('DESKTOP_ATOMIC_PARAMETERS_INVALID','Atomic actions reject unknown or irrelevant parameters and require left/right button.');
+    if(retry.maxAttempts!==1 || retry.attempt!==1) return invalid('DESKTOP_ATOMIC_RETRY_FORBIDDEN','Atomic input cannot automatically replay after partial dispatch.');
+    if(Object.keys(retry).some(key=>!['maxAttempts','attempt','backoffMs'].includes(key)))return invalid('DESKTOP_ATOMIC_PARAMETERS_INVALID','Atomic retry parameters are strict.');
+    if([row.coordinates,row.dragStart,row.dragEnd].some(point=>isRecord(point)&&Object.keys(point).some(key=>!['x','y'].includes(key))))return invalid('DESKTOP_ATOMIC_PARAMETERS_INVALID','Atomic points contain only physical x/y.');
+    if(row.kind==='doubleClickMouse' && !desktopPoint(row.coordinates)) return invalid('DESKTOP_ACTION_COORDINATES_INVALID','Double click requires explicit coordinates.');
+    if(row.kind==='dragMouse' && (!desktopPoint(row.dragStart) || !desktopPoint(row.dragEnd) || !finiteInteger(row.dragDurationMs,100) || Number(row.dragDurationMs)>1500)) return invalid('DESKTOP_ATOMIC_PARAMETERS_INVALID','Drag requires bound endpoints and 100..1500ms duration.');
+  } else if(['dragStart','dragEnd','dragDurationMs','destinationTarget'].some(key=>row[key]!==undefined)) return invalid('DESKTOP_ATOMIC_PARAMETERS_INVALID','Drag fields are valid only for dragMouse.');
   if (row.target !== undefined) {
     const target = parseSemanticTargetV2(row.target, options.observation);
     if (!target.success) return target as ParseResult<DesktopActionV2>;
     if (target.value.observationId !== row.observationId || target.value.observationGeneration !== row.observationGeneration) return invalid('DESKTOP_ACTION_GENERATION_UNBOUND', 'Desktop action and target must bind the same observation generation.');
   }
   if (row.coordinates !== undefined && !desktopPoint(row.coordinates)) return invalid('DESKTOP_ACTION_COORDINATES_INVALID', 'Desktop action coordinates are invalid.');
+  if(row.destinationTarget!==undefined){
+    const destination=parseSemanticTargetV2(row.destinationTarget,options.observation);
+    if(destination.success===false)return destination as ParseResult<DesktopActionV2>;
+    if(destination.value.observationId!==row.observationId || destination.value.observationGeneration!==row.observationGeneration)return invalid('DESKTOP_ACTION_GENERATION_UNBOUND','Drag destination binds another generation.');
+  }
+  for(const [point,target] of atomic ? [[row.kind==='dragMouse'?row.dragStart:row.coordinates,row.target],[row.dragEnd,row.destinationTarget]] : []){
+    if(desktopPoint(point) && isRecord(target) && desktopBounds(target.physicalBounds,'physical_virtual_desktop') && !boundsContainPoint(target.physicalBounds,point))return invalid('DESKTOP_COORDINATE_MISMATCH','Atomic endpoint lies outside its semantic target.');
+  }
   if (['moveMouse', 'clickMouse'].includes(String(row.kind)) && !desktopPoint(row.coordinates) && row.target === undefined) return invalid('DESKTOP_ACTION_COORDINATES_INVALID', 'Pointer actions require coordinates or a semantic target.');
   if (row.kind === 'clickMouse' && row.button !== undefined && !['left', 'right', 'middle'].includes(String(row.button))) return invalid('DESKTOP_ACTION_PARAMETERS_INVALID', 'Mouse button is invalid.');
   if (row.kind === 'typeText' && (!finiteInteger(row.textLength, 1) || !safeId(row.textFingerprint))) return invalid('DESKTOP_ACTION_PARAMETERS_INVALID', 'Typed text requires length and a safe fingerprint, never raw text.');
@@ -1898,14 +1961,25 @@ export function parseDesktopActionV2(
   if (options.observation) {
     if (row.sessionId !== options.observation.sessionId || row.observationId !== options.observation.observationId || row.observationGeneration !== options.observation.generation) return invalid('DESKTOP_ACTION_GENERATION_UNBOUND', 'Desktop action is not bound to the supplied observation generation.');
     if (desktopPoint(row.coordinates) && !boundsContainPoint(options.observation.foreground.physicalBounds, row.coordinates)) return invalid('DESKTOP_COORDINATE_MISMATCH', 'Desktop action coordinates are outside the observed foreground window.');
+    if(row.kind==='dragMouse' && [row.dragStart,row.dragEnd].some(point=>!desktopPoint(point)||!boundsContainPoint(options.observation!.foreground.physicalBounds,point)))return invalid('DESKTOP_COORDINATE_MISMATCH','Drag endpoints must remain in the same observed foreground HWND.');
     if (Date.parse(row.deadlineAt as string) > Date.parse(options.observation.expiresAt)) return invalid('DESKTOP_ACTION_DEADLINE_INVALID', 'Desktop action deadline exceeds observation expiry.');
   }
   if (options.approval) {
+    if(row.kind==='focusApp'){
+      const approved=parseScopedApprovalV2(options.approval,{now:options.now,observation:options.observation});
+      if(approved.success===false)return approved as ParseResult<DesktopActionV2>;
+    }
     if (row.approvalId !== options.approval.approvalId || row.sessionId !== options.approval.sessionId || row.observationId !== options.approval.observationId || row.observationGeneration !== options.approval.observationGeneration) return invalid('DESKTOP_ACTION_APPROVAL_MISMATCH', 'Desktop action is outside the approval observation scope.');
     if (!options.approval.scope.actions.includes(row.kind as DesktopActionKindV2)) return invalid('DESKTOP_ACTION_NOT_APPROVED', 'Desktop action kind is outside the approval scope.');
-    const targetId = isRecord(row.target) ? row.target.targetId : undefined;
+    const targetId = row.kind==='focusApp'&&isRecord(row.focusTarget)?row.focusTarget.windowId:isRecord(row.target) ? row.target.targetId : undefined;
+    if(row.kind==='focusApp'&&(!options.approval.scope.targetIds||!options.approval.scope.targetIds.includes(String(targetId))))return invalid('DESKTOP_ACTION_NOT_APPROVED','Focus approval must explicitly name the intended window.');
     if (options.approval.scope.targetIds && (!safeId(targetId) || !options.approval.scope.targetIds.includes(targetId))) return invalid('DESKTOP_ACTION_NOT_APPROVED', 'Desktop target is outside the approval scope.');
     if (options.approval.scope.physicalBounds && desktopPoint(row.coordinates) && !boundsContainPoint(options.approval.scope.physicalBounds, row.coordinates)) return invalid('DESKTOP_COORDINATE_MISMATCH', 'Desktop coordinates are outside the approval scope.');
+    if(row.kind==='dragMouse'){
+      if(options.approval.scope.physicalBounds && [row.dragStart,row.dragEnd].some(point=>!desktopPoint(point)||!boundsContainPoint(options.approval!.scope.physicalBounds!,point)))return invalid('DESKTOP_COORDINATE_MISMATCH','Drag endpoints lie outside approval bounds.');
+      const destinationId=isRecord(row.destinationTarget)?row.destinationTarget.targetId:undefined;
+      if(options.approval.scope.targetIds && row.destinationTarget!==undefined && (!safeId(destinationId)||!options.approval.scope.targetIds.includes(destinationId)))return invalid('DESKTOP_ACTION_NOT_APPROVED','Drag destination target is outside approval scope.');
+    }
     if (Date.parse(row.deadlineAt as string) > Date.parse(options.approval.expiresAt)) return invalid('DESKTOP_ACTION_DEADLINE_INVALID', 'Desktop action deadline exceeds approval expiry.');
   }
   return { success: true, value: value as DesktopActionV2 };
@@ -1919,21 +1993,45 @@ export function parseActionDispatchV2(value: unknown): ParseResult<ActionDispatc
     || !safeId(row.observationId) || !finiteInteger(row.observationGeneration, 1) || !['accepted', 'dispatched', 'rejected', 'failed'].includes(String(row.status))
     || !finiteInteger(row.attempt, 1) || Number(row.attempt) > 2 || !isoTimestamp(row.dispatchedAt)) return invalid('ACTION_DISPATCH_INVALID', 'Action dispatch identity, status, attempt, or observation binding is invalid.');
   if (['rejected', 'failed'].includes(String(row.status)) && !safeId(row.errorCode)) return invalid('ACTION_DISPATCH_ERROR_REQUIRED', 'Rejected or failed dispatch requires an error code.');
+  if((row.partialInputInjected!==undefined && typeof row.partialInputInjected!=='boolean') || (row.releaseConfirmed!==undefined && typeof row.releaseConfirmed!=='boolean'))return invalid('ACTION_DISPATCH_INVALID','Partial input and independent release flags must be booleans.');
+  if(row.partialInputInjected===true && row.status!=='failed')return invalid('ACTION_DISPATCH_INVALID','Partial dispatch must be failed, never complete.');
+  if(row.releaseConfirmed===false && row.status!=='failed')return invalid('ACTION_DISPATCH_INVALID','Unconfirmed release cannot be a completed dispatch.');
   return { success: true, value: value as ActionDispatchV2 };
 }
 
-export function parseActionVerificationV2(value: unknown): ParseResult<ActionVerificationV2> {
+export function parseActionVerificationV2(value: unknown,context?:DesktopVerificationContextV2): ParseResult<ActionVerificationV2> {
   const unsafe = requireSafeRecord(value, 'ACTION_VERIFICATION');
   if (unsafe) return unsafe as ParseResult<ActionVerificationV2>;
   const row = value as Record<string, unknown>;
   if (!isV21(row) || !safeId(row.verificationId) || !safeId(row.actionId) || !safeId(row.dispatchId) || !DESKTOP_EFFECTS.includes(row.expectedEffect as DesktopExpectedEffectV2)
     || !safeId(row.preObservationId) || !finiteInteger(row.preObservationGeneration, 1) || !['verified', 'partial', 'failed', 'pending_post_observation'].includes(String(row.status))
     || !Array.isArray(row.evidence) || row.evidence.length > 16 || !confidence(row.confidence) || !isoTimestamp(row.verifiedAt)) return invalid('ACTION_VERIFICATION_INVALID', 'Action verification identity, status, evidence, confidence, or timestamp is invalid.');
-  if (row.evidence.some((item) => !isRecord(item) || !['cursor_position', 'foreground_window_changed', 'visual_change', 'input_injected', 'process_started'].includes(String(item.kind)) || typeof item.matched !== 'boolean' || (item.confidence !== undefined && !confidence(item.confidence)))) return invalid('ACTION_VERIFICATION_EVIDENCE_INVALID', 'Action verification evidence is invalid.');
+  if (row.evidence.some((item) => !isRecord(item) || !['cursor_position', 'foreground_window_changed', 'visual_change', 'input_injected', 'process_started','text_readback','foreground_window_focused'].includes(String(item.kind)) || typeof item.matched !== 'boolean' || (item.confidence !== undefined && !confidence(item.confidence)))) return invalid('ACTION_VERIFICATION_EVIDENCE_INVALID', 'Action verification evidence is invalid.');
+  const readbacks=row.evidence.filter((item)=>isRecord(item)&&item.kind==='text_readback') as Record<string,unknown>[];
+  const sha256=(value:unknown)=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
+  const focusEvidence=row.evidence.filter(item=>isRecord(item)&&item.kind==='foreground_window_focused') as Record<string,unknown>[];
+  if(focusEvidence.some(item=>Object.keys(item).some(key=>!['kind','matched','observationId','confidence','source','applicationId','windowId','windowProcessId','imagePathFingerprint'].includes(key))||row.expectedEffect!=='foreground_window_focused'||item.source!=='native_operator'||!['spotify','steam','explorer'].includes(String(item.applicationId))||!safeId(item.windowId)||!finiteInteger(item.windowProcessId,1)||!sha256(item.imagePathFingerprint)||!safeId(item.observationId)))return invalid('ACTION_FOCUS_EVIDENCE_INVALID','Focus evidence requires independent native app/window/process/image identity metadata only.');
+  if(readbacks.some(item=>row.expectedEffect!=='text_inserted'||item.source!=='uia'||!safeId(item.windowId)||!finiteInteger(item.windowProcessId,1)||!sha256(item.preTextFingerprint)||!sha256(item.postTextFingerprint)||!sha256(item.expectedTextFingerprint)||!safeId(item.observationId)))return invalid('ACTION_TEXT_READBACK_INVALID','Text readback requires bounded UIA window/process and SHA256 metadata.');
   const hasPostId = row.postObservationId !== undefined;
   const hasPostGeneration = row.postObservationGeneration !== undefined;
   if (hasPostId !== hasPostGeneration || (hasPostId && (!safeId(row.postObservationId) || !finiteInteger(row.postObservationGeneration, 1) || Number(row.postObservationGeneration) <= Number(row.preObservationGeneration)))) return invalid('ACTION_VERIFICATION_GENERATION_INVALID', 'Post-observation identity and a newer generation must be supplied together.');
   if (row.status !== 'pending_post_observation' && row.expectedEffect !== 'input_injected' && row.expectedEffect !== 'process_started' && !hasPostId) return invalid('ACTION_VERIFICATION_POST_OBSERVATION_REQUIRED', 'Observed effects require a newer post-observation.');
+  if(row.expectedEffect==='foreground_window_focused'&&row.status==='verified'){
+    if(!context)return invalid('ACTION_FOCUS_CONTEXT_REQUIRED','Verified focus requires action and independent pre/post observations.');
+    const {action,preObservation,postObservation}=context,focus=action.focusTarget,evidence=focusEvidence.length===1?focusEvidence[0]:undefined;
+    const dispatch=context.dispatch;
+    if(!dispatch||parseActionDispatchV2(dispatch).success===false||dispatch.status!=='dispatched'||dispatch.partialInputInjected===true||dispatch.dispatchId!==row.dispatchId||dispatch.actionId!==action.actionId||dispatch.sessionId!==action.sessionId||dispatch.approvalId!==action.approvalId||dispatch.idempotencyKey!==action.idempotencyKey||dispatch.observationId!==action.observationId||dispatch.observationGeneration!==action.observationGeneration||dispatch.attempt!==1||Date.parse(dispatch.dispatchedAt)>Date.parse(postObservation.capturedAt))return invalid('ACTION_FOCUS_DISPATCH_UNBOUND','Verified focus requires the matching successful authoritative dispatch.');
+    if(parseDesktopObservationV2(preObservation,{now:row.verifiedAt as string}).success===false||parseDesktopObservationV2(postObservation,{now:row.verifiedAt as string}).success===false||parseDesktopActionV2(action,{now:preObservation?.capturedAt,observation:preObservation}).success===false)return invalid('ACTION_FOCUS_CONTEXT_INVALID','Focus context is stale or invalid.');
+    if(!focus||action.kind!=='focusApp'||action.expectedEffect!==row.expectedEffect||action.actionId!==row.actionId||action.observationId!==row.preObservationId||action.observationGeneration!==row.preObservationGeneration||preObservation.observationId!==row.preObservationId||preObservation.generation!==row.preObservationGeneration||postObservation.observationId!==row.postObservationId||postObservation.generation!==row.postObservationGeneration||preObservation.sessionId!==action.sessionId||postObservation.sessionId!==action.sessionId||Date.parse(postObservation.capturedAt)<Date.parse(preObservation.capturedAt)||Date.parse(postObservation.capturedAt)>Date.parse(row.verifiedAt as string)||postObservation.foreground.hwndFingerprint!==focus.windowId||postObservation.foreground.processId!==focus.processId||!evidence||evidence.matched!==true||evidence.applicationId!==action.applicationId||evidence.windowId!==focus.windowId||evidence.windowProcessId!==focus.processId||evidence.imagePathFingerprint!==focus.imagePathFingerprint||evidence.observationId!==postObservation.observationId)return invalid('ACTION_FOCUS_UNBOUND','Focus readback must bind exact requested app/window/process/image and fresh post observation.');
+  }
+  if(row.expectedEffect==='text_inserted' && row.status==='verified'){
+    if(!context)return invalid('ACTION_TEXT_CONTEXT_REQUIRED','Verified text requires action and independent pre/post observations.');
+    const {action,preObservation,postObservation}=context;
+    if(parseDesktopObservationV2(preObservation,{now:row.verifiedAt as string}).success===false||parseDesktopObservationV2(postObservation,{now:row.verifiedAt as string}).success===false||parseDesktopActionV2(action,{now:preObservation?.capturedAt,observation:preObservation}).success===false)return invalid('ACTION_TEXT_CONTEXT_INVALID','Text context must contain valid fresh desktop action and observations.');
+    const evidence=readbacks.length===1?readbacks[0]:undefined;
+    if(Date.parse(postObservation.capturedAt)<Date.parse(preObservation.capturedAt)||Date.parse(postObservation.capturedAt)>Date.parse(row.verifiedAt as string))return invalid('ACTION_TEXT_CONTEXT_INVALID','Text post observation must be fresh and precede verification.');
+    if(action.kind!=='typeText'||action.expectedEffect!=='text_inserted'||action.actionId!==row.actionId||action.observationId!==row.preObservationId||action.observationGeneration!==row.preObservationGeneration||preObservation.observationId!==row.preObservationId||preObservation.generation!==row.preObservationGeneration||postObservation.observationId!==row.postObservationId||postObservation.generation!==row.postObservationGeneration||preObservation.sessionId!==action.sessionId||postObservation.sessionId!==action.sessionId||preObservation.foreground.hwndFingerprint!==postObservation.foreground.hwndFingerprint||preObservation.foreground.processId!==postObservation.foreground.processId||!finiteInteger(postObservation.foreground.processId,1)||!evidence||evidence.matched!==true||evidence.observationId!==postObservation.observationId||evidence.windowId!==postObservation.foreground.hwndFingerprint||evidence.windowProcessId!==postObservation.foreground.processId||evidence.expectedTextFingerprint!==action.textFingerprint||evidence.preTextFingerprint===evidence.postTextFingerprint)return invalid('ACTION_TEXT_READBACK_UNBOUND','Text readback does not bind the requested insertion and same window/process.');
+  }
   return { success: true, value: value as ActionVerificationV2 };
 }
 
@@ -1971,6 +2069,7 @@ function parseTaskEventPayload(type: TaskEventTypeV2, payload: unknown): ParseRe
       break;
     case 'task.tool_completed':
       if (!safeId(payload.toolId) || !safeId(payload.runId) || !['success', 'failure', 'cancelled'].includes(String(payload.outcome))) return invalid('INVALID_TASK_EVENT_PAYLOAD', 'Tool completion metadata is invalid.');
+      if (Object.prototype.hasOwnProperty.call(payload, 'observedMetrics') && !isTaskObservedMetricsV1(payload.observedMetrics)) return invalid('TASK_HUD_METRIC_INVALID', 'Observed metrics are invalid.');
       break;
     case 'task.verification_completed':
       if (!safeId(payload.verificationId) || !['PASS', 'FAIL', 'PARTIAL', 'RETRYABLE'].includes(String(payload.status))) return invalid('INVALID_TASK_EVENT_PAYLOAD', 'Verification payload is invalid.');
@@ -3075,7 +3174,7 @@ export const REALTIME_PAYLOAD_VALIDATORS: Record<RealtimeEventName, (value: unkn
   Object.values(REALTIME_EVENT_NAMES).map((event) => [event, (value: unknown) => validateNoSecretMaterial(value).success && parseRealtimePayload(event, value).success]),
 ) as Record<RealtimeEventName, (value: unknown) => boolean>;
 
-export function parseRealtimeEnvelopeV2_1(value: unknown): ParseResult<TypedRealtimeEnvelopeV2> {
+export function parseRealtimeEnvelopeV2_1(value: unknown,options:{desktopVerificationContext?:DesktopVerificationContextV2}={}): ParseResult<TypedRealtimeEnvelopeV2> {
   const unsafe = requireSafeRecord(value, 'REALTIME_ENVELOPE');
   if (unsafe) return unsafe as ParseResult<TypedRealtimeEnvelopeV2>;
   const compatible = parseRealtimeEnvelope(value);
@@ -3086,7 +3185,7 @@ export function parseRealtimeEnvelopeV2_1(value: unknown): ParseResult<TypedReal
   if (row.replayed) {
     if (!isRecord(row.replay) || !finiteInteger(row.replay.windowStartCursor) || !finiteInteger(row.replay.windowEndCursor) || row.replay.windowStartCursor > row.replay.windowEndCursor || row.cursor < row.replay.windowStartCursor || row.cursor > row.replay.windowEndCursor || typeof row.replay.truncated !== 'boolean') return invalid('INVALID_REPLAY_WINDOW', 'Replayed events require a valid replay window containing the cursor.');
   }
-  const payload = parseRealtimePayload(row.event as RealtimeEventName, row.payload);
+  const payload = row.event===REALTIME_EVENT_NAMES.DESKTOP_ACTION_VERIFICATION ? parseActionVerificationV2(row.payload,options.desktopVerificationContext) : parseRealtimePayload(row.event as RealtimeEventName, row.payload);
   if (!payload.success) return payload as ParseResult<TypedRealtimeEnvelopeV2>;
   return { success: true, value: value as TypedRealtimeEnvelopeV2 };
 }

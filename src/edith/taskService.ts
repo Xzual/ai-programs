@@ -1,4 +1,5 @@
-import { appendAuditEvent, createAuditEvent } from './audit';
+import {hudSafeId,hudPositiveInteger,hudUtc,isTaskObservedMetricsV1,withoutTaskObservedMetrics,type MetricRule,type TaskObservedMetricsV1} from './taskHudContracts';
+import { appendAuditEvent, createAuditEvent, readRecentAuditEvents } from './audit';
 import {
   createTask,
   type EdithAgentActivity,
@@ -16,6 +17,20 @@ import { killSwitchService } from './killSwitch';
 import { getEdithPersistenceStore } from './persistence';
 import type { ResultCardProductionOptions, SharedResultCardProducerService } from './sharedResultCardProducer';
 import type { SharedResultCardV2 } from './contracts';
+import {parseTaskEventV2,projectTaskEventsV2,type TypedTaskEventV2,type TaskEventTypeV2} from './contracts';
+import {randomUUID} from 'node:crypto';
+
+export const isNativeBoundTask=(task:EdithTask|undefined)=>!!task?.normalizedIntent?.startsWith('native-bound:');
+let nativeControl:((id:string,action:'cancel'|'pause',reason:string)=>EdithTask|undefined)|undefined;
+let nativePublisher:((event:TypedTaskEventV2)=>void)|undefined;
+export function registerNativeTaskHooks(control:typeof nativeControl,publisher:typeof nativePublisher){nativeControl=control;nativePublisher=publisher;}
+let genericPublisher: ((event: TypedTaskEventV2) => void) | undefined;
+/** Backend composition only. Native publication keeps its separate authority path. */
+export function registerGenericTaskPublisher(publisher: typeof genericPublisher): void { genericPublisher = publisher; }
+export function controlNativeTask(id:string,action:'cancel'|'pause',reason:string){
+  if(nativeControl)return nativeControl(id,action,reason);
+  return taskService.nativeTransition(id,action==='cancel'?'CANCELLED':'BLOCKED',action==='cancel'?'task.cancelled':'task.status_changed',action==='cancel'?{reasonCode:'NATIVE_AUTHORITY_UNAVAILABLE'}:undefined);
+}
 
 export interface CreateTaskInput {
   title: string;
@@ -28,7 +43,96 @@ export interface CreateTaskInput {
   validationRules?: string[];
 }
 
+/** Server composition only. Implementations read persisted producer receipts/evidence, never request DTOs.
+ * No production metric mappings are registered by default (including REA). */
+export interface TaskMetricSource {
+ readonly toolId:string;
+ readonly rules:readonly MetricRule[];
+ assertAuthority(taskId:string,runId:string,scope?:{stepId?:string;targetRefId?:string}):void;
+ readReceipt(taskId:string,runId:string):Readonly<{
+  taskId:string;runId:string;toolId:string;attempt:number;finishedAt:string;success:boolean;observedMetrics:unknown;
+ }> | undefined;
+ readEvidence(ref:string):Readonly<{taskId:string;runId:string;toolId:string;attempt:number;stepId?:string;targetRefId?:string}> | undefined;
+}
 export class TaskService {
+  private readonly metricSources:TaskMetricSource[];
+  constructor(metricSources:readonly TaskMetricSource[] = []) { this.metricSources=[...metricSources]; }
+  /** Backend singleton composition only; duplicate tool mappings are never ambiguous. */
+  registerMetricSource(source:TaskMetricSource):void {
+    const prior=this.metricSources.find(s=>s.toolId===source.toolId);
+    if(prior&&prior!==source)throw Error('TASK_METRIC_SOURCE_ALREADY_REGISTERED');
+    if(!prior)this.metricSources.push(source);
+  }
+  /** Input is a locator only. All facts come from an accepted persisted source, matched to the actual tool audit.
+   * Call before the executor's ordinary recordTimeline; it deduplicates this same audit run. */
+  recordToolObservation(taskId:string,runId:string):EdithTask {
+    if(!hudSafeId(taskId)||!hudSafeId(runId))throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    killSwitchService.assertAllowed('tool_execution','task-metric-receipt');
+    const task=this.getTask(taskId);
+    if(!task||isNativeBoundTask(task))throw new Error('TASK_HUD_BINDING_REQUIRED');
+    const audit=readRecentAuditEvents(100).find(a=>a.id===runId&&a.taskId===taskId&&a.action==='tool.execute'&&a.authorization==='allowed'&&['success','error'].includes(a.result));
+    if(!audit||!hudUtc(audit.timestamp))throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    const sources=this.metricSources.filter(s=>s.toolId===audit.toolId);
+    if(sources.length!==1)throw new Error('TASK_HUD_METRIC_UNSUPPORTED');
+    const source=sources[0]; source.assertAuthority(taskId,runId);
+    const receipt=source.readReceipt(taskId,runId);
+    if(!receipt||receipt.taskId!==taskId||receipt.runId!==runId||receipt.toolId!==audit.toolId||!hudPositiveInteger(receipt.attempt)
+      ||typeof receipt.success!=='boolean'||receipt.success!==(audit.result==='success')||!hudUtc(receipt.finishedAt)||Date.parse(receipt.finishedAt)>Date.parse(audit.timestamp))throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    const candidate=receipt.observedMetrics;
+    if(!isTaskObservedMetricsV1(candidate,source.rules))throw new Error('TASK_HUD_METRIC_INVALID');
+    const metrics=JSON.parse(JSON.stringify(candidate)) as typeof candidate;
+    if(metrics.attempt!==receipt.attempt||audit.result==='error'&&metrics.coverage!=='partial'||Date.parse(metrics.observedAt)>Date.now()
+      ||metrics.clock==='adapter_receipt'&&Date.parse(metrics.observedAt)<Date.parse(receipt.finishedAt)
+      ||metrics.scope.stepId&&!task.plan?.steps.some(s=>s.id===metrics.scope.stepId))throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    for(const ref of metrics.evidenceRefs){
+      const evidence=source.readEvidence(ref);
+      if(!evidence||evidence.taskId!==taskId||evidence.runId!==runId||evidence.toolId!==audit.toolId||evidence.attempt!==receipt.attempt
+       ||evidence.stepId!==metrics.scope.stepId||evidence.targetRefId!==metrics.scope.targetRefId)throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    }
+    source.assertAuthority(taskId,runId,metrics.scope);
+    const prior=projectTaskEventsV2(task).events.find(e=>e.type==='task.tool_completed'&&e.payload.runId===runId);
+    if(prior){
+      if(prior.type==='task.tool_completed'&&JSON.stringify(prior.payload.observedMetrics)===JSON.stringify(metrics))return task;
+      throw new Error('TASK_HUD_ADMISSION_CONFLICT');
+    }
+    // Source reads may revoke policy; check again immediately before persistence.
+    source.assertAuthority(taskId,runId,metrics.scope);killSwitchService.assertAllowed('tool_execution','task-metric-receipt');
+    const current=this.getTask(taskId);
+    if(!current||current.revision!==task.revision)throw new Error('TASK_HUD_STALE');
+    const next=this.withGenericEvents(current,current,'tool',{toolId:audit.toolId,auditEventId:runId},metrics);
+    const appended=next.timeline.at(-1) as unknown as TypedTaskEventV2|undefined;
+    if(next.timeline.length!==current.timeline.length+1||appended?.type!=='task.tool_completed'||appended.payload.runId!==runId||!appended.payload.observedMetrics)throw new Error('TASK_HUD_PROVENANCE_REQUIRED');
+    const stored=getEdithPersistenceStore().updateTask(next);
+    this.publishGeneric(stored,current.eventSequence??0);return stored;
+  }
+
+  /** Only trusted backend native binding uses this validated storage adapter.
+   * Canonical rows retain id=eventId for existing persistence mutation matching.
+   * The legacy core timeline type is crossed only after runtime schema validation. */
+  createNativeTask(bindingId:string,digest:string,title:string):EdithTask {
+    killSwitchService.assertAllowed('task_creation','native-task-binding');
+    const task=createTask({title,objective:title,originalUserRequest:title,toolsRequired:['native_app_workflow'],permissionsRequired:['computer:control'],riskLevel:2});
+    task.normalizedIntent='native-bound:'+bindingId+':'+digest;
+    task.timeline=[this.nativeRow(task,'task.created',{title,status:task.status},1,1)] as unknown as EdithTask['timeline'];
+    const stored=getEdithPersistenceStore().createTask(task);this.publishNative(stored);return stored;
+  }
+  nativeTransition(id:string,status:EdithTaskStatus,type:TaskEventTypeV2,payload?:Record<string,unknown>,verification?:EdithVerificationResult):EdithTask|undefined {
+    const task=this.getTask(id);if(!isNativeBoundTask(task))return undefined;
+    if(['COMPLETED','CANCELLED','FAILED'].includes(task!.status))return task;
+    const revision=(task!.revision??1)+1,sequence=(task!.eventSequence??0)+1;
+    const body=payload??{fromStatus:task!.status,toStatus:status};
+    const row=this.nativeRow(task!,type,body,sequence,revision,status);
+    const next={...task!,status,updatedAt:new Date().toISOString(),verification:verification??task!.verification,timeline:[...task!.timeline,row] as unknown as EdithTask['timeline'],queue:{state:(status==='COMPLETED'?'done':status==='RUNNING'||status==='VERIFYING'?'running':'interrupted') as NonNullable<EdithTask['queue']>['state']}};
+    const stored=getEdithPersistenceStore().updateTask(next);this.publishNative(stored,sequence);return stored;
+  }
+  private nativeRow(task:EdithTask,type:TaskEventTypeV2,payload:Record<string,unknown>,sequence:number,revision:number,status=task.status){
+    const eventId=randomUUID(),row={contractVersion:2,taskId:task.id,eventId,id:eventId,sequence,revision,type,occurredAt:new Date().toISOString(),payload,context:{correlationId:task.id,idempotencyKey:task.id+'-'+sequence,...(type==='task.status_changed'?{fromStatus:task.status,toStatus:status}:{})}};
+    const parsed=parseTaskEventV2(row);if(!parsed.success)throw new Error('NATIVE_TASK_EVENT_INVALID');return parsed.value;
+  }
+  private publishNative(task:EdithTask,from=1){
+    const projection=projectTaskEventsV2(task);if(projection.diagnostics.quarantinedEventCount)throw new Error('NATIVE_TASK_EVENT_INVALID');
+    for(const event of projection.events)if(event.sequence>=from)nativePublisher?.(event);
+  }
   listTasks(): EdithTask[] {
     return getEdithPersistenceStore().listTasks();
   }
@@ -44,26 +148,19 @@ export class TaskService {
       ...task,
       normalizedIntent: input.normalizedIntent,
       validationRules: input.validationRules ?? task.validationRules,
-      timeline: [
-        ...this.existingTimeline(task),
-        this.createTimelineEvent(task.id, {
-          type: 'status',
-          actor: 'edith-task-service',
-          message: `Task created and queued: ${task.title}`,
-          status: 'QUEUED',
-          riskLevel: task.riskLevel,
-        }),
-      ],
+      timeline: [this.genericRow(task, 'task.created', { status: task.status }, 1, 1)] as unknown as EdithTask['timeline'],
       agentActivity: this.existingAgentActivity(task),
     };
     const stored = getEdithPersistenceStore().createTask(enriched);
+    this.publishGeneric(stored, 0);
     return this.auditTaskMutation(stored, 'task.create', `Task created: ${stored.title}`);
   }
 
   updateStatus(id: string, status: EdithTaskStatus, result?: string): EdithTask | undefined {
     const existing = this.getTask(id);
+    if(isNativeBoundTask(existing))throw new Error('NATIVE_TASK_AUTHORITY_REQUIRED');
     const task = existing
-      ? getEdithPersistenceStore().updateTask(this.withTimeline({
+      ? this.persistGeneric(existing, {
           ...existing,
           status,
           updatedAt: new Date().toISOString(),
@@ -72,7 +169,7 @@ export class TaskService {
             ...existing.observations,
             `Status changed to ${status} at ${new Date().toISOString()}`,
           ],
-        }, 'status', 'edith-task-service', `Task status changed to ${status}`, { status, riskLevel: existing.riskLevel }))
+        })
       : undefined;
     return task ? this.auditTaskMutation(task, 'task.status', `Task status changed to ${status}`) : undefined;
   }
@@ -278,17 +375,82 @@ export class TaskService {
   ): EdithTask | undefined {
     const task = this.getTask(id);
     if (!task) return undefined;
+    if(isNativeBoundTask(task))throw new Error('NATIVE_TASK_AUTHORITY_REQUIRED');
     const mutated = mutator(this.normalizeTask(task));
     const updated = getEdithPersistenceStore().updateTask(
-      this.withTimeline(
-        mutated,
-        timelineType ?? this.timelineTypeForAction(action),
-        timelineActor ?? 'edith-task-service',
-        timelineMessage ?? auditMessage,
-        timelineMetadata
-      )
+      this.withGenericEvents(task, mutated, timelineType, timelineMetadata)
     );
+    this.publishGeneric(updated, task.eventSequence ?? 0);
     return this.auditTaskMutation(updated, action, auditMessage);
+  }
+
+  /** Queue mutations share the real writer, without granting native authority. */
+  updateGenericTask(id: string, action: string, mutator: (task: EdithTask) => EdithTask): EdithTask | undefined {
+    const task = this.getTask(id);
+    if (!task) return undefined;
+    if (isNativeBoundTask(task)) throw new Error('NATIVE_TASK_AUTHORITY_REQUIRED');
+    // Queue retains its existing audit owner; this adapter only stores/publishes its real transition.
+    return this.persistGeneric(task, mutator(this.normalizeTask(task)));
+  }
+
+  private genericRow(task: EdithTask, type: TaskEventTypeV2, payload: Record<string, unknown>, sequence: number, revision: number) {
+    const eventId = randomUUID();
+    const row = { contractVersion: 2, taskId: task.id, eventId, id: eventId, sequence, revision, type,
+      occurredAt: new Date().toISOString(), payload,
+      context: { correlationId: task.id, idempotencyKey: `${task.id}-${sequence}`,
+        ...(type === 'task.status_changed' ? { fromStatus: payload.fromStatus, toStatus: payload.toStatus } : {}) } };
+    const parsed = parseTaskEventV2(row);
+    if (!parsed.success) throw new Error('GENERIC_TASK_EVENT_INVALID');
+    return parsed.value;
+  }
+
+  private withGenericEvents(previous: EdithTask, next: EdithTask, type?: EdithTaskTimelineEventType, metadata?: Partial<EdithTaskTimelineEvent>, observedMetrics?:TaskObservedMetricsV1): EdithTask {
+    const rows: TypedTaskEventV2[] = [];
+    const add = (eventType: TaskEventTypeV2, payload: Record<string, unknown>) => rows.push(this.genericRow(previous, eventType, payload,
+      (previous.eventSequence ?? 0) + rows.length + 1, (previous.revision ?? 1) + 1));
+    if (previous.status !== next.status) {
+      add('task.status_changed', { fromStatus: previous.status, toStatus: next.status });
+      if (next.status === 'CANCELLED') add('task.cancelled', {});
+    }
+    for (const step of next.plan?.steps ?? []) {
+      const prior = previous.plan?.steps.find(candidate => candidate.id === step.id);
+      if (!prior || prior.status !== step.status) add('task.step_updated', { stepId: step.id, status: step.status });
+    }
+    if (next.verification && next.verification !== previous.verification) {
+      add('task.verification_completed', { verificationId: next.verification.id, status: next.verification.status });
+      const required = next.verification.checks.filter(check => check.required);
+      if (next.status === 'COMPLETED' && next.verification.status === 'PASS' && required.length && required.every(check => check.status === 'PASS')) {
+        add('task.completed', {});
+      }
+    }
+    for (const recovery of next.recoveryEvents ?? []) {
+      if (!previous.recoveryEvents?.some(prior => prior.id === recovery.id)) add('task.recovery_started', {
+        recoveryId: recovery.id, attempt: recovery.attempt, classification: recovery.classification,
+      });
+    }
+    // The executor supplies an actual completed tool audit reference. Never infer outcome from display text.
+    if (type === 'tool' && metadata?.toolId && metadata.auditEventId) {
+      const audit = readRecentAuditEvents(100).find(event => event.id === metadata.auditEventId && event.taskId === previous.id
+        && event.toolId === metadata.toolId && event.action === 'tool.execute');
+      const alreadyRecorded = projectTaskEventsV2(previous).events.some(event => event.type === 'task.tool_completed' && event.payload.runId === metadata.auditEventId);
+      if (audit && !alreadyRecorded && ['success', 'error', 'denied'].includes(audit.result)) add('task.tool_completed', {
+        toolId: audit.toolId, runId: audit.id, outcome: audit.result === 'success' ? 'success' : 'failure',
+        ...(observedMetrics?{observedMetrics}:{}),
+      });
+    }
+    return { ...next, updatedAt: new Date().toISOString(),
+      // Preserve all old rows exactly; never migrate a historical legacy row into a canonical event.
+      timeline: [...this.existingTimeline(previous), ...rows] as unknown as EdithTask['timeline'] };
+  }
+
+  private persistGeneric(previous: EdithTask, next: EdithTask): EdithTask {
+    const stored = getEdithPersistenceStore().updateTask(this.withGenericEvents(previous, next));
+    this.publishGeneric(stored, previous.eventSequence ?? 0);
+    return stored;
+  }
+
+  private publishGeneric(task: EdithTask, afterSequence: number): void {
+    for (const event of projectTaskEventsV2(task).events) if (event.sequence > afterSequence) genericPublisher?.(withoutTaskObservedMetrics(event));
   }
 
   private auditTaskMutation(task: EdithTask, action: string, message: string): EdithTask {
@@ -305,10 +467,10 @@ export class TaskService {
     appendAuditEvent(event);
     const current = this.getTask(task.id);
     if (!current) return task;
-    return getEdithPersistenceStore().updateTask(this.withTimeline({
+    return getEdithPersistenceStore().updateTask({
       ...this.normalizeTask(current),
       auditEvents: Array.from(new Set([...current.auditEvents, event.id])),
-    }, 'audit', 'edith-task-service', message, { auditEventId: event.id, riskLevel: task.riskLevel }));
+    });
   }
 
   private normalizeTask(task: EdithTask): EdithTask {
@@ -325,58 +487,6 @@ export class TaskService {
 
   private existingAgentActivity(task: Partial<EdithTask>): EdithAgentActivity[] {
     return Array.isArray(task.agentActivity) ? task.agentActivity : [];
-  }
-
-  private timelineTypeForAction(action: string): EdithTaskTimelineEventType {
-    if (action.includes('plan')) return 'plan';
-    if (action.includes('verify')) return 'verification';
-    if (action.includes('recover')) return 'recovery';
-    if (action.includes('checkpoint')) return 'checkpoint';
-    if (action.includes('artifact')) return 'artifact';
-    if (action.includes('observation')) return 'observation';
-    if (action.includes('permission')) return 'permission';
-    if (action.includes('agent')) return 'agent';
-    return 'status';
-  }
-
-  private createTimelineEvent(
-    taskId: string,
-    input: Omit<EdithTaskTimelineEvent, 'id' | 'taskId' | 'createdAt'>
-  ): EdithTaskTimelineEvent {
-    return {
-      ...input,
-      id: `timeline-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      taskId,
-      createdAt: new Date().toISOString(),
-    };
-  }
-
-  private withTimeline(
-    task: EdithTask,
-    type: EdithTaskTimelineEventType,
-    actor: string,
-    message: string,
-    metadata: Partial<EdithTaskTimelineEvent> = {}
-  ): EdithTask {
-    return {
-      ...task,
-      updatedAt: new Date().toISOString(),
-      timeline: [
-        ...this.existingTimeline(task),
-        this.createTimelineEvent(task.id, {
-          type,
-          actor,
-          message,
-          status: metadata.status ?? task.status,
-          toolId: metadata.toolId,
-          agentId: metadata.agentId,
-          riskLevel: metadata.riskLevel ?? task.riskLevel,
-          auditEventId: metadata.auditEventId,
-          metadata: metadata.metadata,
-        }),
-      ],
-      agentActivity: this.existingAgentActivity(task),
-    };
   }
 
   private mergeAgentActivity(
